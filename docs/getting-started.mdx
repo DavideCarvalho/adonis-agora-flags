@@ -93,7 +93,7 @@ node ace flags:set new_player on    # everyone
 node ace flags:set new_player kill  # kill switch: off for everyone, whatever the targeting says
 ```
 
-Or open the [console](./console). Every process picks the change up within seconds (immediately on Postgres, through `LISTEN/NOTIFY`).
+Or open the [console](/docs/console). Every process picks the change up within seconds (immediately on Postgres, through `LISTEN/NOTIFY`).
 
 <Callout type="info">
   Until a flag is configured, it serves the `default` you declared. The same happens if the database is unreachable at boot: nothing throws, the code default is served.
