@@ -309,3 +309,86 @@ describe('environments do not mix experiment data', () => {
     await testDb.close();
   });
 });
+
+describe('flags created in the console', () => {
+  it('creates, evaluates with its stored default, keeps the declaration on edits, and types it', async () => {
+    const testDb = await sqliteDb();
+    const runtime = await createRuntime(
+      defineConfig({ flags: { code_flag: flag.boolean({ default: false }) } }),
+      lucidContext(testDb.database as never),
+      { logger: quietLogger },
+    );
+    const admin = { id: 'alice' };
+    await runtime.admin!.createFlag(
+      'promo_banner',
+      {
+        type: 'string',
+        default: 'off',
+        variants: ['off', 'blue', 'red'],
+        owner: 'growth',
+        client: true,
+      },
+      admin,
+    );
+    await runtime.manager.refresh();
+    const flags = runtime.manager.for('u1');
+    expect(await flags.value('promo_banner')).toBe('off');
+    expect(await flags.all()).toEqual({ promo_banner: 'off' });
+
+    // Editing targeting through saveFlag (no declaration in the payload) keeps it.
+    const definition = await runtime.admin!.definition('promo_banner');
+    const { declaration: _d, ...targeting } = definition;
+    await runtime.admin!.saveFlag(
+      'promo_banner',
+      { ...targeting, fallthrough: { variant: 'blue' } },
+      admin,
+    );
+    await runtime.manager.refresh();
+    expect(await runtime.manager.for('u2').value('promo_banner')).toBe('blue');
+    expect(runtime.manager.ruleset().flags.promo_banner?.declaration?.owner).toBe('growth');
+
+    // The declaration constrains edits: a variant outside the list is refused.
+    await expect(
+      runtime.admin!.saveFlag(
+        'promo_banner',
+        {
+          ...targeting,
+          variants: { off: 'off', green: 'green' },
+          fallthrough: { variant: 'green' },
+        },
+        admin,
+      ),
+    ).rejects.toThrow(/not one of the declared variants/);
+
+    // Metadata edits; type changes are refused.
+    await runtime.admin!.updateDeclaration(
+      'promo_banner',
+      { description: 'Homepage promo', expiresAt: '2027-01-01' },
+      admin,
+    );
+    await expect(
+      runtime.admin!.updateDeclaration('promo_banner', { type: 'number' }, admin),
+    ).rejects.toThrow(/cannot change/);
+
+    // Code flags cannot be recreated or redeclared from the console; bad keys are refused.
+    await expect(
+      runtime.admin!.createFlag('code_flag', { type: 'boolean', default: true }, admin),
+    ).rejects.toThrow(/declared in code/);
+    await expect(
+      runtime.admin!.createFlag('promo_banner', { type: 'boolean', default: true }, admin),
+    ).rejects.toThrow(/already exists/);
+    await expect(
+      runtime.admin!.createFlag('bad key!', { type: 'boolean', default: true }, admin),
+    ).rejects.toMatchObject({ code: 'E_FLAGS_INVALID' });
+    await expect(
+      runtime.admin!.createFlag('n', { type: 'number', default: 'x' as never }, admin),
+    ).rejects.toThrow(/must be a number/);
+
+    // Not reported as undeclared.
+    const stale = await runtime.admin!.stale();
+    expect(stale.find((s) => s.key === 'promo_banner')?.reasons ?? []).not.toContain('undeclared');
+
+    await runtime.close();
+    await testDb.close();
+  });
+});

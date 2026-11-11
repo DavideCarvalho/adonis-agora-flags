@@ -1,53 +1,67 @@
 ---
-title: Declaring Flags
-description: Boolean, multivariate, numeric and JSON flags, with owners and expiry dates.
+title: Creating Flags
+description: Create flags in the console, or declare them in code — and keep them typed either way.
 icon: FileCode
 ---
 
-Every flag is declared in `config/flags.ts`. The declaration is the source of truth for the key, the type and the value served when the ruleset has no answer.
+import { Callout } from 'fumadocs-ui/components/callout';
+
+A flag has a **declaration** — key, type, default, owner — and **targeting** — who gets what. Targeting always lives in the database and is edited in the [console](/docs/console). The declaration can live in either place.
+
+## In the console (the usual way)
+
+Open the console, click **New flag**, and fill in:
+
+| Field | What it is for |
+|---|---|
+| Key | What code reads: `ctx.flags.enabled('holiday_banner')` |
+| Type | `boolean`, `string` (with named variants), `number` or `json` |
+| Default | Served whenever nothing else answers, and to everyone until you add targeting |
+| Variants | For string flags: the allowed values |
+| Description, owner, tags | Shown and filterable in the console |
+| Expires | After this date the flag is listed as stale |
+| Send to the browser | Allows the value to reach the frontend (`ctx.flags.all()`, `useFlag`) |
+
+The flag exists for every process the moment it is saved: the declaration travels with the ruleset, so the default is served without a deploy — on standalone apps and on [tenants of a central server](/docs/central-server) alike. Description, owner, expiry, tags and browser exposure stay editable in the flag's **Details** panel; the type is fixed once created.
+
+### Typing console flags
+
+Code can read any key, but to get autocomplete and type checking for console flags, generate their types:
+
+```sh
+node ace flags:types   # writes types/flags.d.ts
+```
+
+Commit the file and rerun the command after creating flags. The generated file also turns on **strict keys**: from then on, a key that is neither declared in code nor generated is a compile error (`--no-strict` keeps accepting any string).
+
+## In code
+
+Declare flags in `config/flags.ts` when a flag must exist before anyone opens the console, or when you want its type next to the code that reads it:
 
 ```ts title="config/flags.ts"
-import { defineConfig, flag } from '@adonis-agora/flags'
+import { defineConfig, flag, type InferFlags } from '@adonis-agora/flags'
 
-export default defineConfig({
+const flagsConfig = defineConfig({
   flags: {
-    // on/off
-    new_player: flag.boolean({ default: false }),
-
-    // multivariate: the type narrows to 'control' | 'one_page'
+    new_player: flag.boolean({ default: false, owner: 'video-team', expiresAt: '2027-03-31' }),
     checkout: flag.string({ default: 'control', variants: ['control', 'one_page'] }),
-
-    // a number (limits, thresholds)
     max_uploads: flag.number({ default: 10 }),
-
-    // a JSON payload (configuration)
-    pricing_banner: flag.json({ default: { text: '', color: 'blue' } }),
+    pricing_banner: flag.json({ default: { text: '', color: 'blue' }, client: true }),
   },
 })
+export default flagsConfig
+
+declare module '@adonis-agora/flags/types' {
+  interface FlagsList extends InferFlags<typeof flagsConfig> {}
+}
 ```
 
-## Metadata
+Every builder accepts `description`, `owner`, `expiresAt`, `tags` and `client`.
 
-Every builder accepts:
+<Callout type="info">
+  When a key is declared in both places, code wins: the console shows it as declared in code and edits only its targeting.
+</Callout>
 
-| Option | What it is for |
-|---|---|
-| `description` | Shown in the console and `flags:list` |
-| `owner` | Who to ask: a person, team or channel |
-| `expiresAt` | ISO date after which `flags:stale` and the console list the flag for removal |
-| `tags` | Free-form labels to filter by |
-| `client` | Allows the value to reach the browser through `ctx.flags.all()` and `useFlag()`. Off by default |
+## Types are enforced on edits
 
-```ts
-new_player: flag.boolean({
-  default: false,
-  description: 'The rewritten video player',
-  owner: '#video-team',
-  expiresAt: '2027-03-31',
-  client: true,
-}),
-```
-
-## Types are enforced on edits too
-
-The console and the commands refuse a change that contradicts the declaration — a string variant on a boolean flag, or a variant name that is not in `variants` — with the path of the offending field.
+Whichever way a flag was declared, the console and the commands refuse targeting that contradicts it — a string variant on a boolean flag, or a variant name outside the declared list — with the path of the offending field.

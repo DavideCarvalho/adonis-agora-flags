@@ -42,25 +42,9 @@ node ace configure @adonis-agora/flags
 
 The tables are created at boot. If you prefer migrations to own the schema, keep the published migration and set `autoCreateSchema: false`.
 
-## Declare a flag
+## Create a flag
 
-```ts title="config/flags.ts"
-import { defineConfig, flag, type InferFlags } from '@adonis-agora/flags'
-
-const flagsConfig = defineConfig({
-  flags: {
-    new_player: flag.boolean({ default: false, owner: 'video-team' }),
-  },
-})
-
-export default flagsConfig
-
-declare module '@adonis-agora/flags/types' {
-  interface FlagsList extends InferFlags<typeof flagsConfig> {}
-}
-```
-
-The `declare module` block types every flag read: `ctx.flags.enabled('new_plyer')` does not compile.
+Open the console at `/flags`, click **New flag**, and give it a key, a type and a default — say `new_player`, boolean, `false`. It exists for every process as soon as it is saved. [Creating flags](/docs/declaring-flags) covers the fields, typing console flags with `node ace flags:types`, and declaring flags in `config/flags.ts` instead.
 
 ## Read it
 
@@ -87,13 +71,15 @@ if (await flags.for(user).enabled('new_player')) {
 
 ## Turn it on
 
+In the console, open the flag and set a rollout, a rule, or serve `on` to everyone. From a terminal:
+
 ```sh
 node ace flags:set new_player 10%   # 10% of users
 node ace flags:set new_player on    # everyone
 node ace flags:set new_player kill  # kill switch: off for everyone, whatever the targeting says
 ```
 
-Or open the [console](/docs/console). Every process picks the change up within seconds (immediately on Postgres, through `LISTEN/NOTIFY`).
+Every process picks the change up within seconds (immediately on Postgres, through `LISTEN/NOTIFY`).
 
 <Callout type="info">
   Until a flag is configured, it serves the `default` you declared. The same happens if the database is unreachable at boot: nothing throws, the code default is served.

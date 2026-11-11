@@ -22,7 +22,9 @@ export {
   type ConditionValue,
   type ExperimentSettings,
   emptyRuleset,
+  type FlagDeclarationData,
   type FlagDefinition,
+  type FlagValueType,
   type Holdout,
   type JsonValue,
   type Layer,
@@ -35,6 +37,7 @@ export {
   type SegmentCondition,
   type Serve,
   type TargetingRule,
+  valueTypeOf,
   type WeightedVariant,
 } from './ruleset.js';
 export {

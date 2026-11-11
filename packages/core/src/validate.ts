@@ -3,10 +3,12 @@ import { unsafeRegexReason } from './regex_safety.js';
 import {
   type AttributeCondition,
   type Condition,
+  type FlagDeclarationData,
   OPERATORS,
   RULESET_SCHEMA_VERSION,
   type Ruleset,
   type Serve,
+  valueTypeOf,
 } from './ruleset.js';
 
 /** One problem found in a ruleset. `path` points at it, e.g. `flags.checkout.rules[0].serve`. */
@@ -116,6 +118,10 @@ export function validateRuleset(ruleset: Ruleset): RulesetIssue[] {
     }
   }
 
+  for (const [key, flag] of Object.entries(ruleset.flags)) {
+    if (flag.declaration) checkDeclaration(flag.declaration, flag.variants, `flags.${key}`, add);
+  }
+
   for (const cycle of prerequisiteCycles(ruleset)) {
     add(`flags.${cycle[0]}.prerequisites`, `prerequisite cycle: ${cycle.join(' → ')}`);
   }
@@ -192,4 +198,47 @@ function prerequisiteCycles(ruleset: Ruleset): string[][] {
   };
   for (const key of Object.keys(ruleset.flags)) visit(key, []);
   return [...cycles.values()];
+}
+
+const VALUE_TYPES = new Set(['boolean', 'string', 'number', 'json']);
+
+/** A declaration must be self-consistent and agree with the flag's variants. */
+function checkDeclaration(
+  declaration: FlagDeclarationData,
+  variants: Record<string, unknown>,
+  base: string,
+  add: Add,
+) {
+  const path = `${base}.declaration`;
+  if (!VALUE_TYPES.has(declaration.type)) {
+    add(`${path}.type`, 'must be boolean, string, number or json');
+    return;
+  }
+  if (
+    declaration.type !== 'json' &&
+    valueTypeOf(declaration.default as never) !== declaration.type
+  ) {
+    add(`${path}.default`, `must be a ${declaration.type}`);
+  }
+  if (declaration.variants) {
+    if (declaration.type !== 'string')
+      add(`${path}.variants`, 'only string flags have named variants');
+    else if (!declaration.variants.includes(String(declaration.default))) {
+      add(`${path}.default`, 'must be one of the declared variants');
+    }
+  }
+  if (declaration.expiresAt !== undefined && Number.isNaN(Date.parse(declaration.expiresAt))) {
+    add(`${path}.expiresAt`, 'must be an ISO date');
+  }
+  if (declaration.type === 'json') return;
+  for (const [name, value] of Object.entries(variants)) {
+    if (valueTypeOf(value as never) !== declaration.type) {
+      add(
+        `${base}.variants.${name}`,
+        `is ${valueTypeOf(value as never)}, the flag is declared ${declaration.type}`,
+      );
+    } else if (declaration.variants && !declaration.variants.includes(String(value))) {
+      add(`${base}.variants.${name}`, `"${String(value)}" is not one of the declared variants`);
+    }
+  }
 }

@@ -88,4 +88,38 @@ describe('console over HTTP', () => {
     await runtime.manager.refresh();
     expect(await runtime.manager.for('u1').enabled('new_player')).toBe(true);
   });
+
+  it('creates a flag without code and serves its default right away', async () => {
+    const created = await fetch(`${base}/flags/api/flags`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        key: 'promo_banner',
+        declaration: { type: 'string', default: 'off', variants: ['off', 'blue'], client: true },
+      }),
+    });
+    expect(created.status).toBe(201);
+    const list = (await (await fetch(`${base}/flags/api/flags`)).json()) as {
+      flags: Array<{ key: string; declaration: { source: string } | null }>;
+    };
+    expect(list.flags.find((f) => f.key === 'promo_banner')?.declaration?.source).toBe('console');
+    const runtime = (await app.container.make('flags.runtime')) as {
+      manager: { refresh(): Promise<boolean>; for(id: string): { all(): Promise<unknown> } };
+    };
+    await runtime.manager.refresh();
+    expect(await runtime.manager.for('u1').all()).toEqual({ promo_banner: 'off' });
+
+    const details = await fetch(`${base}/flags/api/flags/promo_banner/declaration`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ declaration: { owner: 'growth' } }),
+    });
+    expect(details.status).toBe(200);
+    const bad = await fetch(`${base}/flags/api/flags`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key: 'x', declaration: { type: 'number', default: 'nope' } }),
+    });
+    expect(bad.status).toBe(422);
+  });
 });

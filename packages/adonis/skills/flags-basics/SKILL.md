@@ -55,6 +55,11 @@ declare module '@adonis-agora/flags/types' {
 }
 ```
 
+Flags are usually created in the console (`/flags` → New flag: key, type, default, variants,
+owner); their declaration travels with the ruleset. `node ace flags:types` writes
+`types/flags.d.ts` so console flags are typed (and turns on strict keys). Declaring in
+`config/flags.ts`, as above, is the alternative; code wins when both exist.
+
 ## Core patterns
 
 ### Pattern 1 — read a flag in a controller

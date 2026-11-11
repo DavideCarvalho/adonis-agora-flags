@@ -109,7 +109,12 @@ export interface Declaration {
   variants?: string[];
   /** The apps that declare this key in code. */
   apps: string[];
+  /** `code`: declared in an app's config (read-only here). `console`: created here, editable. */
+  source: 'code' | 'console';
 }
+
+/** What the console sends to create or describe a flag (no `apps`/`source`: the server knows). */
+export type DeclarationInput = Omit<Declaration, 'apps' | 'source'>;
 
 export type Serving =
   | { kind: 'default'; value: JsonValue | null }
@@ -477,6 +482,15 @@ export const api = {
     ),
   flag: (environment: string, key: string) =>
     http<FlagDetail>(`/flags/${seg(key)}${buildQuery({ environment })}`),
+  createFlag: (environment: string, key: string, declaration: DeclarationInput, note?: string) =>
+    send<WriteResult>('POST', '/flags', { environment, key, declaration, note }),
+  updateDeclaration: (
+    environment: string,
+    key: string,
+    declaration: Partial<DeclarationInput>,
+    note?: string,
+  ) =>
+    send<WriteResult>('PUT', `/flags/${seg(key)}/declaration`, { environment, declaration, note }),
   saveFlag: (environment: string, key: string, definition: FlagDefinition, note?: string) =>
     send<WriteResult>('PUT', `/flags/${seg(key)}`, { environment, definition, note }),
   deleteFlag: (environment: string, key: string, note?: string) =>

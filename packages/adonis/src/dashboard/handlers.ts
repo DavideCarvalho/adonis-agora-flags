@@ -209,21 +209,29 @@ function proposed(result: ProposeResult): ApiResponse {
 /** A declaration as the console shows it: what the code says, and which apps say it. */
 export interface DeclaredFlag extends FlagDeclaration {
   apps: string[];
+  /** `code`: declared in an app's config (read-only here). `console`: created and edited here. */
+  source: 'code' | 'console';
 }
 
 /** This app's declarations plus every app's pushed ones (a control-plane hears from tenants). */
-async function declarationsOf(o: Owned): Promise<Map<string, DeclaredFlag>> {
+async function declarationsOf(o: Owned, ruleset: Ruleset): Promise<Map<string, DeclaredFlag>> {
   const out = new Map<string, DeclaredFlag>();
   const app = o.runtime.manager.app;
   for (const [key, declaration] of Object.entries(o.admin.declarations)) {
-    out.set(key, { ...declaration, apps: [app] });
+    out.set(key, { ...declaration, apps: [app], source: 'code' });
   }
   for (const row of await o.store.declarations()) {
     const existing = out.get(row.key);
     if (existing) {
       if (!existing.apps.includes(row.app)) existing.apps.push(row.app);
     } else {
-      out.set(row.key, { ...row.declaration, apps: [row.app] });
+      out.set(row.key, { ...row.declaration, apps: [row.app], source: 'code' });
+    }
+  }
+  // Flags created in the console: their declaration travels in the ruleset. Code wins.
+  for (const [key, definition] of Object.entries(ruleset.flags)) {
+    if (definition.declaration && !out.has(key)) {
+      out.set(key, { ...definition.declaration, apps: [], source: 'console' });
     }
   }
   return out;
@@ -310,11 +318,11 @@ export function meta(deps: Deps, _req: ApiRequest): Promise<ApiResponse> {
 export function listFlags(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) => {
     const environment = environmentOf(req, o.runtime);
-    const [ruleset, declared, stale] = await Promise.all([
+    const [ruleset, stale] = await Promise.all([
       o.store.readRuleset(environment),
-      declarationsOf(o),
       o.admin.stale({ environment, ...(deps.now ? { now: deps.now() } : {}) }),
     ]);
+    const declared = await declarationsOf(o, ruleset);
     const staleByKey = new Map(stale.map((s) => [s.key, s.reasons]));
     const keys = [...new Set([...Object.keys(ruleset.flags), ...declared.keys()])].sort();
     const flags = keys.map((key) => {
@@ -345,10 +353,8 @@ export function flagDetail(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) => {
     const environment = environmentOf(req, o.runtime);
     const key = keyParam(req);
-    const [ruleset, declared] = await Promise.all([
-      o.store.readRuleset(environment),
-      declarationsOf(o),
-    ]);
+    const ruleset = await o.store.readRuleset(environment);
+    const declared = await declarationsOf(o, ruleset);
     const stored = ruleset.flags[key];
     const declaration = declared.get(key);
     if (!stored && !declaration) {
@@ -394,6 +400,79 @@ export function saveFlag(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
       await o.admin.saveFlag(
         key,
         definition as FlagDefinition,
+        deps.actor,
+        writeOptions(environment, noteOf(req)),
+      ),
+    );
+  });
+}
+
+const DECLARATION_TYPES = new Set(['boolean', 'string', 'number', 'json']);
+
+/** Shape-checks a declaration from the console; deeper rules are the ruleset validator's. */
+function declarationIssues(value: unknown, partial: boolean): RulesetIssue[] {
+  const issues: RulesetIssue[] = [];
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return [{ path: 'declaration', message: 'must be an object' }];
+  }
+  const d = value as Record<string, unknown>;
+  if (!partial || d.type !== undefined) {
+    if (!DECLARATION_TYPES.has(String(d.type))) {
+      issues.push({ path: 'declaration.type', message: 'must be boolean, string, number or json' });
+    }
+  }
+  if (!partial && !('default' in d))
+    issues.push({ path: 'declaration.default', message: 'is required' });
+  for (const field of ['description', 'owner', 'expiresAt'] as const) {
+    if (d[field] !== undefined && typeof d[field] !== 'string') {
+      issues.push({ path: `declaration.${field}`, message: 'must be a string' });
+    }
+  }
+  for (const field of ['variants', 'tags'] as const) {
+    if (
+      d[field] !== undefined &&
+      (!Array.isArray(d[field]) || !(d[field] as unknown[]).every((v) => typeof v === 'string'))
+    ) {
+      issues.push({ path: `declaration.${field}`, message: 'must be a list of strings' });
+    }
+  }
+  if (d.client !== undefined && typeof d.client !== 'boolean') {
+    issues.push({ path: 'declaration.client', message: 'must be true or false' });
+  }
+  return issues;
+}
+
+/** `POST /api/flags` `{ key, declaration, note? }` — create a flag here, without code. */
+export function createFlag(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
+  return handle(deps, async (o) => {
+    const environment = environmentOf(req, o.runtime);
+    const body = bodyOf(req);
+    if (typeof body.key !== 'string') throw invalid([{ path: 'key', message: 'is required' }]);
+    const issues = declarationIssues(body.declaration, false);
+    if (issues.length > 0) throw invalid(issues);
+    const result = await o.admin.createFlag(
+      body.key,
+      body.declaration as FlagDeclaration,
+      deps.actor,
+      writeOptions(environment, noteOf(req)),
+    );
+    const response = proposed(result);
+    return result.status === 'applied' ? { ...response, status: 201 } : response;
+  });
+}
+
+/** `PUT /api/flags/:key/declaration` `{ declaration, note? }` — edit a console flag's declaration. */
+export function updateDeclaration(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
+  return handle(deps, async (o) => {
+    const environment = environmentOf(req, o.runtime);
+    const key = keyParam(req);
+    const patch = bodyOf(req).declaration;
+    const issues = declarationIssues(patch, true);
+    if (issues.length > 0) throw invalid(issues);
+    return proposed(
+      await o.admin.updateDeclaration(
+        key,
+        patch as Partial<FlagDeclaration>,
         deps.actor,
         writeOptions(environment, noteOf(req)),
       ),
@@ -566,7 +645,7 @@ export function evaluateContext(deps: Deps, req: ApiRequest): Promise<ApiRespons
     const body = bodyOf(req);
     const context = contextOf(body.context);
     let ruleset: Ruleset = await o.store.readRuleset(environment);
-    const declared = await declarationsOf(o);
+    const declared = await declarationsOf(o, ruleset);
     const flag = body.flag;
     if (flag !== undefined && (typeof flag !== 'string' || flag === '')) {
       throw new HttpError(400, 'flag must be a flag key');

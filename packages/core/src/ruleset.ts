@@ -118,6 +118,40 @@ export interface FlagDefinition {
   experiment?: ExperimentSettings;
   /** Free-form labels (owner, ticket, …) the console shows and filters by. Not evaluated. */
   tags?: string[];
+  /**
+   * What the flag is, for flags created in the console rather than declared in code: its type,
+   * the value served when evaluation cannot answer, and descriptive metadata. Travels with the
+   * ruleset, so every process (and every tenant) knows the default without a deploy. A declaration
+   * in code takes precedence over this one.
+   */
+  declaration?: FlagDeclarationData;
+}
+
+/** Value types a flag can declare. */
+export type FlagValueType = 'boolean' | 'string' | 'number' | 'json';
+
+/** A flag's declaration as data (see {@link FlagDefinition.declaration}). */
+export interface FlagDeclarationData {
+  type: FlagValueType;
+  /** Served whenever the ruleset cannot answer (error, kill switch with no off variant, …). */
+  default: JsonValue;
+  /** Allowed variant names for string flags. */
+  variants?: string[];
+  description?: string;
+  owner?: string;
+  /** ISO date after which the flag is reported as stale. */
+  expiresAt?: string;
+  tags?: string[];
+  /** Allowed to reach the browser (`ctx.flags.all()`). */
+  client?: boolean;
+}
+
+/** The JSON type name of a value, as a declaration's `type` would name it. */
+export function valueTypeOf(value: JsonValue): FlagValueType {
+  if (typeof value === 'boolean') return 'boolean';
+  if (typeof value === 'string') return 'string';
+  if (typeof value === 'number') return 'number';
+  return 'json';
 }
 
 export interface ExperimentSettings {

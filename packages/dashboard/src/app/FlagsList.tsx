@@ -2,10 +2,11 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { api, type FlagRow } from '../client/flags-client';
 import { Notice, useEnv, useWrite } from './env';
+import { NewFlag } from './NewFlag';
 import { describeServing, formatValue, STALE_LABELS, servingTone } from './serving';
 import { ErrorBox, Panel, QueryState, Table } from './shell';
 import { Badge } from './ui/badge';
-import { Input, Select, Toggle } from './ui/form';
+import { Button, Input, Select, Toggle } from './ui/form';
 import { Segmented } from './ui/segmented';
 
 type Show = 'all' | 'stale' | 'experiments';
@@ -46,6 +47,7 @@ export function FlagsList({ onOpen }: { onOpen: (key: string) => void }) {
   const [tag, setTag] = useState('');
   const [owner, setOwner] = useState('');
   const [show, setShow] = useState<Show>('all');
+  const [creating, setCreating] = useState(false);
   const kill = useWrite((input: { key: string; enabled: boolean }) =>
     api.setEnabled(environment, input.key, input.enabled),
   );
@@ -63,22 +65,36 @@ export function FlagsList({ onOpen }: { onOpen: (key: string) => void }) {
       title="Flags"
       subtitle={`${flags.length} flags in ${environment}${query.data ? ` · ruleset v${query.data.version}` : ''}`}
       actions={
-        <Segmented
-          aria-label="Show"
-          value={show}
-          onChange={setShow}
-          options={[
-            { value: 'all', label: 'All' },
-            {
-              value: 'stale',
-              label: 'Stale',
-              hint: String(flags.filter((f) => f.stale.length > 0).length),
-            },
-            { value: 'experiments', label: 'Experiments' },
-          ]}
-        />
+        <div className="flex items-center gap-2">
+          <Button variant="primary" onClick={() => setCreating((open) => !open)}>
+            New flag
+          </Button>
+          <Segmented
+            aria-label="Show"
+            value={show}
+            onChange={setShow}
+            options={[
+              { value: 'all', label: 'All' },
+              {
+                value: 'stale',
+                label: 'Stale',
+                hint: String(flags.filter((f) => f.stale.length > 0).length),
+              },
+              { value: 'experiments', label: 'Experiments' },
+            ]}
+          />
+        </div>
       }
     >
+      {creating && (
+        <NewFlag
+          onCancel={() => setCreating(false)}
+          onCreated={(key) => {
+            setCreating(false);
+            onOpen(key);
+          }}
+        />
+      )}
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2">
         <Input
           aria-label="Search flags"
@@ -115,7 +131,7 @@ export function FlagsList({ onOpen }: { onOpen: (key: string) => void }) {
         empty={visible.length === 0}
         emptyMessage={
           flags.length === 0
-            ? 'No flags yet. Declare them in config/flags.ts and they show up here.'
+            ? 'No flags yet. Create one with “New flag”, or declare it in config/flags.ts.'
             : 'No flag matches these filters.'
         }
       >
@@ -157,6 +173,11 @@ export function FlagsList({ onOpen }: { onOpen: (key: string) => void }) {
                 {flag.declaration ? (
                   <>
                     {flag.declaration.type}
+                    {flag.declaration.source === 'console' && (
+                      <Badge className="ml-1" title="Created in the console">
+                        console
+                      </Badge>
+                    )}
                     <span className="block text-[10px] text-zinc-600">
                       default {formatValue(flag.declaration.default)}
                     </span>

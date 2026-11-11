@@ -1,4 +1,4 @@
-import type { JsonValue } from '@adonis-agora/flags-core';
+import type { FlagDeclarationData, JsonValue, Ruleset } from '@adonis-agora/flags-core';
 
 /** The value types a flag can carry. */
 export type FlagType = 'boolean' | 'string' | 'number' | 'json';
@@ -81,4 +81,54 @@ export function serializeDeclarations(
   declarations: Record<string, FlagDeclaration>,
 ): Record<string, FlagDeclaration> {
   return JSON.parse(JSON.stringify(declarations)) as Record<string, FlagDeclaration>;
+}
+
+/** Where a flag's declaration comes from. */
+export type DeclarationSource = 'code' | 'console';
+
+/**
+ * Every flag this app knows about: declared in code, or created in the console (the declaration
+ * travels in the ruleset). Code wins when both exist.
+ */
+export function effectiveDeclarations(
+  code: Record<string, FlagDeclaration>,
+  ruleset: Ruleset,
+): Record<string, FlagDeclaration & { source: DeclarationSource }> {
+  const out: Record<string, FlagDeclaration & { source: DeclarationSource }> = {};
+  for (const [key, definition] of Object.entries(ruleset.flags)) {
+    if (definition.declaration)
+      out[key] = { ...fromData(definition.declaration), source: 'console' };
+  }
+  for (const [key, declaration] of Object.entries(code))
+    out[key] = { ...declaration, source: 'code' };
+  return out;
+}
+
+/** A ruleset declaration as a {@link FlagDeclaration}. */
+export function fromData(data: FlagDeclarationData): FlagDeclaration {
+  return { ...data };
+}
+
+/** A {@link FlagDeclaration} as ruleset data (what the console stores). */
+export function toData(declaration: FlagDeclaration): FlagDeclarationData {
+  const {
+    type,
+    default: value,
+    variants,
+    description,
+    owner,
+    expiresAt,
+    tags,
+    client,
+  } = declaration;
+  return {
+    type,
+    default: value,
+    ...(variants ? { variants: [...variants] } : {}),
+    ...(description ? { description } : {}),
+    ...(owner ? { owner } : {}),
+    ...(expiresAt ? { expiresAt } : {}),
+    ...(tags?.length ? { tags: [...tags] } : {}),
+    ...(client !== undefined ? { client } : {}),
+  };
 }

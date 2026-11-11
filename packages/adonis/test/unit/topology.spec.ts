@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -228,7 +228,12 @@ describe('control-plane and tenant', () => {
     await cp.admin!.turnOn('new_player', { id: 'alice' });
     await cp.manager.refresh();
     tenant = await startTenant();
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // The snapshot is written asynchronously after the first fetch: wait for it, not for a fixed time.
+    const snapshot = join(snapshotDir, 'ruleset.json');
+    const deadline = Date.now() + 5000;
+    while (!existsSync(snapshot) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
     await tenant.close();
     tenant = await startTenant('s3cret', 'http://127.0.0.1:1/_flags');
     expect(await tenant.manager.for('u1').enabled('new_player')).toBe(true);

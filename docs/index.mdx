@@ -6,7 +6,7 @@ icon: Flag
 
 `@adonis-agora/flags` gives an AdonisJS app feature flags and experiments without a third-party service:
 
-- **Flags are declared in code** — key, type, default — so a typo or a wrong type is a compile error. Who gets what (targeting) lives in your database and changes without a deploy.
+- **Flags are managed in the console**: create them, target them, roll them out, without a deploy. They can also be declared in code, and `node ace flags:types` keeps console flags typed.
 - **Evaluation is in memory.** Every process keeps the ruleset and evaluates locally; reading a flag never waits on the database.
 - **Experiments are measured.** Exposures and conversions go through an outbox-style event log to your database, Parquet files, ClickHouse or PostHog, and the results page shows lift, confidence intervals, sample-ratio checks, CUPED and always-valid sequential p-values.
 - **It grows with you.** Start with Postgres/MySQL/SQLite. Add Parquet + DuckDB or ClickHouse when the event volume asks for it. Run a central flags server that many apps connect to, with authkit tokens.

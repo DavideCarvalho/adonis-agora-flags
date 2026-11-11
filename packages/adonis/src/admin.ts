@@ -6,7 +6,7 @@ import {
   type RulesetIssue,
   validateRuleset,
 } from '@adonis-agora/flags-core';
-import type { FlagDeclaration } from './declare.js';
+import { type FlagDeclaration, fromData, toData } from './declare.js';
 import {
   type Actor,
   applyChange,
@@ -33,6 +33,9 @@ export interface ApprovalsConfig {
   /** Environments whose changes need a second person. `true` = all. Default: none. */
   environments: string[] | true;
 }
+
+/** Flag keys: what URLs, SQL and code can all carry safely. */
+const FLAG_KEY = /^[A-Za-z0-9_.-]{1,100}$/;
 
 export class ValidationError extends Error {
   readonly code = 'E_FLAGS_INVALID';
@@ -277,13 +280,90 @@ export class FlagsAdmin {
     return definitionFromDeclaration(declaration);
   }
 
-  saveFlag(
+  /**
+   * Saves a flag's targeting. A console declaration already stored on the flag is kept when the new
+   * definition does not carry one, so editing targeting never drops a flag's type and default.
+   */
+  async saveFlag(
     key: string,
     definition: FlagDefinition,
     actor: Actor,
-    options?: { environment?: string; note?: string },
+    options: { environment?: string; note?: string } = {},
   ) {
+    let value = definition;
+    if (!definition.declaration) {
+      const current = (await this.store.readRuleset(options.environment ?? this.environment)).flags[
+        key
+      ];
+      if (current?.declaration) value = { ...definition, declaration: current.declaration };
+    }
+    return this.propose({ entity: 'flag', key, value }, actor, options);
+  }
+
+  /**
+   * Creates a flag from the console: its declaration (type, default, metadata) and a starting
+   * targeting that serves the default to everyone. Refused when the key is declared in code or
+   * already exists in this environment.
+   */
+  async createFlag(
+    key: string,
+    declaration: FlagDeclaration,
+    actor: Actor,
+    options: { environment?: string; note?: string } = {},
+  ): Promise<ProposeResult> {
+    if (!FLAG_KEY.test(key)) {
+      throw new ValidationError([
+        { path: 'key', message: 'use letters, digits, ".", "_" or "-" (1–100 characters)' },
+      ]);
+    }
+    if (this.declarations[key]) {
+      throw new ValidationError([
+        { path: 'key', message: `"${key}" is declared in code; configure it instead` },
+      ]);
+    }
+    const environment = options.environment ?? this.environment;
+    if ((await this.store.readRuleset(environment)).flags[key]) {
+      throw new ValidationError([
+        { path: 'key', message: `"${key}" already exists in ${environment}` },
+      ]);
+    }
+    const definition = {
+      ...definitionFromDeclaration(declaration),
+      declaration: toData(declaration),
+    };
     return this.propose({ entity: 'flag', key, value: definition }, actor, options);
+  }
+
+  /** Changes a console flag's declaration (description, owner, expiry, default, …). */
+  async updateDeclaration(
+    key: string,
+    patch: Partial<FlagDeclaration>,
+    actor: Actor,
+    options: { environment?: string; note?: string } = {},
+  ): Promise<ProposeResult> {
+    if (this.declarations[key]) {
+      throw new ValidationError([
+        { path: 'key', message: `"${key}" is declared in code; change it there` },
+      ]);
+    }
+    const environment = options.environment ?? this.environment;
+    const current = (await this.store.readRuleset(environment)).flags[key];
+    if (!current?.declaration)
+      throw new Error(`flag "${key}" has no console declaration in ${environment}`);
+    if (patch.type !== undefined && patch.type !== current.declaration.type) {
+      throw new ValidationError([
+        {
+          path: 'declaration.type',
+          message: 'the type of an existing flag cannot change; create a new flag',
+        },
+      ]);
+    }
+    const declaration = toData({ ...fromData(current.declaration), ...patch } as FlagDeclaration);
+    return this.propose(
+      { entity: 'flag', key, value: { ...current, declaration } },
+      actor,
+      options,
+    );
   }
 
   deleteFlag(key: string, actor: Actor, options?: { environment?: string; note?: string }) {
@@ -558,6 +638,10 @@ export class FlagsAdmin {
         lastSeen.set(row.flag, row.day);
     }
     const declared = new Map<string, FlagDeclaration>(Object.entries(this.declarations));
+    for (const [key, definition] of Object.entries(ruleset.flags)) {
+      if (definition.declaration && !declared.has(key))
+        declared.set(key, fromData(definition.declaration));
+    }
     for (const row of declaredRows)
       if (!declared.has(row.key)) declared.set(row.key, row.declaration);
 

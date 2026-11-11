@@ -8,7 +8,7 @@ import {
 } from '@adonis-agora/flags-core';
 import type { FlagsAdmin } from './admin.js';
 import { type ExperimentResults, HOLDOUT_VARIANT } from './analytics/results.js';
-import type { FlagDeclaration } from './declare.js';
+import { effectiveDeclarations, type FlagDeclaration } from './declare.js';
 import { type Enricher, runEnrichers } from './enrichers.js';
 import type { EventBuffer } from './events/buffer.js';
 import { EVENT_SCHEMA_VERSION, exposureId, type FlagEvent, uuidv7 } from './events/event.js';
@@ -79,8 +79,14 @@ export class FlagsManager {
     return this.deps.admin;
   }
 
+  /** Flags declared in code. */
   get declarations() {
     return this.deps.declarations;
+  }
+
+  /** Every known flag: declared in code or created in the console (code wins). */
+  effectiveDeclarations() {
+    return effectiveDeclarations(this.deps.declarations, this.ruleset());
   }
 
   /** The ruleset this process evaluates against. */
@@ -124,9 +130,9 @@ export class FlagsManager {
     return new FlagsScope(this, resolve, attributes);
   }
 
-  /** The default value declared in code (or `undefined` for undeclared keys). */
+  /** The declared default: from code, else from the console declaration in the ruleset. */
   declaredDefault(key: string): JsonValue | undefined {
-    return this.deps.declarations[key]?.default;
+    return this.deps.declarations[key]?.default ?? this.ruleset().flags[key]?.declaration?.default;
   }
 
   /** @internal Evaluation with fakes, usage counting and enrichers. */
@@ -384,7 +390,7 @@ export class FlagsScope {
     keys?: FlagKey[],
     options: { expose?: boolean } = {},
   ): Promise<Record<string, JsonValue>> {
-    const declarations = this.manager.declarations;
+    const declarations = this.manager.effectiveDeclarations();
     const list =
       keys ?? (Object.keys(declarations).filter((key) => declarations[key]?.client) as FlagKey[]);
     const out: Record<string, JsonValue> = {};

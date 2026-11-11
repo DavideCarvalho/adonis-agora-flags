@@ -7,6 +7,7 @@ import {
   type Issue,
   type Serving,
 } from '../client/flags-client';
+import { DeclarationDetails } from './DeclarationDetails';
 import {
   ExperimentEditor,
   OverridesEditor,
@@ -126,7 +127,7 @@ function EditorBody({
     <div className="space-y-4">
       <Panel
         title={detail.key}
-        subtitle={declaration?.description ?? (declaration ? undefined : 'Not declared in code')}
+        subtitle={declaration?.description ?? (declaration ? undefined : 'Not declared')}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Input
@@ -165,7 +166,7 @@ function EditorBody({
                 type <span className="text-zinc-300">{declaration.type}</span>
               </span>
               <span>
-                code default{' '}
+                {declaration.source === 'code' ? 'code default' : 'default'}{' '}
                 <span className="mono text-zinc-300">{formatValue(declaration.default)}</span>
               </span>
               {declaration.owner && (
@@ -178,13 +179,18 @@ function EditorBody({
                   expires <span className="text-zinc-300">{declaration.expiresAt}</span>
                 </span>
               )}
-              <span>
-                declared in <span className="text-zinc-300">{declaration.apps.join(', ')}</span>
-              </span>
+              {declaration.source === 'console' ? (
+                <Badge>created in the console</Badge>
+              ) : (
+                <span>
+                  declared in <span className="text-zinc-300">{declaration.apps.join(', ')}</span>
+                </span>
+              )}
             </>
           ) : (
             <span className="text-amber-300">
-              No app declares this flag; evaluations get no code default.
+              Nothing declares this flag (no code, no console declaration); evaluations get no
+              default.
             </span>
           )}
           <span>
@@ -340,6 +346,10 @@ function EditorBody({
           </div>
         </Section>
       </Panel>
+
+      {declaration?.source === 'console' && (
+        <DeclarationDetails flagKey={detail.key} declaration={declaration} />
+      )}
 
       <Panel
         title="Test a context"

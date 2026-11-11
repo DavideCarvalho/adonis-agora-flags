@@ -12,6 +12,7 @@ import {
 } from './flags_ops.js';
 import FlagsRefs from './flags_refs.js';
 import FlagsSet from './flags_set.js';
+import FlagsTypes from './flags_types.js';
 import FlagsWork from './flags_work.js';
 
 /**
@@ -31,6 +32,7 @@ const loader = new ListLoader([
   FlagsForget,
   FlagsReplay,
   FlagsRequests,
+  FlagsTypes,
 ]);
 
 export const getMetaData = loader.getMetaData.bind(loader);

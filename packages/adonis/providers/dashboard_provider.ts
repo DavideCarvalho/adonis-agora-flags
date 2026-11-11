@@ -24,6 +24,7 @@ import {
   audit,
   cancelChangeRequest,
   cancelSchedule,
+  createFlag,
   createSchedule,
   type Deps,
   deleteFlag,
@@ -55,6 +56,7 @@ import {
   setRollout,
   setVariant,
   stale,
+  updateDeclaration,
 } from '../src/dashboard/handlers.js';
 import { contentTypeFor, renderIndexHtml } from '../src/dashboard/spa.js';
 import type { FlagsConfig } from '../src/define_config.js';
@@ -169,7 +171,11 @@ export default class FlagsDashboardProvider {
 
     router.get(`${api}/flags`, json(listFlags)).as(name('flags'));
     router.get(`${api}/flags/:key`, json(flagDetail)).as(name('flags.show'));
+    router.post(`${api}/flags`, json(createFlag)).as(name('flags.create'));
     router.put(`${api}/flags/:key`, json(saveFlag)).as(name('flags.save'));
+    router
+      .put(`${api}/flags/:key/declaration`, json(updateDeclaration))
+      .as(name('flags.declaration'));
     router.delete(`${api}/flags/:key`, json(deleteFlag)).as(name('flags.delete'));
     router.post(`${api}/flags/:key/enabled`, json(setEnabled)).as(name('flags.enabled'));
     router.post(`${api}/flags/:key/rollout`, json(setRollout)).as(name('flags.rollout'));
