@@ -1,0 +1,172 @@
+{
+  "name": "@adonis-agora/flags",
+  "version": "0.0.0",
+  "description": "Feature flags, A/B experiments and their analysis for AdonisJS \u2014 typed flags in code, targeting in your database, exposures relayed to Postgres, Parquet/DuckDB, ClickHouse or PostHog. Speaks OpenFeature. Part of the Agora ecosystem.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DavideCarvalho/adonis-agora-flags.git",
+    "directory": "packages/adonis"
+  },
+  "homepage": "https://davidecarvalho.github.io/agora/docs/flags",
+  "bugs": {
+    "url": "https://github.com/DavideCarvalho/adonis-agora-flags/issues"
+  },
+  "keywords": [
+    "adonisjs",
+    "adonis",
+    "feature-flags",
+    "ab-testing",
+    "experiments",
+    "openfeature",
+    "ofrep",
+    "agora"
+  ],
+  "author": "Davi Carvalho <davi@goflip.ai>",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js",
+      "default": "./dist/src/index.js"
+    },
+    "./types": {
+      "types": "./dist/src/types.d.ts",
+      "import": "./dist/src/types.js",
+      "default": "./dist/src/types.js"
+    },
+    "./services/main": {
+      "types": "./dist/services/main.d.ts",
+      "import": "./dist/services/main.js",
+      "default": "./dist/services/main.js"
+    },
+    "./flags_provider": {
+      "types": "./dist/providers/flags_provider.d.ts",
+      "import": "./dist/providers/flags_provider.js",
+      "default": "./dist/providers/flags_provider.js"
+    },
+    "./flags_middleware": {
+      "types": "./dist/src/http/flags_middleware.d.ts",
+      "import": "./dist/src/http/flags_middleware.js",
+      "default": "./dist/src/http/flags_middleware.js"
+    },
+    "./flag_middleware": {
+      "types": "./dist/src/http/flag_middleware.d.ts",
+      "import": "./dist/src/http/flag_middleware.js",
+      "default": "./dist/src/http/flag_middleware.js"
+    },
+    "./openfeature": {
+      "types": "./dist/src/openfeature/provider.d.ts",
+      "import": "./dist/src/openfeature/provider.js",
+      "default": "./dist/src/openfeature/provider.js"
+    },
+    "./testing": {
+      "types": "./dist/src/testing/index.d.ts",
+      "import": "./dist/src/testing/index.js",
+      "default": "./dist/src/testing/index.js"
+    },
+    "./commands": {
+      "types": "./dist/commands/main.d.ts",
+      "import": "./dist/commands/main.js",
+      "default": "./dist/commands/main.js"
+    },
+    "./configure": {
+      "types": "./dist/configure.d.ts",
+      "import": "./dist/configure.js",
+      "default": "./dist/configure.js"
+    },
+    "./dashboard": {
+      "types": "./dist/src/dashboard/index.d.ts",
+      "import": "./dist/src/dashboard/index.js",
+      "default": "./dist/src/dashboard/index.js"
+    },
+    "./dashboard_provider": {
+      "types": "./dist/providers/dashboard_provider.d.ts",
+      "import": "./dist/providers/dashboard_provider.js",
+      "default": "./dist/providers/dashboard_provider.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && pnpm run copy:stubs && pnpm run copy:spa",
+    "copy:stubs": "rm -rf dist/stubs && mkdir -p dist/stubs && cp -r stubs/config stubs/database dist/stubs/",
+    "prepack": "pnpm run build",
+    "test": "vitest run --passWithNoTests",
+    "test:integration": "vitest run -c vitest.integration.config.ts",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "copy:spa": "mkdir -p dist/assets && rm -rf dist/assets/spa && cp -r ../dashboard/dist/spa dist/assets/spa"
+  },
+  "dependencies": {
+    "@adonis-agora/flags-core": "workspace:^"
+  },
+  "peerDependencies": {
+    "@adonis-agora/authkit-client": ">=1.0.0-rc.0 <2.0.0",
+    "@adonis-agora/durable": ">=0.40.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0",
+    "@adonisjs/core": "^7.3.0",
+    "@adonisjs/lucid": "^22.4.0",
+    "@adonisjs/redis": "^10.0.0 || ^11.0.0",
+    "@adonisjs/transmit": "^3.0.0",
+    "@duckdb/node-api": ">=1.4.0-r.0",
+    "@openfeature/server-sdk": "^1.17.0",
+    "@opentelemetry/api": "^1.9.0"
+  },
+  "peerDependenciesMeta": {
+    "@adonis-agora/authkit-client": {
+      "optional": true
+    },
+    "@adonis-agora/durable": {
+      "optional": true
+    },
+    "@adonisjs/lucid": {
+      "optional": true
+    },
+    "@adonisjs/redis": {
+      "optional": true
+    },
+    "@adonisjs/transmit": {
+      "optional": true
+    },
+    "@duckdb/node-api": {
+      "optional": true
+    },
+    "@openfeature/server-sdk": {
+      "optional": true
+    },
+    "@opentelemetry/api": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@adonis-agora/durable": "0.60.0",
+    "@adonis-agora/flags-dashboard": "workspace:*",
+    "@adonisjs/assembler": "8.6.0",
+    "@adonisjs/core": "7.6.0",
+    "@adonisjs/lucid": "22.4.2",
+    "@duckdb/node-api": "1.5.6-r.2",
+    "@openfeature/core": "1.12.0",
+    "@openfeature/server-sdk": "1.23.0",
+    "@opentelemetry/api": "1.9.0",
+    "@testcontainers/postgresql": "12.2.1",
+    "@testcontainers/redis": "12.2.1",
+    "@types/luxon": "3.7.6",
+    "@types/node": "26.6.6",
+    "@types/pg": "8.23.1",
+    "better-sqlite3": "13.0.3",
+    "ioredis": "5.11.1",
+    "luxon": "3.7.2",
+    "mysql2": "3.24.6",
+    "pg": "8.23.1",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

@@ -1,0 +1,37 @@
+---
+title: Console
+description: The web console — flags, targeting, experiments, approvals, environments and operations.
+icon: LayoutDashboard
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+`node ace configure @adonis-agora/flags` registers the console and publishes `config/flags_dashboard.ts`. It is served at `/flags`.
+
+```ts title="config/flags_dashboard.ts"
+import { defineConfig } from '@adonis-agora/flags/dashboard'
+import { authkitDashboardAuthorize } from '@adonis-agora/authkit-client'
+
+export default defineConfig({
+  path: '/flags',
+  authorize: authkitDashboardAuthorize({ loginPath: '/login' }),
+  // Who made a change, for the audit log and approvals.
+  actor: (ctx) => (ctx.auth.user ? { id: String(ctx.auth.user.id), name: ctx.auth.user.email } : undefined),
+})
+```
+
+<Callout type="warn">
+  Without `authorize`, the console is open outside production and answers 403 in production. With approvals on, set `actor` (or sign people in): two anonymous people are the same actor, and nobody can approve their own change.
+</Callout>
+
+## What it has
+
+- **Flags.** Search by tag, owner or staleness. Each flag shows its declared type, default and owner, and what it serves. The kill switch is one click from the list. In the editor: variants, the fallthrough (fixed or split), ordered rules, overrides, prerequisites and experiment settings. A context tester shows what any subject would get and why. Below that, the flag's history and its scheduled changes, including gradual rollouts.
+- **Segments, layers and the global holdout.**
+- **Experiments.** Exposures, the sample-ratio check, and per metric the lift, interval, p-value, sequential p-value and verdict. Guardrail alerts, and a button to recompute now.
+- **Approvals.** Approve, reject or cancel pending change requests.
+- **Environments.** Switch environments, export and import JSON, promote from one environment to another.
+- **Hygiene.** The stale-flag report.
+- **Ops.** The ruleset version and how it is kept fresh, the event transport, every sink's lag and last error, and the in-process buffer.
+
+The console runs on the control-plane in a [central setup](./central-server); tenants have none.

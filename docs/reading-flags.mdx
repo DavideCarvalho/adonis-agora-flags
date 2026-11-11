@@ -1,0 +1,86 @@
+---
+title: Reading Flags
+description: ctx.flags in HTTP, the service elsewhere, evaluation details, route guards and Edge templates.
+icon: BookOpen
+---
+
+## In a request: `ctx.flags`
+
+```ts
+async index({ flags }: HttpContext) {
+  await flags.enabled('new_player')        // boolean flags
+  await flags.value('max_uploads')         // the typed value
+  await flags.variant('checkout')          // the variant name
+  await flags.details('checkout')          // value, variant, reason, error
+}
+```
+
+Values are memoized for the request: a flag cannot change halfway through rendering a page.
+
+The subject is the authenticated user. To use something else — an organization, an anonymous id — set `subject` in the config:
+
+```ts title="config/flags.ts"
+export default defineConfig({
+  flags: { /* … */ },
+  subject: (ctx) => ctx.auth.user ?? { id: ctx.request.cookie('anon_id'), type: 'anonymous' },
+  // Targeting attributes for every subject. Read them from your own data, never from the request.
+  attributes: async (subject) => {
+    const user = await User.find(subject.id)
+    return { plan: user?.plan, country: user?.country, orgId: user?.organizationId }
+  },
+})
+```
+
+## Anywhere else: the service
+
+```ts
+import flags from '@adonis-agora/flags/services/main'
+
+await flags.for(user).enabled('new_player')
+await flags.for({ id: org.id, type: 'organization', attributes: { plan: org.plan } }).value('max_uploads')
+```
+
+`flags.for()` takes a model with an `id`, an id, or `{ id, type, attributes }`.
+
+## Why did I get this value?
+
+```ts
+const details = await ctx.flags.details('checkout')
+// {
+//   flagKey: 'checkout',
+//   value: 'one_page',
+//   variant: 'one_page',
+//   reason: 'TARGETING_MATCH',            // STATIC, DEFAULT, TARGETING_MATCH, SPLIT, DISABLED, ERROR
+//   flagMetadata: { ruleId: 'pro-users', rulesetVersion: '42' },
+// }
+```
+
+A failure never throws. It returns the code default with `reason: 'ERROR'` and an `errorCode` (`FLAG_NOT_FOUND`, `PARSE_ERROR`, `TYPE_MISMATCH`, `TARGETING_KEY_MISSING`). These names are OpenFeature's.
+
+## Route guard
+
+```ts title="start/routes.ts"
+import { middleware } from '#start/kernel'
+
+router
+  .get('/checkout/new', [NewCheckoutController])
+  .use(middleware.flag({ flag: 'new_checkout' }))
+
+router
+  .get('/checkout/one-page', [OnePageController])
+  .use(middleware.flag({ flag: 'checkout', variants: ['one_page'] }))
+```
+
+When the flag says no, the route answers 404, as if it did not exist. Change it with `status`.
+
+## Edge templates
+
+The middleware shares the request's flags with views as `flags`:
+
+```edge
+@if(await flags.enabled('new_player'))
+  @include('partials/new_player')
+@else
+  @include('partials/classic_player')
+@end
+```

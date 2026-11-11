@@ -1,0 +1,40 @@
+---
+title: Introduction
+description: Typed feature flags, percentage rollouts, targeting and A/B experiments with real statistics — inside your AdonisJS app.
+icon: Flag
+---
+
+`@adonis-agora/flags` gives an AdonisJS app feature flags and experiments without a third-party service:
+
+- **Flags are declared in code** — key, type, default — so a typo or a wrong type is a compile error. Who gets what (targeting) lives in your database and changes without a deploy.
+- **Evaluation is in memory.** Every process keeps the ruleset and evaluates locally; reading a flag never waits on the database.
+- **Experiments are measured.** Exposures and conversions go through an outbox-style event log to your database, Parquet files, ClickHouse or PostHog, and the results page shows lift, confidence intervals, sample-ratio checks, CUPED and always-valid sequential p-values.
+- **It grows with you.** Start with Postgres/MySQL/SQLite. Add Parquet + DuckDB or ClickHouse when the event volume asks for it. Run a central flags server that many apps connect to, with authkit tokens.
+- **It speaks OpenFeature**, including OFREP for browsers, mobile apps and services in other languages.
+
+```ts
+// a controller
+async show({ flags, inertia }: HttpContext) {
+  if (await flags.enabled('new_player')) {
+    return inertia.render('player/new')
+  }
+  return inertia.render('player/classic')
+}
+```
+
+```ts
+// an experiment
+const variant = await ctx.flags.variant('checkout')        // records the exposure
+await ctx.flags.track('purchase', { value: order.total })  // records the conversion
+```
+
+## Packages
+
+| Package | What it is |
+|---|---|
+| `@adonis-agora/flags` | The AdonisJS package: provider, config, commands, middleware |
+| `@adonis-agora/flags-react` | `useFlag`, `<Flag>`, live updates for Inertia/React |
+| `@adonis-agora/flags-dashboard` | The console (installed with the main package) |
+| `@adonis-agora/flags-core` | The evaluation engine and statistics, framework-free |
+
+Next: [Getting started](./getting-started).

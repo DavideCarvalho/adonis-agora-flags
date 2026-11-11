@@ -1,0 +1,100 @@
+---
+title: Getting Started
+description: Install @adonis-agora/flags, declare a flag, read it in a controller and turn it on.
+icon: Rocket
+---
+
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+import { Callout } from 'fumadocs-ui/components/callout';
+
+## Prerequisites
+
+- Node.js 24+
+- AdonisJS 7
+- `@adonisjs/lucid` configured (Postgres, MySQL or SQLite). Without Lucid flags live in memory and reset on restart.
+
+## Install
+
+<Tabs items={['node ace add', 'manual']}>
+<Tab value="node ace add">
+
+```sh
+node ace add @adonis-agora/flags
+```
+
+</Tab>
+<Tab value="manual">
+
+```sh
+npm i @adonis-agora/flags
+node ace configure @adonis-agora/flags
+```
+
+</Tab>
+</Tabs>
+
+`configure`:
+
+1. registers the provider and the `flags:*` commands in `adonisrc.ts`;
+2. adds the `flags_middleware` to the router middleware (it puts `ctx.flags` on every request) and the `flag` named middleware (a route guard);
+3. publishes `config/flags.ts` and an optional migration;
+4. adds `FLAGS_ENVIRONMENT` to `start/env.ts`.
+
+The tables are created at boot. If you prefer migrations to own the schema, keep the published migration and set `autoCreateSchema: false`.
+
+## Declare a flag
+
+```ts title="config/flags.ts"
+import { defineConfig, flag, type InferFlags } from '@adonis-agora/flags'
+
+const flagsConfig = defineConfig({
+  flags: {
+    new_player: flag.boolean({ default: false, owner: 'video-team' }),
+  },
+})
+
+export default flagsConfig
+
+declare module '@adonis-agora/flags/types' {
+  interface FlagsList extends InferFlags<typeof flagsConfig> {}
+}
+```
+
+The `declare module` block types every flag read: `ctx.flags.enabled('new_plyer')` does not compile.
+
+## Read it
+
+```ts title="app/controllers/player_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+
+export default class PlayerController {
+  async show({ flags, inertia }: HttpContext) {
+    const component = (await flags.enabled('new_player')) ? 'player/new' : 'player/classic'
+    return inertia.render(component)
+  }
+}
+```
+
+`ctx.flags` evaluates for the authenticated user (`ctx.auth.user`). Outside HTTP, use the service:
+
+```ts
+import flags from '@adonis-agora/flags/services/main'
+
+if (await flags.for(user).enabled('new_player')) {
+  // …
+}
+```
+
+## Turn it on
+
+```sh
+node ace flags:set new_player 10%   # 10% of users
+node ace flags:set new_player on    # everyone
+node ace flags:set new_player kill  # kill switch: off for everyone, whatever the targeting says
+```
+
+Or open the [console](./console). Every process picks the change up within seconds (immediately on Postgres, through `LISTEN/NOTIFY`).
+
+<Callout type="info">
+  Until a flag is configured, it serves the `default` you declared. The same happens if the database is unreachable at boot: nothing throws, the code default is served.
+</Callout>

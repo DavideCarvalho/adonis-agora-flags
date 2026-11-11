@@ -4,8 +4,9 @@
 > Começa no OLTP (Postgres/MySQL via Lucid) e sobe para OLAP (Parquet + DuckDB, ClickHouse) sem
 > mudar o código das flags. Fala o vocabulário do OpenFeature.
 
-Status: desenho aprovado em 2026-11-11. Nada publicado ainda. Este documento registra as
-decisões; a doc de uso fica no README e no site do Agora.
+Status: desenho aprovado e implementado em 2026-11-11 (repo local, nada publicado). Este
+documento registra as decisões; a doc de uso fica em `docs/` (site do Agora). §16 lista o que
+mudou em relação ao desenho original durante a implementação.
 
 ## 1. Pacotes
 
@@ -190,12 +191,30 @@ Tudo entra; a ordem é a de §15.
   `flags.fake()`, `configure`, `createFlagsTables`, `ace flags:list|set`.
 - Retenção e deleção por subject (LGPD).
 
-## 15. Ordem
+## 15. Estado
 
-1. `flags-core`: ruleset v1, avaliação, bucketing, stats básicos. ← **em andamento**
-2. `flags` standalone com Postgres: store lucid, cache + invalidação, API, middleware, testes
-   (`fake`), log + relay + sink lucid + rollup, `flags:work`.
-3. Console.
-4. Parquet + DuckDB.
-5. `/openfeature`, CUPED, sequential, camadas, holdout.
-6. `control-plane`/`tenant`, OFREP, authkit, ClickHouse, PostHog, o resto.
+Tudo de §14 está implementado, com testes unitários (SQLite, HTTP real entre control-plane e
+tenant, DuckDB/Parquet locais) e de integração (Postgres, Redis e ClickHouse em Docker).
+
+## 16. Decisões tomadas na implementação
+
+- **Timestamps em BIGINT (epoch ms)** em todas as tabelas e eventos: nenhum fuso horário, mesma
+  aritmética em Postgres, MySQL, SQLite, DuckDB e ClickHouse.
+- **Cursor do relay sem buraco**: ids de auto-incremento são dados antes do commit, então um
+  cursor só por id perderia o evento de uma transação lenta. No Postgres o cursor é `(xid8, id)` e
+  o relay só lê transações anteriores ao `pg_snapshot_xmin`, o que fecha o buraco exatamente
+  (testado). No MySQL há uma janela de segurança (`mysqlSafetyMs`, 10s); o SQLite tem um escritor só.
+- **`setEnabled` é o kill switch**, não "servir on". Para flags booleanas existem `turnOn`/`turnOff`.
+- **Auditoria ordenada pela versão do ruleset** que cada mudança produziu (determinística).
+- **Exposição só em `details/value/enabled/variant`**; `all()` (valores para o browser) não expõe,
+  a menos que `expose: true`. Só flags declaradas com `client: true` vão para o browser.
+- **Sticky lê `flags_exposures`** (tabela do sink `lucid`), uma consulta por request e só para
+  flags de experimento; desligado por padrão.
+- **Janela das métricas dentro das expressões de agregação**, não no WHERE: quem não converteu na
+  janela continua no denominador (testado nos três backends).
+- **Holdout é registrado como exposição** com variante `__holdout__`, para medir o efeito somado.
+- **`role`/`dispatcher`/`topology`** seguem `_1x/ROLE-VOCABULARY-SPEC.md`; o loop é `flags:work`.
+- **Tenant** manda `x-flags-tenant` em toda requisição; a identidade vem do token verificado.
+- **Regex de targeting** limitada (tamanho, quantificador aninhado, backreference, entrada até 4096).
+- **Durable**: o registro (`register` + `registerSchedules`, `overlap: 'skip'`) é testado com um
+  `WorkflowEngine` real (0.60, store em memória) disparando o schedule do relay.

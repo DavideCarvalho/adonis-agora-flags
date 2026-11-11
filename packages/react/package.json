@@ -1,0 +1,70 @@
+{
+  "name": "@adonis-agora/flags-react",
+  "version": "0.0.0",
+  "description": "React/Inertia bindings for @adonis-agora/flags: FlagsProvider, useFlag, useFlags, <Flag>, and live updates through @adonisjs/transmit.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DavideCarvalho/adonis-agora-flags.git",
+    "directory": "packages/react"
+  },
+  "homepage": "https://davidecarvalho.github.io/agora/docs/flags",
+  "bugs": {
+    "url": "https://github.com/DavideCarvalho/adonis-agora-flags/issues"
+  },
+  "keywords": [
+    "adonisjs",
+    "inertia",
+    "react",
+    "feature-flags",
+    "agora"
+  ],
+  "author": "Davi Carvalho <davi@goflip.ai>",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "pnpm run build",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "peerDependencies": {
+    "@adonis-agora/flags": ">=0.0.0 <2.0.0",
+    "react": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@adonis-agora/flags": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@adonis-agora/flags": "workspace:*",
+    "@testing-library/react": "16.3.3",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "jsdom": "31.0.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

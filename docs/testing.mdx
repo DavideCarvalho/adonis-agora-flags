@@ -1,0 +1,41 @@
+---
+title: Testing
+description: Fake flag values in app tests and unit-test code that reads flags.
+icon: TestTube
+---
+
+## In app tests
+
+```ts
+import { fakeFlags } from '@adonis-agora/flags/testing'
+
+test('shows the one-page checkout', async ({ client, cleanup }) => {
+  cleanup(fakeFlags({ checkout: 'one_page', new_player: true }))
+  const response = await client.get('/checkout')
+  response.assertTextIncludes('One page')
+})
+```
+
+Faked flags return the given value for every subject; tracked events are dropped while faking.
+
+## Unit tests without a database
+
+```ts
+import { createTestFlags } from '@adonis-agora/flags/testing'
+import { flag } from '@adonis-agora/flags'
+
+const { manager, setRuleset, events } = createTestFlags({
+  flags: { new_player: flag.boolean({ default: false }) },
+})
+
+expect(await manager.for('u1').enabled('new_player')).toBe(false)
+
+setRuleset({
+  flags: {
+    new_player: { variants: { on: true, off: false }, enabled: true, offVariant: 'off', fallthrough: { variant: 'on' } },
+  },
+})
+expect(await manager.for('u1').enabled('new_player')).toBe(true)
+await manager.track('u1', 'purchase', { value: 10 })
+expect(await events()).toHaveLength(1)
+```

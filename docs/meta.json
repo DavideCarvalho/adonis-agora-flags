@@ -1,0 +1,23 @@
+{
+  "title": "Flags",
+  "description": "Feature flags, A/B experiments and their analysis for AdonisJS, on the database you already have.",
+  "icon": "Flag",
+  "root": true,
+  "pages": [
+    "index",
+    "getting-started",
+    "declaring-flags",
+    "reading-flags",
+    "targeting",
+    "experiments",
+    "events-and-analytics",
+    "deployment",
+    "central-server",
+    "console",
+    "operations",
+    "openfeature",
+    "react",
+    "testing",
+    "commands"
+  ]
+}

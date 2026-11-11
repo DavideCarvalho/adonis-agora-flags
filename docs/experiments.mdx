@@ -1,0 +1,88 @@
+---
+title: Experiments
+description: Run an A/B test — assign, record exposures and conversions, define metrics and read results.
+icon: FlaskConical
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+## 1. Declare the flag and the metrics
+
+```ts title="config/flags.ts"
+import { defineConfig, flag, metric } from '@adonis-agora/flags'
+
+export default defineConfig({
+  flags: {
+    checkout: flag.string({ default: 'control', variants: ['control', 'one_page'] }),
+  },
+  metrics: {
+    purchase: metric.conversion('purchase'),
+    revenue: metric.sum('purchase', { cupedMs: 14 * 24 * 3600 * 1000 }),
+    refunds: metric.count('refund', { direction: 'decrease' }),
+  },
+  experiments: {
+    checkout: { metrics: ['purchase', 'revenue'], guardrails: ['refunds'] },
+  },
+})
+```
+
+| Metric | Per subject |
+|---|---|
+| `metric.conversion(event)` | 1 if the subject did `event` after exposure, else 0 |
+| `metric.count(event)` | how many times |
+| `metric.sum(event)` | the sum of the events' `value` (revenue per user) |
+
+Options: `windowMs` (only count events within this long after exposure), `cupedMs` (see below), `direction` (`increase` is good by default).
+
+## 2. Turn it into an experiment
+
+In the console, give the flag a split (for example 50/50) and mark it as an experiment. Split assignments of experiment flags are recorded as **exposures**.
+
+## 3. Read the variant and track conversions
+
+```ts
+async show({ flags, inertia }: HttpContext) {
+  const checkout = await flags.variant('checkout')   // records the exposure
+  return inertia.render(`checkout/${checkout}`)
+}
+
+async store({ flags, request }: HttpContext) {
+  await db.transaction(async (trx) => {
+    const order = await Order.create(request.all(), { client: trx })
+    // Commits or rolls back with the order.
+    await flags.track('purchase', { value: order.total, client: trx })
+  })
+}
+```
+
+An exposure is recorded when the code **uses** the variant, not when a page merely receives it. Each subject has one exposure per experiment, however many times they visit.
+
+<Callout type="info">
+  `ctx.flags.all()` (the values sent to the browser) does not record exposures. When a variant only takes effect client-side, read it with `ctx.flags.variant()` in the controller that renders the page.
+</Callout>
+
+## 4. Read the results
+
+```sh
+node ace flags:results checkout
+node ace flags:results checkout --fresh   # recompute now
+```
+
+The worker recomputes results every 10 minutes (`resultsIntervalMs`); the console shows the latest. For each metric and variant you get the lift, a confidence interval, a p-value and a verdict.
+
+- **Sample ratio mismatch (SRM).** If a 50/50 experiment shows 54/46, assignment or logging is broken and the results are not trustworthy. It is checked automatically.
+- **Sequential p-value.** The fixed-horizon p-value is only valid if you look once, at the planned end. The sequential one stays valid however often you look; stop when it says so.
+- **Guardrails** alert when they get significantly worse (on the sequential test, so daily checks do not cry wolf).
+
+## CUPED
+
+`metric.sum('purchase', { cupedMs: 14 days })` uses each subject's same metric in the 14 days *before* exposure to remove noise. Same estimate, much tighter interval when behaviour is stable, so experiments decide with fewer users.
+
+## Sticky assignment
+
+Changing the weights of a running experiment moves some subjects to another variant. With `sticky: true` in the config, a subject keeps the variant of their first exposure. It reads the subject's exposures once per request from the `lucid` sink's table.
+
+## Mutual exclusion and the global holdout
+
+- **Layers.** Experiments in the same layer never share a subject: give each one a bucket range of the layer in the console.
+- **Global holdout.** A fixed percentage of subjects sees no experiment at all, so you can measure the summed effect of everything you shipped. An experiment can opt out.

@@ -1,0 +1,57 @@
+---
+title: React and Inertia
+description: useFlag, <Flag>, and live updates when a flag changes.
+icon: Atom
+---
+
+```sh
+npm i @adonis-agora/flags-react
+```
+
+## Share the values
+
+Only flags declared with `client: true` are sent — the browser receives values, never targeting rules.
+
+```ts title="config/inertia.ts"
+sharedData: {
+  flags: (ctx) => ctx.flags.all(),
+},
+```
+
+```tsx title="inertia/app.tsx"
+import { FlagsProvider } from '@adonis-agora/flags-react'
+
+<FlagsProvider values={props.initialPage.props.flags}>
+  <App {...props} />
+</FlagsProvider>
+```
+
+## Read them
+
+```tsx
+import { Flag, useFlag, useFlagEnabled } from '@adonis-agora/flags-react'
+
+function Player() {
+  const newPlayer = useFlagEnabled('new_player')
+  const maxUploads = useFlag('max_uploads', 10)
+  return newPlayer ? <NewPlayer max={maxUploads} /> : <ClassicPlayer />
+}
+
+<Flag name="checkout" is="one_page" fallback={<ClassicCheckout />}>
+  <OnePageCheckout />
+</Flag>
+```
+
+Keys and values are typed from your `config/flags.ts`.
+
+## Live updates
+
+With `realtime: true` in `config/flags.ts` and `@adonisjs/transmit` installed, the server broadcasts every ruleset change. Reload the flags prop when it happens:
+
+```tsx
+import { transmit } from '~/transmit'
+import { router } from '@inertiajs/react'
+import { useFlagsRealtime } from '@adonis-agora/flags-react'
+
+useFlagsRealtime({ transmit, onChange: () => router.reload({ only: ['flags'] }) })
+```

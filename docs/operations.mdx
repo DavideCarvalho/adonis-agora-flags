@@ -1,0 +1,70 @@
+---
+title: Operations
+description: Approvals, permissions, audit, environments, scheduled changes, gradual rollouts and stale-flag cleanup.
+icon: Settings
+---
+
+## Permissions
+
+Decide who may change flags with `authorize`. Wire `@adonis-agora/authz` here:
+
+```ts title="config/flags.ts"
+authorize: async (actor, action, { environment }) => {
+  const user = await User.find(actor.id)
+  return user ? authz.for(user).can(`flags.${action}`, { environment }) : false
+},
+```
+
+`action` is `read`, `write` or `approve`.
+
+## Approvals
+
+```ts
+approvals: { environments: ['production'] },
+```
+
+Changes to `production` become change requests. Someone else approves them — the requester cannot approve their own. The request is validated again against the current ruleset when approved.
+
+```sh
+node ace flags:requests                 # pending
+node ace flags:requests approve <id>
+node ace flags:requests reject <id> --note "not before Black Friday"
+```
+
+## Audit
+
+Every change is recorded with who made it, the value before and after, the change request that carried it and the ruleset version it produced. See it per flag in the console.
+
+## Environments
+
+One store can hold several environments. Each process reads one (`environment`, default `production`).
+
+```sh
+node ace flags:set new_player on --env=staging
+node ace flags:promote staging production
+node ace flags:export --env=production --out=flags.json
+node ace flags:import flags.json --env=staging
+```
+
+## Scheduled changes and gradual rollouts
+
+```ts
+import flags from '@adonis-agora/flags/services/main'
+
+await flags.admin.scheduleRollout('new_player', [
+  { at: new Date('2026-12-01T09:00:00Z'), percent: 10 },
+  { at: new Date('2026-12-03T09:00:00Z'), percent: 50 },
+  { at: new Date('2026-12-05T09:00:00Z'), percent: 100 },
+], { id: 'alice' })
+```
+
+Or schedule `enable`/`disable` (the kill switch) for a date. The worker applies each step once.
+
+## Cleaning up
+
+```sh
+node ace flags:stale   # unused for 30 days, past expiresAt, serving one value for 30 days, or undeclared
+node ace flags:refs    # where each flag is used in the code
+```
+
+Evaluation counts are kept per flag and day (no per-request I/O) to know what is still used.

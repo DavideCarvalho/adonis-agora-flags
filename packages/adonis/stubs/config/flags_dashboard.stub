@@ -1,0 +1,32 @@
+{{{
+  exports({ to: app.configPath('flags_dashboard.ts') })
+}}}
+import { defineConfig } from '@adonis-agora/flags/dashboard'
+
+/**
+ * Configuration for the @adonis-agora/flags console.
+ *
+ * Without \`authorize\` the console is open OUTSIDE production and answers
+ * every request with 403 in production (a warning is logged at boot). Set
+ * \`authorize\` to choose who may open it: an inline function,
+ * an authorizer class (\`@inject()\` works), or a lazy import of one
+ * (\`() => import('#policies/console_access')\`). It answers \`true\`/\`false\`,
+ * \`{ allowed, reason?: 'unauthenticated' | 'forbidden' }\` or \`{ redirectTo }\`:
+ * \`unauthenticated\` is a 401, any other denial (or a throw) a 403. With authkit,
+ * \`authkitDashboardAuthorize(...)\` from @adonis-agora/authkit-client fits as-is.
+ * For machine access use \`authorizeByToken({ token: env.get('CONSOLE_TOKEN') })\`.
+ *
+ * \`actor\` names who made a change (audit log, two-person approvals). Default:
+ * the signed-in user's id, else 'dashboard'.
+ *
+ * Set \`enabled: false\` to remove it entirely — no routes are registered at all.
+ */
+export default defineConfig({
+  // enabled: true,
+  // path: '/flags',
+  // authorize: async (ctx) => {
+  //   if (!(await ctx.auth.check())) return { redirectTo: '/login' }
+  //   return ctx.auth.user?.isAdmin === true
+  // },
+  // actor: (ctx) => ctx.auth.user ? { id: String(ctx.auth.user.id), name: ctx.auth.user.email } : undefined,
+})

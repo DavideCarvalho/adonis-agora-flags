@@ -1,0 +1,48 @@
+{{{
+  exports({ to: app.configPath('flags.ts') })
+}}}
+import env from '#start/env'
+import { defineConfig, flag, metric, type InferFlags } from '@adonis-agora/flags'
+
+const flagsConfig = defineConfig({
+  /**
+   * Flags declared in code: their type and the value served when the ruleset cannot answer.
+   * Targeting (who gets what) is edited in the console or with \`node ace flags:set\`.
+   */
+  flags: {
+    example_flag: flag.boolean({
+      default: false,
+      description: 'What this flag controls',
+      owner: 'your-team',
+      // Shown by \`node ace flags:stale\` once this date passes.
+      expiresAt: '2027-06-30',
+      // Allowed to reach the browser through ctx.flags.all() / useFlag().
+      client: true,
+    }),
+  },
+
+  /** Which environment's ruleset this process reads. */
+  environment: env.get('FLAGS_ENVIRONMENT', 'production'),
+
+  /**
+   * Metrics experiments are judged by, computed from \`flags.track(subject, 'event', { value })\`.
+   */
+  metrics: {
+    // conversion: metric.conversion('purchase'),
+    // revenue: metric.sum('purchase', { cupedMs: 14 * 24 * 3600 * 1000 }),
+  },
+
+  /** Experiment key (the flag key) → the metrics that decide it and the ones that must not regress. */
+  experiments: {
+    // checkout_v2: { metrics: ['conversion', 'revenue'], guardrails: [] },
+  },
+})
+
+export default flagsConfig
+
+declare module '@adonis-agora/flags/types' {
+  interface FlagsList extends InferFlags<typeof flagsConfig> {}
+}
+
+// \`metric\` is imported for the examples above.
+void metric

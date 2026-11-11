@@ -1,0 +1,83 @@
+---
+title: Central Server
+description: One flags server many apps connect to — topology, tenant tokens with authkit, and OFREP.
+icon: Network
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+With several apps, run flags in one place. The **control-plane** owns the ruleset, the console, the event log and the sinks. Each app is a **tenant**: it downloads the ruleset, evaluates locally and sends its events to the control-plane. `topology` takes the same values as in `@adonis-agora/durable`.
+
+## The control-plane
+
+```ts title="config/flags.ts (flags server)"
+import { defineConfig, verifiers } from '@adonis-agora/flags'
+
+export default defineConfig({
+  topology: 'control-plane',
+  flags: {},
+  controlPlane: {
+    verifyTenant: verifiers.authkit({ issuer: env.get('AUTHKIT_ISSUER'), audience: 'flags' }),
+  },
+})
+```
+
+It serves, under `/_flags`:
+
+- `GET /v1/ruleset` (with `ETag`) and `GET /v1/ruleset/stream` (server-sent events on every change);
+- `POST /v1/events`, `/v1/declarations`, `/v1/usage` from tenants;
+- the OpenFeature Remote Evaluation Protocol at `/ofrep/v1/evaluate/flags`.
+
+## A tenant
+
+```ts title="config/flags.ts (an app)"
+import { defineConfig, flag, tokens } from '@adonis-agora/flags'
+
+export default defineConfig({
+  topology: 'tenant',
+  flags: {
+    new_player: flag.boolean({ default: false }),
+  },
+  tenant: {
+    url: env.get('FLAGS_URL'),          // https://flags.example.com/_flags
+    partition: 'streaming',             // this app's name
+    token: tokens.clientCredentials({
+      tokenUrl: `${env.get('AUTHKIT_ISSUER')}/oauth/token`,
+      clientId: env.get('FLAGS_CLIENT_ID'),
+      clientSecret: env.get('FLAGS_CLIENT_SECRET'),
+    }),
+    snapshotPath: 'storage/flags/ruleset.json',
+  },
+})
+```
+
+The app reads flags exactly as before (`ctx.flags`, the service). Changes arrive within milliseconds over the stream; polling is the fallback. `snapshotPath` keeps the last ruleset on disk, so an app that boots while the server is down still serves real targeting.
+
+A tenant has no store, sinks or console: edit flags on the control-plane. It publishes its declarations at boot, so the console knows its flags.
+
+## Authentication
+
+**With authkit** (recommended): register each app in authkit-server as a confidential client with the `client_credentials` grant and the scopes `flags:ruleset:read flags:events:write flags:declarations:write`. The control-plane verifies the JWT against authkit's JWKS; the app's identity comes from the token's `client_id`, never from the request. Revoking the client cuts the app off; open streams close when the token expires.
+
+Because authkit gives a person the same `sub` in every app, an experiment can span apps: the same user lands in the same variant everywhere.
+
+**Without authkit:** a secret per app.
+
+```ts
+verifyTenant: verifiers.sharedSecret({
+  streaming: env.get('FLAGS_SECRET_STREAMING'),
+  billing: { secret: env.get('FLAGS_SECRET_BILLING'), environment: 'staging' },
+}),
+```
+
+```ts
+tenant: { url, partition: 'streaming', token: env.get('FLAGS_SECRET_STREAMING') }
+```
+
+## OFREP: browsers, mobile and other languages
+
+Any OpenFeature SDK with an OFREP provider can evaluate against the control-plane — web, React Native, Go, Python. Evaluation happens on the server, so the rules never leave it. Give those clients a token with the `flags:ofrep:evaluate` scope, and list browser origins in `controlPlane.corsOrigins`.
+
+<Callout type="warn">
+  OFREP callers send their own evaluation context. Do not base security decisions on flags whose targeting a client can influence.
+</Callout>

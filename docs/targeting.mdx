@@ -1,0 +1,62 @@
+---
+title: Targeting
+description: Percentage rollouts, rules, segments, overrides, prerequisites and the kill switch.
+icon: Target
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Targeting is edited in the console (or with `flags:set` and the admin API). This page explains what each piece does.
+
+## Evaluation order
+
+1. **Kill switch.** A disabled flag serves its off variant to everyone.
+2. **Prerequisites.** If another flag does not serve the required variant, this one serves its off variant.
+3. **Overrides.** An exact subject id → variant (QA, a specific customer).
+4. **Rules**, top to bottom. The first rule whose conditions all match decides.
+5. **Fallthrough.** What everyone else gets: a fixed variant or a percentage split.
+
+## Percentage rollouts
+
+A subject's bucket is a hash of the flag and the subject id, so the same person gets the same answer on every server, without storing anything. Raising a rollout from 10% to 25% only adds people; nobody who had the feature loses it.
+
+```sh
+node ace flags:set new_player 25%
+```
+
+Roll out per organization instead of per user by splitting on an attribute (`bucketBy: 'orgId'` in the console): everyone in an organization gets the same variant.
+
+## Rules
+
+A rule is a list of conditions on context attributes, all of which must match:
+
+| Operator | Matches when |
+|---|---|
+| `in` | the attribute equals one of the values (arrays match any element) |
+| `contains`, `startsWith`, `endsWith` | string tests |
+| `matches` | a regular expression (see below) |
+| `gt`, `gte`, `lt`, `lte` | numeric comparison |
+| `before`, `after` | dates (ISO strings, epoch ms, `Date`) |
+| `semverEq`, `semverGt`, `semverGte`, `semverLt`, `semverLte` | versions, e.g. a mobile app version |
+| `exists` | the attribute is present |
+
+Every condition can be negated. The subject id is the `targetingKey` attribute; the subject type is `subjectType`.
+
+<Callout type="warn">
+  `matches` patterns are checked when saved: nested quantifiers like `(a+)+`, backreferences and patterns over 256 characters are rejected, because a slow pattern would slow down every request that reads the flag. Attribute values longer than 4096 characters never match.
+</Callout>
+
+## Segments
+
+A segment is a reusable audience: explicit includes, explicit excludes, then conditions. Use it in any rule (`in segment beta-testers`).
+
+## Prerequisites
+
+`new_checkout_upsell` can require `new_checkout` to serve `on`. Cycles are rejected when saved.
+
+## Kill switch
+
+```sh
+node ace flags:set new_player kill     # everyone gets the off variant
+node ace flags:set new_player unkill   # targeting applies again
+```

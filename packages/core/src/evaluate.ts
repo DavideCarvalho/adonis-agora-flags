@@ -1,4 +1,5 @@
-import { bucketOf, pickVariant } from './bucket.js';
+import { BUCKET_COUNT, bucketOf, pickVariant } from './bucket.js';
+import { MAX_MATCH_INPUT_LENGTH, unsafeRegexReason } from './regex_safety.js';
 import {
   type AttributeCondition,
   type Condition,
@@ -72,6 +73,17 @@ interface Resolution {
 const KNOWN_OPERATORS: ReadonlySet<string> = new Set(OPERATORS);
 const MAX_PREREQUISITE_DEPTH = 16;
 
+/** Per-call evaluation options. */
+export interface EvaluateOptions {
+  /**
+   * Sticky assignments: flag key → the variant this subject was already exposed to. When the flag
+   * would assign the subject through a split, a still-valid sticky variant is served instead, so
+   * changing weights mid-experiment never moves someone who already saw a variant. Targeting is
+   * still evaluated first: a subject who no longer matches the rule leaves the experiment.
+   */
+  sticky?: Record<string, string> | ((flagKey: string) => string | undefined);
+}
+
 /**
  * Evaluates `flagKey` for `context`. Never throws: every failure returns `defaultValue` (the
  * default declared in code) with `reason: 'ERROR'` and an `errorCode`.
@@ -81,6 +93,7 @@ export function evaluate<T extends JsonValue>(
   flagKey: string,
   defaultValue: T,
   context: EvaluationContext = {},
+  options: EvaluateOptions = {},
 ): EvaluationDetails<T> {
   const baseMetadata: FlagMetadata = { rulesetVersion: ruleset.version };
   const fail = (code: EvaluationErrorCode, message: string): EvaluationDetails<T> => ({
@@ -103,7 +116,7 @@ export function evaluate<T extends JsonValue>(
 
   let resolution: Resolution;
   try {
-    resolution = resolve(ruleset, flagKey, flag, context, [flagKey]);
+    resolution = resolve(ruleset, flagKey, flag, context, [flagKey], options);
   } catch (error) {
     if (error instanceof EvaluationError) return fail(error.code, error.message);
     return fail('GENERAL', error instanceof Error ? error.message : String(error));
@@ -131,6 +144,7 @@ function resolve(
   flag: FlagDefinition,
   context: EvaluationContext,
   chain: string[],
+  options: EvaluateOptions,
 ): Resolution {
   const served = (variant: string, reason: Resolution['reason'], metadata: FlagMetadata = {}) => {
     if (!Object.hasOwn(flag.variants, variant)) {
@@ -160,7 +174,7 @@ function resolve(
     const parent = ruleset.flags[prerequisite.flag];
     const met =
       parent !== undefined &&
-      resolve(ruleset, prerequisite.flag, parent, context, [...chain, prerequisite.flag])
+      resolve(ruleset, prerequisite.flag, parent, context, [...chain, prerequisite.flag], options)
         .variant === prerequisite.variant;
     if (!met) return served(flag.offVariant, 'DISABLED', { prerequisiteFailed: prerequisite.flag });
   }
@@ -170,18 +184,73 @@ function resolve(
     return served(flag.overrides[key]!, 'TARGETING_MATCH', { override: true });
   }
 
+  const experiment: FlagMetadata = {};
+  if (flag.experiment) {
+    experiment.experiment = flag.experiment.key ?? flagKey;
+    const gate = experimentGate(ruleset, flagKey, flag, context);
+    if (gate) return served(flag.offVariant, 'DEFAULT', { ...experiment, ...gate });
+  }
+
   for (const rule of flag.rules ?? []) {
     if (rule.conditions.every((condition) => matches(ruleset, condition, context))) {
-      const pick = serve(flagKey, flag, rule.serve, context);
-      return served(pick.variant, pick.split ? 'SPLIT' : 'TARGETING_MATCH', { ruleId: rule.id });
+      const pick = serve(flagKey, flag, rule.serve, context, options);
+      return served(pick.variant, pick.split ? 'SPLIT' : 'TARGETING_MATCH', {
+        ruleId: rule.id,
+        ...(pick.split ? experiment : {}),
+        ...(pick.sticky ? { sticky: true } : {}),
+      });
     }
   }
 
-  const pick = serve(flagKey, flag, flag.fallthrough, context);
-  if (pick.split) return served(pick.variant, 'SPLIT');
+  const pick = serve(flagKey, flag, flag.fallthrough, context, options);
+  if (pick.split) {
+    return served(pick.variant, 'SPLIT', {
+      ...experiment,
+      ...(pick.sticky ? { sticky: true } : {}),
+    });
+  }
   const hasTargeting =
     (flag.rules?.length ?? 0) > 0 || Object.keys(flag.overrides ?? {}).length > 0;
   return served(pick.variant, hasTargeting ? 'DEFAULT' : 'STATIC');
+}
+
+/**
+ * Holdout and layer membership for an experiment flag. Returns the metadata explaining why the
+ * subject is kept out (served `offVariant`), or `undefined` when the subject may be assigned.
+ */
+function experimentGate(
+  ruleset: Ruleset,
+  flagKey: string,
+  flag: FlagDefinition,
+  context: EvaluationContext,
+): FlagMetadata | undefined {
+  const settings = flag.experiment!;
+  const holdout = ruleset.holdout;
+  const layerName = settings.layer;
+  const needsKey = (holdout && holdout.percent > 0 && settings.holdout !== false) || layerName;
+  if (!needsKey) return undefined;
+  const key = context.targetingKey;
+  if (key === undefined || key === '') {
+    throw new EvaluationError(
+      'TARGETING_KEY_MISSING',
+      `experiment "${flagKey}" needs a targetingKey for its holdout or layer`,
+    );
+  }
+  if (holdout && holdout.percent > 0 && settings.holdout !== false) {
+    if (bucketOf(holdout.salt ?? 'holdout', key) < (holdout.percent / 100) * BUCKET_COUNT) {
+      return { holdout: true };
+    }
+  }
+  if (layerName) {
+    const layer = ruleset.layers?.[layerName];
+    if (!layer) throw new EvaluationError('PARSE_ERROR', `unknown layer "${layerName}"`);
+    const range = layer.allocations[flagKey];
+    const bucket = bucketOf(layer.salt ?? `layer:${layerName}`, key);
+    if (!range || bucket < range[0] || bucket >= range[1]) {
+      return { layer: layerName, layerExcluded: true };
+    }
+  }
+  return undefined;
 }
 
 function serve(
@@ -189,8 +258,18 @@ function serve(
   flag: FlagDefinition,
   target: Serve,
   context: EvaluationContext,
-): { variant: string; split: boolean } {
+  options: EvaluateOptions = {},
+): { variant: string; split: boolean; sticky?: boolean } {
   if ('variant' in target) return { variant: target.variant, split: false };
+
+  const sticky =
+    typeof options.sticky === 'function' ? options.sticky(flagKey) : options.sticky?.[flagKey];
+  if (
+    sticky !== undefined &&
+    target.split.some((arm) => arm.variant === sticky && arm.weight > 0)
+  ) {
+    return { variant: sticky, split: true, sticky: true };
+  }
 
   const attribute = target.bucketBy ?? 'targetingKey';
   const raw = attribute === 'targetingKey' ? context.targetingKey : context[attribute];
@@ -264,7 +343,11 @@ function compare(op: AttributeCondition['op'], actual: unknown, expected: Condit
     case 'endsWith':
       return typeof actual === 'string' && actual.endsWith(String(expected));
     case 'matches':
-      return typeof actual === 'string' && regex(String(expected)).test(actual);
+      return (
+        typeof actual === 'string' &&
+        actual.length <= MAX_MATCH_INPUT_LENGTH &&
+        regex(String(expected)).test(actual)
+      );
     case 'gt':
     case 'gte':
     case 'lt':
@@ -369,14 +452,11 @@ const regexCache = new Map<string, RegExp>();
 function regex(source: string): RegExp {
   let compiled = regexCache.get(source);
   if (!compiled) {
-    try {
-      compiled = new RegExp(source);
-    } catch {
-      throw new EvaluationError(
-        'PARSE_ERROR',
-        `invalid regular expression ${JSON.stringify(source)}`,
-      );
+    const unsafe = unsafeRegexReason(source);
+    if (unsafe) {
+      throw new EvaluationError('PARSE_ERROR', `pattern ${JSON.stringify(source)}: ${unsafe}`);
     }
+    compiled = new RegExp(source);
     if (regexCache.size > 500) regexCache.clear();
     regexCache.set(source, compiled);
   }

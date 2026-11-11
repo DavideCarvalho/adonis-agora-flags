@@ -1,0 +1,53 @@
+---
+title: Declaring Flags
+description: Boolean, multivariate, numeric and JSON flags, with owners and expiry dates.
+icon: FileCode
+---
+
+Every flag is declared in `config/flags.ts`. The declaration is the source of truth for the key, the type and the value served when the ruleset has no answer.
+
+```ts title="config/flags.ts"
+import { defineConfig, flag } from '@adonis-agora/flags'
+
+export default defineConfig({
+  flags: {
+    // on/off
+    new_player: flag.boolean({ default: false }),
+
+    // multivariate: the type narrows to 'control' | 'one_page'
+    checkout: flag.string({ default: 'control', variants: ['control', 'one_page'] }),
+
+    // a number (limits, thresholds)
+    max_uploads: flag.number({ default: 10 }),
+
+    // a JSON payload (configuration)
+    pricing_banner: flag.json({ default: { text: '', color: 'blue' } }),
+  },
+})
+```
+
+## Metadata
+
+Every builder accepts:
+
+| Option | What it is for |
+|---|---|
+| `description` | Shown in the console and `flags:list` |
+| `owner` | Who to ask: a person, team or channel |
+| `expiresAt` | ISO date after which `flags:stale` and the console list the flag for removal |
+| `tags` | Free-form labels to filter by |
+| `client` | Allows the value to reach the browser through `ctx.flags.all()` and `useFlag()`. Off by default |
+
+```ts
+new_player: flag.boolean({
+  default: false,
+  description: 'The rewritten video player',
+  owner: '#video-team',
+  expiresAt: '2027-03-31',
+  client: true,
+}),
+```
+
+## Types are enforced on edits too
+
+The console and the commands refuse a change that contradicts the declaration — a string variant on a boolean flag, or a variant name that is not in `variants` — with the path of the offending field.

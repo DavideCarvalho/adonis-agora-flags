@@ -166,6 +166,142 @@ export function srmTest(observed: number[], weights: number[], threshold = 0.001
   return { chiSquare, df, pValue, mismatch: pValue < threshold };
 }
 
+/** A conversion metric as sufficient statistics (each observation is 0 or 1). */
+export function conversionStats(counts: ConversionCounts): SufficientStats {
+  return { n: counts.n, sum: counts.conversions, sumSquares: counts.conversions };
+}
+
+/**
+ * Sufficient statistics for CUPED: the metric `y` measured during the experiment and the
+ * covariate `x` measured for the same subjects BEFORE exposure (usually the same metric over a
+ * pre-period). Subjects with no pre-period activity contribute `x = 0`.
+ */
+export interface CupedStats {
+  n: number;
+  sumY: number;
+  sumY2: number;
+  sumX: number;
+  sumX2: number;
+  sumXY: number;
+}
+
+export interface CupedTestResult extends WelchTestResult {
+  /** The CUPED coefficient θ = cov(x, y) / var(x), pooled across variants. */
+  theta: number;
+  /** Share of the variance removed by the adjustment (0 … 1). */
+  varianceReduction: number;
+}
+
+/**
+ * CUPED (Deng et al., 2013): Welch's test on `y − θ·(x − x̄)`, where `x` is a pre-experiment
+ * covariate. Same expected difference, smaller variance — so the same experiment reaches a
+ * decision with fewer subjects. The pre-period must end before exposure starts, or the covariate
+ * can absorb the treatment effect.
+ */
+export function cupedTest(
+  control: CupedStats,
+  treatment: CupedStats,
+  confidence = 0.95,
+): CupedTestResult {
+  if (control.n < 2 || treatment.n < 2) {
+    throw new RangeError('cupedTest needs at least 2 observations per variant');
+  }
+  const n = control.n + treatment.n;
+  const sumX = control.sumX + treatment.sumX;
+  const sumY = control.sumY + treatment.sumY;
+  const meanX = sumX / n;
+  const meanY = sumY / n;
+  const covXY = (control.sumXY + treatment.sumXY - n * meanX * meanY) / (n - 1);
+  const varX = (control.sumX2 + treatment.sumX2 - n * meanX * meanX) / (n - 1);
+  const theta = varX > 0 ? covXY / varX : 0;
+
+  const adjusted = (s: CupedStats): SufficientStats => {
+    // Σ(y − θ(x − m))  and  Σ(y − θ(x − m))², expanded so only sufficient statistics are needed.
+    const sum = s.sumY - theta * (s.sumX - s.n * meanX);
+    const sumSquares =
+      s.sumY2 -
+      2 * theta * (s.sumXY - meanX * s.sumY) +
+      theta * theta * (s.sumX2 - 2 * meanX * s.sumX + s.n * meanX * meanX);
+    return { n: s.n, sum, sumSquares };
+  };
+  const result = welchTest(adjusted(control), adjusted(treatment), confidence);
+  const raw = (s: CupedStats) => summarize({ n: s.n, sum: s.sumY, sumSquares: s.sumY2 });
+  const rawVar = raw(control).variance / control.n + raw(treatment).variance / treatment.n;
+  const adjControl = summarize(adjusted(control));
+  const adjTreatment = summarize(adjusted(treatment));
+  const adjVar = adjControl.variance / control.n + adjTreatment.variance / treatment.n;
+  return {
+    ...result,
+    // Report the unadjusted means: the adjustment changes the variance, not what is measured.
+    controlMean: raw(control).mean,
+    treatmentMean: raw(treatment).mean,
+    relativeLift: raw(control).mean === 0 ? Number.NaN : result.difference / raw(control).mean,
+    theta,
+    varianceReduction: rawVar > 0 ? Math.max(0, 1 - adjVar / rawVar) : 0,
+  };
+}
+
+export interface SequentialOptions {
+  /** Significance level the confidence sequence guarantees at every peek. Default 0.05. */
+  alpha?: number;
+  /**
+   * Standard deviation of the normal mixing prior over the true difference: roughly the size of
+   * effect you expect. Defaults to 10% of the control mean (or of the pooled standard deviation
+   * when the control mean is 0).
+   */
+  tau?: number;
+  /**
+   * The smallest p-value reported by earlier looks at this experiment. The always-valid p-value is
+   * the running minimum, so pass it to keep the sequence monotone.
+   */
+  previousPValue?: number;
+}
+
+export interface SequentialTestResult {
+  difference: number;
+  /** Always-valid p-value: safe to read at any time, as often as you like. */
+  pValue: number;
+  /** Always-valid confidence sequence for the difference at level 1 − alpha. */
+  interval: [number, number];
+  /** `true` once the sequence excludes 0. */
+  significant: boolean;
+}
+
+/**
+ * Sequential test (mSPRT with a normal mixture, Johari et al.): unlike the fixed-horizon tests
+ * above, its p-value and interval stay valid no matter how often the results page is opened or
+ * when the experiment is stopped. The price is a wider interval for the same data.
+ */
+export function sequentialTest(
+  control: SufficientStats,
+  treatment: SufficientStats,
+  options: SequentialOptions = {},
+): SequentialTestResult {
+  const a = summarize(control);
+  const b = summarize(treatment);
+  if (a.n < 2 || b.n < 2)
+    throw new RangeError('sequentialTest needs at least 2 observations per variant');
+  const alpha = options.alpha ?? 0.05;
+  const difference = b.mean - a.mean;
+  const v = a.variance / a.n + b.variance / b.n;
+  const pooledSd = Math.sqrt((a.variance + b.variance) / 2);
+  const tau = options.tau ?? (Math.abs(a.mean) > 0 ? 0.1 * Math.abs(a.mean) : pooledSd || 1);
+  const tau2 = tau * tau;
+  if (v === 0) {
+    const pValue = difference === 0 ? 1 : 0;
+    return { difference, pValue, interval: [difference, difference], significant: pValue < alpha };
+  }
+  const logLambda =
+    0.5 * Math.log(v / (v + tau2)) + (tau2 * difference * difference) / (2 * v * (v + tau2));
+  let pValue = Math.min(1, Math.exp(-logLambda));
+  if (options.previousPValue !== undefined) pValue = Math.min(pValue, options.previousPValue);
+  const half = Math.sqrt(
+    ((2 * v * (v + tau2)) / tau2) * (Math.log(1 / alpha) + 0.5 * Math.log((v + tau2) / v)),
+  );
+  const interval: [number, number] = [difference - half, difference + half];
+  return { difference, pValue, interval, significant: interval[0] > 0 || interval[1] < 0 };
+}
+
 // ── Distributions ────────────────────────────────────────────────────────────
 
 /** Standard normal CDF. */

@@ -1,0 +1,28 @@
+---
+title: OpenFeature
+description: Use @adonis-agora/flags through the OpenFeature server SDK.
+icon: Plug
+---
+
+If your code talks to the OpenFeature SDK, use the provider. It is the same engine: same buckets, same exposures, same results.
+
+```sh
+npm i @openfeature/server-sdk
+```
+
+```ts title="start/openfeature.ts"
+import { OpenFeature } from '@openfeature/server-sdk'
+import { AgoraFlagsProvider } from '@adonis-agora/flags/openfeature'
+
+await OpenFeature.setProviderAndWait(new AgoraFlagsProvider())
+```
+
+```ts
+const client = OpenFeature.getClient()
+await client.getBooleanValue('new_player', false, { targetingKey: user.id, plan: user.plan })
+client.track('purchase', { targetingKey: user.id }, { value: order.total })
+```
+
+`targetingKey` is the subject id; `subjectType` sets the subject type; every other attribute is a targeting attribute.
+
+For other languages and the browser, see [OFREP on the central server](./central-server#ofrep-browsers-mobile-and-other-languages).

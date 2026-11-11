@@ -6,3 +6,5 @@ coverage/
 .DS_Store
 .env
 .env.local
+packages/*/test/unit/tmp/
+packages/*/test/integration/__generated__/

@@ -1,0 +1,39 @@
+---
+title: Deployment
+description: Where background work runs — in your web processes, as durable workflows, or in a separate worker.
+icon: Server
+---
+
+The background work — relaying events to sinks, running scheduled changes, computing experiment results, pruning the log — is safe to run on many replicas at once. Two options decide where it runs: `role` and `dispatcher`, the same vocabulary as the other Agora libraries.
+
+## `dispatcher`
+
+| Value | Background work runs |
+|---|---|
+| `auto` (default) | As durable workflows when `@adonis-agora/durable`'s provider is registered, otherwise in process |
+| `durable` | As durable workflows (fails at boot without durable). Each run, error and retry is in the durable console |
+| `in-process` | On a timer in every web/worker process |
+
+## `role`
+
+| Value | This process |
+|---|---|
+| `all` (default) | Serves requests and runs background work |
+| `api` | Serves requests only |
+| `worker` | Runs background work only (no control-plane routes) |
+
+## A separate worker
+
+```ts title="config/flags.ts"
+role: env.get('FLAGS_ROLE', 'all'),
+```
+
+Run web processes with `FLAGS_ROLE=api`, and one process with:
+
+```sh
+node ace flags:work            # stays up
+node ace flags:work --once     # one pass, for a cron job
+node ace flags:work --sink=archive
+```
+
+Several workers are fine: each sink is leased to one of them at a time, and each scheduled change is claimed by one.

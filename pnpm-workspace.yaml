@@ -9,3 +9,6 @@ allowBuilds:
   '@biomejs/biome': true
   '@swc/core': true
   esbuild: true
+minimumReleaseAgeExclude:
+  - '@adonis-agora/authkit-client@1.0.0-rc.0'
+  - '@adonis-agora/authkit-core@1.0.0-rc.0'

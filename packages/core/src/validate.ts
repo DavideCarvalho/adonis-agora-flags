@@ -1,3 +1,5 @@
+import { BUCKET_COUNT } from './bucket.js';
+import { unsafeRegexReason } from './regex_safety.js';
 import {
   type AttributeCondition,
   type Condition,
@@ -72,6 +74,48 @@ export function validateRuleset(ruleset: Ruleset): RulesetIssue[] {
     });
   }
 
+  if (ruleset.holdout) {
+    const { percent } = ruleset.holdout;
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+      add('holdout.percent', 'must be between 0 and 100');
+    }
+  }
+  for (const [name, layer] of Object.entries(ruleset.layers ?? {})) {
+    const ranges: Array<[string, number, number]> = [];
+    for (const [flagKey, range] of Object.entries(layer.allocations)) {
+      const path = `layers.${name}.allocations.${flagKey}`;
+      const flag = ruleset.flags[flagKey];
+      if (!flag) add(path, `unknown flag "${flagKey}"`);
+      else if (flag.experiment?.layer !== name) {
+        add(path, `flag "${flagKey}" is not an experiment in layer "${name}"`);
+      }
+      const [start, end] = range;
+      if (
+        !Number.isInteger(start) ||
+        !Number.isInteger(end) ||
+        start < 0 ||
+        end > BUCKET_COUNT ||
+        start >= end
+      ) {
+        add(path, `must be an integer range [start, end) within 0 … ${BUCKET_COUNT}`);
+        continue;
+      }
+      ranges.push([flagKey, start, end]);
+    }
+    ranges.sort((a, b) => a[1] - b[1]);
+    for (let i = 1; i < ranges.length; i++) {
+      if (ranges[i]![1] < ranges[i - 1]![2]) {
+        add(`layers.${name}.allocations.${ranges[i]![0]}`, `overlaps "${ranges[i - 1]![0]}"`);
+      }
+    }
+  }
+  for (const [key, flag] of Object.entries(ruleset.flags)) {
+    const layer = flag.experiment?.layer;
+    if (layer !== undefined && !ruleset.layers?.[layer]) {
+      add(`flags.${key}.experiment.layer`, `unknown layer "${layer}"`);
+    }
+  }
+
   for (const cycle of prerequisiteCycles(ruleset)) {
     add(`flags.${cycle[0]}.prerequisites`, `prerequisite cycle: ${cycle.join(' → ')}`);
   }
@@ -105,11 +149,8 @@ function checkAttribute(condition: AttributeCondition, path: string, add: Add) {
   }
   if (condition.op === 'matches') {
     for (const value of condition.values ?? []) {
-      try {
-        new RegExp(String(value));
-      } catch {
-        add(`${path}.values`, `invalid regular expression ${JSON.stringify(value)}`);
-      }
+      const unsafe = unsafeRegexReason(String(value));
+      if (unsafe) add(`${path}.values`, `${JSON.stringify(value)}: ${unsafe}`);
     }
   }
 }

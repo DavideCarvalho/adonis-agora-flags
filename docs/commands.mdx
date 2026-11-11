@@ -1,0 +1,22 @@
+---
+title: Commands
+description: Every flags:* ace command.
+icon: Terminal
+---
+
+| Command | What it does |
+|---|---|
+| `flags:list [--env] [--json]` | Every flag: declared type and default, what it serves, owner |
+| `flags:set <flag> <value> [--env] [--note] [--as]` | `on`, `off`, `kill`, `unkill`, `25%`, or a variant name |
+| `flags:work [--once] [--sink]` | Run background work: relay, schedules, results, maintenance |
+| `flags:results <experiment> [--fresh]` | Experiment results |
+| `flags:requests [list\|approve\|reject\|cancel] [id] [--note]` | Change requests |
+| `flags:export [--env] [--out]` | The ruleset as JSON |
+| `flags:import <file> [--env] [--note]` | Replace a ruleset (validated; approvals apply) |
+| `flags:promote <from> <to>` | Copy one environment's ruleset over another |
+| `flags:stale [--unused-days] [--static-days]` | Flags that are probably safe to remove |
+| `flags:refs [--flag]` | Where each flag is used in the code |
+| `flags:replay <sink>` | Deliver the retained event log to a sink again |
+| `flags:forget <subject>` | Delete everything stored about a subject |
+
+Commands act as `cli:<your OS user>` in the audit; `--as` overrides it.

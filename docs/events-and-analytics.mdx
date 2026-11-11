@@ -1,0 +1,81 @@
+---
+title: Events and Analytics
+description: Where exposures and conversions go — transports, sinks, and the Postgres, Parquet/DuckDB and ClickHouse analytics backends.
+icon: Database
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Exposures and tracked events are buffered in the process, written to a **transport** (a log), and a **relay** delivers them to every **sink** at its own pace. The defaults need nothing but your database:
+
+```ts title="config/flags.ts"
+import { defineConfig, sinks, transports, analytics } from '@adonis-agora/flags'
+
+export default defineConfig({
+  flags: { /* … */ },
+  transport: transports.db(),             // the default with Lucid
+  sinks: { warehouse: sinks.lucid() },    // the default with Lucid
+  analytics: analytics.lucid(),           // the default when the lucid sink exists
+})
+```
+
+## Transports
+
+| Transport | Notes |
+|---|---|
+| `transports.db()` | A table in your database. The only one that writes inside your transaction (`track(…, { client: trx })`). Default |
+| `transports.redis({ connection })` | Redis Streams, one consumer group per sink. Needs `@adonisjs/redis` |
+| `transports.memory()` | Tests and development |
+
+Delivery is at-least-once; every sink ignores duplicates. Events older than `retentionDays` (default 30) are pruned once every sink has them. On Postgres, `partitionEvents: true` partitions the log by month so pruning drops partitions — decide before the first boot.
+
+## Sinks
+
+```ts
+sinks: {
+  warehouse: sinks.lucid(),
+  archive: sinks.parquet({ path: 'storage/flags' }),
+  clickhouse: sinks.clickhouse({ url: env.get('CLICKHOUSE_URL'), username: 'flags', password: env.get('CLICKHOUSE_PASSWORD') }),
+  posthog: sinks.posthog({ apiKey: env.get('POSTHOG_KEY') }),
+  webhook: sinks.callback(async (events) => { /* … */ }),
+}
+```
+
+Adding a sink later delivers the retained log to it from the beginning. `node ace flags:replay <sink>` sends it again.
+
+## Choosing an analytics backend
+
+| Level | Backend | When |
+|---|---|---|
+| 1 | `analytics.lucid()` | Up to tens of millions of events a month |
+| 2 | `analytics.duckdb({ path })` + `sinks.parquet({ path })` | Long retention, no server. Parquet on disk or S3 |
+| 3 | `analytics.clickhouse({ … })` + `sinks.clickhouse({ … })` | High volume, fast queries |
+
+All three return the same numbers for the same data: the database only aggregates, the statistics are computed in one place.
+
+<Callout type="warn">
+  `@duckdb/node-api` is an optional dependency with a native binary. Run the relay for the Parquet sink in a worker (see [Deployment](./deployment)), not in web processes.
+</Callout>
+
+## Erasure
+
+```sh
+node ace flags:forget <subject-id>
+```
+
+```ts
+await flags.forget(user)
+```
+
+Deletes the subject's events and exposures from the log and from every sink that supports it (lucid, ClickHouse, local Parquet files). PostHog erasure goes through PostHog itself.
+
+## Observability
+
+Evaluations, exposures and tracks are published on `node:diagnostics_channel` (`agora:flags:*`), which `@adonis-agora/diagnostics` and telescope pick up. Add OpenTelemetry span events and Sentry flag context with enrichers:
+
+```ts
+import * as Sentry from '@sentry/node'
+import { enrichers } from '@adonis-agora/flags'
+
+enrichers: [enrichers.otel(), enrichers.sentry(Sentry)]
+```

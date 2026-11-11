@@ -111,6 +111,45 @@ export interface FlagDefinition {
   prerequisites?: Prerequisite[];
   /** Hash salt. Defaults to the flag key; changing it reshuffles every bucket. */
   salt?: string;
+  /**
+   * Marks the flag as an experiment. Its split assignments are recorded as exposures, it can sit
+   * in a mutual-exclusion layer, and it honours the global holdout.
+   */
+  experiment?: ExperimentSettings;
+  /** Free-form labels (owner, ticket, …) the console shows and filters by. Not evaluated. */
+  tags?: string[];
+}
+
+export interface ExperimentSettings {
+  /** Experiment key reported on exposures. Defaults to the flag key. */
+  key?: string;
+  /** Mutual-exclusion layer (a key of {@link Ruleset.layers}). */
+  layer?: string;
+  /** `false` opts this experiment out of the global holdout. Default `true`. */
+  holdout?: boolean;
+}
+
+/**
+ * A mutual-exclusion layer: experiments in the same layer never share a subject. The layer hashes
+ * each subject into a bucket once, and each experiment owns a bucket range. A subject outside
+ * every range sees no experiment of the layer.
+ */
+export interface Layer {
+  /** Hash salt for the layer. Defaults to `layer:<name>`. */
+  salt?: string;
+  /** Flag key → `[start, end)` bucket range in `0 … 10000`. Ranges must not overlap. */
+  allocations: Record<string, [number, number]>;
+}
+
+/**
+ * The global holdout: a fixed share of subjects that no experiment reaches, so the summed effect
+ * of everything shipped can be measured against them.
+ */
+export interface Holdout {
+  /** Share of subjects held out, 0 … 100. */
+  percent: number;
+  /** Hash salt. Defaults to `holdout`. */
+  salt?: string;
 }
 
 /** A reusable audience: explicit includes/excludes, then conditions (AND). */
@@ -126,6 +165,8 @@ export interface Ruleset {
   version: string;
   flags: Record<string, FlagDefinition>;
   segments?: Record<string, Segment>;
+  layers?: Record<string, Layer>;
+  holdout?: Holdout;
 }
 
 /** An empty ruleset: every evaluation returns the code default with `FLAG_NOT_FOUND`. */

@@ -1,0 +1,27 @@
+{{{
+  exports({ to: app.migrationsPath(`${new Date().getTime()}_create_flags_tables.ts`) })
+}}}
+import { BaseSchema } from '@adonisjs/lucid/schema'
+import { createFlagsTables, dropFlagsTables } from '@adonis-agora/flags'
+
+/**
+ * The flags tables, for apps that run DDL explicitly.
+ *
+ * **You may not need this file.** \`@adonis-agora/flags\` creates its tables at boot
+ * (\`autoCreateSchema\`, on by default), like the other Agora libraries. Keep this migration if you
+ * want migrations to own the schema, and set \`autoCreateSchema: false\` in config/flags.ts. Both
+ * paths call the same \`createFlagsTables\`.
+ */
+export default class extends BaseSchema {
+  async up() {
+    this.defer(async (db) => {
+      await createFlagsTables(db as never, { partitionEvents: false })
+    })
+  }
+
+  async down() {
+    this.defer(async (db) => {
+      await dropFlagsTables(db as never)
+    })
+  }
+}

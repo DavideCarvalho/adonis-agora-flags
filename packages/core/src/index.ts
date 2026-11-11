@@ -3,6 +3,7 @@ export const VERSION = '0.0.0';
 export { BUCKET_COUNT, bucketOf, murmur3, pickVariant } from './bucket.js';
 export {
   compareSemver,
+  type EvaluateOptions,
   type EvaluationContext,
   type EvaluationDetails,
   type EvaluationErrorCode,
@@ -11,12 +12,20 @@ export {
   type FlagMetadata,
 } from './evaluate.js';
 export {
+  MAX_MATCH_INPUT_LENGTH,
+  MAX_PATTERN_LENGTH,
+  unsafeRegexReason,
+} from './regex_safety.js';
+export {
   type AttributeCondition,
   type Condition,
   type ConditionValue,
+  type ExperimentSettings,
   emptyRuleset,
   type FlagDefinition,
+  type Holdout,
   type JsonValue,
+  type Layer,
   OPERATORS,
   type Operator,
   type Prerequisite,
@@ -30,15 +39,22 @@ export {
 } from './ruleset.js';
 export {
   type ConversionCounts,
+  type CupedStats,
+  type CupedTestResult,
   chiSquareSf,
+  conversionStats,
+  cupedTest,
   normalCdf,
   normalQuantile,
   normalSf,
   type ProportionTestResult,
   proportionTest,
+  type SequentialOptions,
+  type SequentialTestResult,
   type SrmResult,
   type SufficientStats,
   type Summary,
+  sequentialTest,
   srmTest,
   studentTCdf,
   studentTQuantile,
