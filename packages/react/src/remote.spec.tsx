@@ -165,10 +165,12 @@ describe('token endpoint', () => {
     const flags = fakeServer({ values: { banner: 'snow' } });
     let issued = 0;
     let reject: string | undefined;
+    let lastTokenHeaders: Record<string, string> = {};
     const fetch = vi.fn(async (url: string, init: RequestInit = {}) => {
       if (url === 'https://app.test/_flags/token') {
         issued++;
         expect(init.credentials).toBe('include');
+        lastTokenHeaders = init.headers as Record<string, string>;
         return new Response(
           JSON.stringify({
             token: `tok-${issued}`,
@@ -190,6 +192,9 @@ describe('token endpoint', () => {
       flags,
       get issued() {
         return issued;
+      },
+      get tokenHeaders() {
+        return lastTokenHeaders;
       },
       reject(token: string) {
         reject = token;
@@ -242,5 +247,18 @@ describe('token endpoint', () => {
     expect(server.flags.tokens).toEqual(['Bearer page']);
     await source.reload();
     expect(server.issued).toBe(1);
+  });
+
+  it('sends extra headers to the token endpoint (access-token auth)', async () => {
+    const server = endpointServer();
+    const source = remoteFlags({
+      endpoint: 'https://app.test/_flags/token',
+      credentials: 'include',
+      headers: async () => ({ authorization: 'Bearer oat_123' }),
+      fetch: server.fetch,
+      stream: false,
+    });
+    await source.refresh();
+    expect(server.tokenHeaders.authorization).toBe('Bearer oat_123');
   });
 });

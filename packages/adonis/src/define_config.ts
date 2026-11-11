@@ -10,6 +10,7 @@ import type { FlagDeclaration } from './declare.js';
 import type { Enricher } from './enrichers.js';
 import type { BufferOptions } from './events/buffer.js';
 import type { FlagEvent } from './events/event.js';
+import type { FlagsIdentityProvider } from './identity.js';
 import type { RelayOptions } from './relay/relay.js';
 import { type ClickHouseOptions, ClickHouseSink } from './sinks/clickhouse.js';
 import { LucidSink } from './sinks/lucid_sink.js';
@@ -159,8 +160,15 @@ interface BaseConfig<F extends Record<string, FlagDeclaration>> {
   };
   enrichers?: Enricher[];
   /**
-   * The subject of `ctx.flags`. Default: `ctx.auth?.user` when `@adonisjs/auth` is set up (its `id`),
-   * anonymous otherwise.
+   * How flags learns who people are: the subject of `ctx.flags`, the console's actor and access, and
+   * who may change what. `identities.authkit()`, `identities.adonisAuth({ … })`, or your own
+   * `FlagsIdentityProvider`. Default: the authkit identity when `@adonis-agora/authkit-client` is
+   * installed, else `ctx.auth.user`; the console keeps its own defaults.
+   */
+  identity?: FlagsIdentityProvider;
+  /**
+   * The subject of `ctx.flags`, overriding `identity`. Default: the identity provider's, else the
+   * authkit identity, else `ctx.auth.user`, else anonymous.
    */
   subject?: (ctx: HttpContext) => SubjectLike | Promise<SubjectLike>;
   /** Extra targeting attributes for every subject. Server-side state only. */

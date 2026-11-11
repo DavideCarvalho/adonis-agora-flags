@@ -20,6 +20,8 @@ export default defineConfig({
 })
 ```
 
+Instead of `authorize` and `actor` here, an [identity provider](/docs/authentication) in `config/flags.ts` can answer both, together with who may change what. `identities.adonisAuth({ canOpenConsole })` covers `@adonisjs/auth` with Bouncer.
+
 <Callout type="warn">
   Without `authorize`, the console is open outside production and answers 403 in production. With approvals on, set `actor` (or sign people in): two anonymous people are the same actor, and nobody can approve their own change.
 </Callout>

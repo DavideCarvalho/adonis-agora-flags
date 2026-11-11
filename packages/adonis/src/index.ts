@@ -63,6 +63,12 @@ export {
   defaultSubject,
   subjectFromIdentity,
 } from './http/subject_resolver.js';
+export {
+  type AdonisAuthIdentityOptions,
+  type AuthkitIdentityOptions,
+  type FlagsIdentityProvider,
+  identities,
+} from './identity.js';
 export { FlagsManager, FlagsScope, type TrackOptions } from './manager.js';
 export { Relay } from './relay/relay.js';
 export { FlagsWorker } from './relay/worker.js';

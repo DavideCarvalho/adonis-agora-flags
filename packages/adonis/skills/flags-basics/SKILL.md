@@ -73,7 +73,12 @@ async show({ flags, inertia }: HttpContext) {
 
 `ctx.flags` evaluates for the authkit identity when `@adonis-agora/authkit-client`
 is installed (targetingKey = `sub`; attributes `email`, `emailDomain`,
-`globalRoles`, `orgId`, `orgSlug`, `orgRole`), else `ctx.auth.user`. Outside HTTP:
+`globalRoles`, `orgId`, `orgSlug`, `orgRole`), else `ctx.auth.user`.
+`identity` in the config replaces all of it with one `FlagsIdentityProvider`
+(`subject`, `actor`, `authorizeConsole`, `can`): `identities.authkit()`,
+`identities.adonisAuth({ guard, canOpenConsole: (user, ctx) =>
+ctx.bouncer.allows(manageFlags) })`, or a class implementing the interface.
+Outside HTTP:
 
 ```ts
 import flags from '@adonis-agora/flags/services/main'

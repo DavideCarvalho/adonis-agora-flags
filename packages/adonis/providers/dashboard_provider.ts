@@ -61,6 +61,7 @@ import {
 import { contentTypeFor, renderIndexHtml } from '../src/dashboard/spa.js';
 import type { FlagsConfig } from '../src/define_config.js';
 import { authkitIdentity } from '../src/http/subject_resolver.js';
+import type { FlagsIdentityProvider } from '../src/identity.js';
 import { getRuntime, hasRuntime } from '../src/services/accessor.js';
 import type { Actor } from '../src/stores/store.js';
 
@@ -126,6 +127,8 @@ export default class FlagsDashboardProvider {
     reason: 'forbidden',
   });
 
+  private identity: FlagsIdentityProvider | undefined;
+
   async boot() {
     const config = resolveConfig(this.app.config.get<FlagsDashboardConfig>('flags_dashboard', {}));
     if (!config.enabled) return;
@@ -134,6 +137,7 @@ export default class FlagsDashboardProvider {
       await this.warn(TENANT_WARNING);
       return;
     }
+    this.identity = flagsConfig?.identity;
     this.authorizeGuard = await this.resolveGuard(config);
 
     // The router is committed only after every provider's `boot()`: register in `booted`.
@@ -231,6 +235,13 @@ export default class FlagsDashboardProvider {
    * `ctx.auth.user`, else the anonymous `'dashboard'` (refused where approvals are on).
    */
   private async actorOf(config: ResolvedFlagsDashboardConfig, ctx: HttpContext): Promise<Actor> {
+    if (!config.actor && this.identity?.actor) {
+      try {
+        return (await this.identity.actor(ctx)) ?? FALLBACK_ACTOR;
+      } catch {
+        return FALLBACK_ACTOR;
+      }
+    }
     if (!config.actor) {
       const identity = await authkitIdentity(ctx);
       if (identity) {
@@ -313,6 +324,10 @@ export default class FlagsDashboardProvider {
     config: ResolvedFlagsDashboardConfig,
   ): Promise<(ctx: HttpContext) => Promise<ConsoleAuthorizeDecision>> {
     if (config.authorize) return resolveConsoleAuthorize(config.authorize);
+    const identity = this.identity;
+    if (identity?.authorizeConsole) {
+      return resolveConsoleAuthorize((ctx: HttpContext) => identity.authorizeConsole!(ctx));
+    }
     await this.warn(NO_AUTHORIZE_WARNING);
     if (this.app.inProduction !== true) return async () => ({ allowed: true });
     return async () => ({ allowed: false, status: 403, reason: 'forbidden' });

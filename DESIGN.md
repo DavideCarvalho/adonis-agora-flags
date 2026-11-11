@@ -234,3 +234,7 @@ tenant, DuckDB/Parquet locais) e de integração (Postgres, Redis e ClickHouse e
   e o browser nunca o vê. `userVerifiers.authkit` fica para apps com token próprio (mobile PKCE).
   Atributos do browser entram por baixo e não mudam targetingKey/subjectType. Só flags
   `client: true`, só valores. Exposições do browser são reavaliadas no servidor.
+- **`FlagsIdentityProvider`** (`identity` no config): um contrato só, como o user provider do
+  @adonisjs/auth — `subject`, `actor`, `authorizeConsole`, `can`. Built-ins `identities.authkit()` e
+  `identities.adonisAuth()`; sem authkit a pessoa escreve as regras (Bouncer) e a doc
+  "Authentication" guia. Opções explícitas nos configs (`subject`, `authorize`, `actor`) vencem.

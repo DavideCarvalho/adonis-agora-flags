@@ -1,8 +1,8 @@
 import type { HttpContext } from '@adonisjs/core/http';
 import type { NextFn } from '@adonisjs/core/types/http';
+import { subjectResolver } from '../identity.js';
 import type { FlagsScope } from '../manager.js';
 import { getRuntime } from '../services/accessor.js';
-import { defaultSubject } from './subject_resolver.js';
 
 declare module '@adonisjs/core/http' {
   interface HttpContext {
@@ -21,7 +21,7 @@ declare module '@adonisjs/core/http' {
 export default class FlagsMiddleware {
   async handle(ctx: HttpContext, next: NextFn) {
     const runtime = getRuntime();
-    const resolve = runtime.config.subject ?? defaultSubject;
+    const resolve = subjectResolver(runtime.config);
     ctx.flags = runtime.manager.forLazy(() => resolve(ctx));
     const view = (ctx as unknown as { view?: { share(data: Record<string, unknown>): void } }).view;
     view?.share({ flags: ctx.flags });

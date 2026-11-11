@@ -1,8 +1,8 @@
 import type { HttpContext } from '@adonisjs/core/http';
 import type { NextFn } from '@adonisjs/core/types/http';
+import { subjectResolver } from '../identity.js';
 import { getRuntime } from '../services/accessor.js';
 import type { FlagKey } from '../types.js';
-import { defaultSubject } from './subject_resolver.js';
 
 export interface FlagGuardOptions {
   /** The flag that must be on (boolean) or serve one of `variants`. */
@@ -30,7 +30,7 @@ export default class FlagMiddleware {
     const runtime = getRuntime();
     const scope =
       (ctx as Partial<HttpContext>).flags ??
-      runtime.manager.forLazy(() => (runtime.config.subject ?? defaultSubject)(ctx));
+      runtime.manager.forLazy(() => subjectResolver(runtime.config)(ctx));
     const details = await scope.details(options.flag);
     const allowed = options.variants
       ? details.variant !== undefined && options.variants.includes(details.variant)

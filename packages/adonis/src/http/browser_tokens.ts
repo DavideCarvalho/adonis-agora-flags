@@ -1,5 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http';
 import type { BrowserConfig } from '../define_config.js';
+import { subjectResolver } from '../identity.js';
 import type { FlagsRuntime } from '../runtime.js';
 import { toSubject } from '../subject.js';
 import {
@@ -7,7 +8,6 @@ import {
   type IssuedBrowserToken,
   signBrowserToken,
 } from '../topology/browser_token.js';
-import { defaultSubject } from './subject_resolver.js';
 
 export interface BrowserTokenResponse extends IssuedBrowserToken {
   /** The flags API the token is for. */
@@ -30,7 +30,7 @@ export class BrowserTokens {
   ) {}
 
   async issue(ctx: HttpContext): Promise<BrowserTokenResponse> {
-    const resolve = this.runtime.config.subject ?? defaultSubject;
+    const resolve = subjectResolver(this.runtime.config);
     const subject = toSubject(await resolve(ctx));
     const resolved = await this.runtime.manager.attributesFor(subject);
     const { key, app, environment } = await this.keys.get();

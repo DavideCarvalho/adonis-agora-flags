@@ -35,6 +35,13 @@ export interface EndpointOptions extends CommonOptions {
   endpoint: string;
   /** Cookies on the token request. Default `same-origin`; `include` when the API is on another origin. */
   credentials?: RequestCredentials;
+  /**
+   * Extra headers on the token request — e.g. `() => ({ authorization: \`Bearer ${apiToken}\` })`
+   * when your app authenticates the SPA with `@adonisjs/auth` access tokens instead of a cookie.
+   */
+  headers?:
+    | Record<string, string>
+    | (() => Record<string, string> | Promise<Record<string, string>>);
   /** A token already in the page (from `browserToken(ctx)`), to skip the first round-trip. */
   initial?: BrowserToken;
 }
@@ -106,7 +113,12 @@ export class RemoteFlags {
     this.#sessionLoad ??= (async () => {
       const response = await this.#fetch(options.endpoint, {
         credentials: options.credentials ?? 'same-origin',
-        headers: { accept: 'application/json' },
+        headers: {
+          accept: 'application/json',
+          ...(typeof options.headers === 'function'
+            ? await options.headers()
+            : (options.headers ?? {})),
+        },
       });
       if (!response.ok) throw new Error(`token endpoint answered ${response.status}`);
       const body = (await response.json()) as BrowserToken;

@@ -1,0 +1,177 @@
+---
+title: Authentication
+description: Who flags are for and who may change them — with @adonisjs/auth and Bouncer, with authkit, or with your own identity provider.
+icon: ShieldCheck
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Flags asks your app four questions about people. They make up one contract, `FlagsIdentityProvider`, which plays the role a user provider plays for `@adonisjs/auth`:
+
+| Method | Question | Used by |
+|---|---|---|
+| `subject(ctx)` | Who are flags evaluated for? | `ctx.flags`, the route guard, Edge, the [browser token endpoint](/docs/react#without-inertia-remoteflags) |
+| `actor(ctx)` | Who is changing a flag? | the console's audit log and approvals |
+| `authorizeConsole(ctx)` | Who may open the console? | the console |
+| `can(actor, action, target)` | May this person `read`, `write` or `approve` in this environment? | every change: console, `node ace flags:*`, the admin API |
+
+Only `subject` is required. Pick a built-in provider, or write your own:
+
+```ts title="config/flags.ts"
+import { defineConfig, identities } from '@adonis-agora/flags'
+
+export default defineConfig({
+  flags: { /* … */ },
+  identity: identities.adonisAuth({ /* … */ }),   // or identities.authkit(), or your class
+})
+```
+
+With no `identity` at all, the subject is the authkit identity when `@adonis-agora/authkit-client` is installed, otherwise `ctx.auth.user`, and the console keeps its own defaults: open outside production, closed in production.
+
+## With `@adonisjs/auth` and Bouncer
+
+The built-in provider reads `ctx.auth`. You write the rules, typically as Bouncer abilities:
+
+```ts title="app/abilities/main.ts"
+import { Bouncer } from '@adonisjs/bouncer'
+import type User from '#models/user'
+
+export const manageFlags = Bouncer.ability((user: User) => ['admin', 'developer'].includes(user.role))
+export const changeProductionFlags = Bouncer.ability((user: User) => user.role === 'admin')
+```
+
+```ts title="config/flags.ts"
+import { defineConfig, identities } from '@adonis-agora/flags'
+import { manageFlags } from '#abilities/main'
+import User from '#models/user'
+
+export default defineConfig({
+  flags: { /* … */ },
+  identity: identities.adonisAuth<User>({
+    loginPath: '/login',
+    canOpenConsole: (user, ctx) => ctx.bouncer.allows(manageFlags),
+  }),
+  // Targeting attributes come from your data: the session only says who the user is.
+  attributes: async (subject) => {
+    const user = await User.find(subject.id)
+    return { plan: user?.plan, country: user?.country, orgId: user?.organizationId }
+  },
+})
+```
+
+| Option | |
+|---|---|
+| `guard` | The guard to read (`'web'`, `'api'`). Default: the default guard. The request is checked silently, so no auth middleware is needed on flagged routes. |
+| `canOpenConsole` | Who may open the console once signed in. |
+| `loginPath` | Where the console sends people who are not signed in. Default: answer 401. |
+| `can` | Who may change what (below). Default: anyone the console lets in. |
+| `type` | Subject type stored on events. Default `user`. |
+
+The console's actor is the user's `id`, with `fullName`, `name` or `email` as the display name.
+
+## Your own provider
+
+When the built-ins don't fit, implement the interface. A class in its own file keeps it testable:
+
+```ts title="app/flags/identity.ts"
+import { randomUUID } from 'node:crypto'
+import type { HttpContext } from '@adonisjs/core/http'
+import { Bouncer } from '@adonisjs/bouncer'
+import type { Actor, AdminAction, FlagsIdentityProvider } from '@adonis-agora/flags'
+import User from '#models/user'
+import { changeProductionFlags, manageFlags } from '#abilities/main'
+
+export default class AppFlagsIdentity implements FlagsIdentityProvider {
+  /** Signed-in users by id; visitors by a cookie, so they keep their variant until they sign up. */
+  async subject(ctx: HttpContext) {
+    if (await ctx.auth.check()) return { id: ctx.auth.user!.id, type: 'user' }
+    let anonymousId = ctx.request.cookie('anon_id')
+    if (!anonymousId) {
+      anonymousId = randomUUID()
+      ctx.response.cookie('anon_id', anonymousId, { maxAge: '1y' })
+    }
+    return { id: anonymousId, type: 'anonymous' }
+  }
+
+  async actor(ctx: HttpContext) {
+    if (!(await ctx.auth.check())) return undefined
+    const user = ctx.auth.user!
+    return { id: String(user.id), name: user.fullName ?? user.email }
+  }
+
+  async authorizeConsole(ctx: HttpContext) {
+    if (!(await ctx.auth.check())) return { redirectTo: '/login' }
+    return ctx.bouncer.allows(manageFlags)
+  }
+
+  /** Runs outside HTTP too, so it loads the user from the actor's id. */
+  async can(actor: Actor, action: AdminAction, { environment }: { environment: string }) {
+    if (actor.id.startsWith('cli:')) return true // node ace flags:* — shell access is already trusted
+    if (action === 'read') return true
+    const user = await User.find(actor.id)
+    if (!user) return false
+    const bouncer = new Bouncer(user)
+    return environment === 'production'
+      ? bouncer.allows(changeProductionFlags)
+      : bouncer.allows(manageFlags)
+  }
+}
+```
+
+```ts title="config/flags.ts"
+import AppFlagsIdentity from '../app/flags/identity.js'
+
+export default defineConfig({
+  flags: { /* … */ },
+  identity: new AppFlagsIdentity(),
+})
+```
+
+`authorizeConsole` answers like every Agora console: `true`/`false`, `{ allowed: false, reason: 'unauthenticated' }` for a 401, or `{ redirectTo }`. A provider that throws is a denial.
+
+<Callout type="warn">
+  Never build the subject from request input (query strings, headers the client sets). Targeting and experiment assignment trust it.
+</Callout>
+
+Options set directly in the configs still win over the provider: `subject` and `authorize` in `config/flags.ts`, `actor` and `authorize` in `config/flags_dashboard.ts`. Use them to override one piece without writing a provider.
+
+## With authkit
+
+```ts title="config/flags.ts"
+identity: identities.authkit({ loginPath: '/login' }),
+```
+
+Everything comes from the authkit session: the subject is the `sub` claim (the same person in every app), with `email`, `emailDomain`, `globalRoles`, `orgId`, `orgSlug` and `orgRole` as targeting attributes. The console actor is the authkit user. The console needs the `ADMIN` global role (`consoleRole` changes it). Pass `can` for finer rules.
+
+## Frontends
+
+The [token endpoint](/docs/react#without-inertia-remoteflags) signs whatever `subject` returns, so it works with any provider. How the browser proves who it is to that endpoint is up to your auth:
+
+- **Session cookie** (the `web` guard, authkit): nothing to do; use `credentials: 'include'` when the frontend is on another origin.
+- **Access tokens** (`@adonisjs/auth`'s `api` guard): send the token to the endpoint, and read that guard:
+
+```ts title="config/flags.ts"
+identity: identities.adonisAuth({ guard: 'api' }),
+browser: {},
+```
+
+```tsx
+remoteFlags({
+  endpoint: 'https://api.example.com/_flags/token',
+  headers: () => ({ authorization: `Bearer ${apiToken}` }),
+})
+```
+
+## A central server without authkit
+
+Tenants authenticate to the control-plane with a [shared secret](/docs/central-server#authentication) each; browser tokens work the same either way. The control-plane's console uses its own identity provider. People sign in to the flags server itself.
+
+## What authkit adds
+
+| | `@adonisjs/auth` | authkit |
+|---|---|---|
+| Subject and actor | `identities.adonisAuth()` | `identities.authkit()` |
+| Targeting attributes | your `attributes` resolver | email, roles and organization from the session, plus your resolver |
+| Console access | `canOpenConsole` (Bouncer) | the `ADMIN` global role |
+| Same person across apps | only if your apps share user ids | yes: one `sub` everywhere, so cross-app experiments work |
+| Tenants of a central server | a shared secret per app | client credentials, revocable in authkit |

@@ -268,7 +268,11 @@ export async function createRuntime(
     environment,
     declarations,
     ...(owned.approvals ? { approvals: owned.approvals } : {}),
-    ...(owned.authorize ? { authorize: owned.authorize } : {}),
+    ...(owned.authorize
+      ? { authorize: owned.authorize }
+      : config.identity?.can
+        ? { authorize: config.identity.can.bind(config.identity) }
+        : {}),
     onApplied: (env, version) => {
       if (env === environment) void source.refresh();
       options.onApplied?.(env, version);
