@@ -184,11 +184,13 @@ describe('control-plane and tenant', () => {
     await tenant.manager.track('u1', 'purchase', { value: 10 });
     await tenant.buffer!.flush();
     await cp.relay!.drain('warehouse');
-    const rows = (await db.database.rawQuery('SELECT app, name FROM flags_tracks')) as Array<{
+    const rows = (await db.database.rawQuery(
+      'SELECT app, environment, name FROM flags_tracks',
+    )) as Array<{
       app: string;
       name: string;
     }>;
-    expect(rows).toEqual([{ app: 'shop', name: 'purchase' }]);
+    expect(rows).toEqual([{ app: 'shop', environment: 'production', name: 'purchase' }]);
 
     // Declarations were pushed at boot.
     const declared = await cp.store!.declarations('shop');

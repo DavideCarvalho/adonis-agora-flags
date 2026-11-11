@@ -8,6 +8,7 @@ const event = (i: number) => ({
   id: `e${i}`,
   schemaVersion: 1,
   app: 'shop',
+  environment: 'production',
   type: 'track' as const,
   name: 'purchase',
   subject: `u${i}`,

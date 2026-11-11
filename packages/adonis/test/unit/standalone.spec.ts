@@ -176,6 +176,14 @@ describe('standalone runtime on SQLite', () => {
     expect(approved.request.status).toBe('applied');
     const audit = await strict.store!.audit({ key: 'new_player' });
     expect(audit[0]?.changeRequestId).toBe(pending.request.id);
+    // Anonymous actors cannot take part in approvals, but may edit unprotected environments.
+    const anonymous = { id: 'dashboard', anonymous: true };
+    await expect(strict.admin!.turnOff('new_player', anonymous)).rejects.toMatchObject({
+      code: 'E_FLAGS_FORBIDDEN',
+    });
+    await expect(
+      strict.admin!.turnOff('new_player', anonymous, { environment: 'staging' }),
+    ).resolves.toMatchObject({ status: 'applied' });
     await strict.close();
   });
 
@@ -231,5 +239,73 @@ describe('standalone runtime on SQLite', () => {
       "SELECT COUNT(*) AS n FROM flags_events WHERE subject = 'gone'",
     )) as Array<{ n: number }>;
     expect(Number(tracks[0]!.n) + Number(events[0]!.n)).toBe(0);
+  });
+});
+
+describe('environments do not mix experiment data', () => {
+  it('computes staging and production results from their own events only', async () => {
+    const testDb = await sqliteDb();
+    const experimentConfig = (environment: string) =>
+      defineConfig({
+        environment,
+        flags: { checkout: flag.string({ default: 'control', variants: ['control', 'one_page'] }) },
+        metrics: { purchase: metric.conversion('purchase') },
+        experiments: { checkout: { metrics: ['purchase'] } },
+        sinks: { warehouse: sinks.lucid() },
+        resultsEnvironments: ['production', 'staging'],
+      });
+    const production = await createRuntime(
+      experimentConfig('production'),
+      lucidContext(testDb.database as never),
+      {
+        logger: quietLogger,
+      },
+    );
+    const staging = await createRuntime(
+      experimentConfig('staging'),
+      lucidContext(testDb.database as never),
+      {
+        logger: quietLogger,
+      },
+    );
+    const definition = {
+      variants: { control: 'control', one_page: 'one_page' },
+      enabled: true,
+      offVariant: 'control',
+      fallthrough: {
+        split: [
+          { variant: 'control', weight: 1 },
+          { variant: 'one_page', weight: 1 },
+        ],
+      },
+      experiment: {},
+    };
+    await production.admin!.saveFlag('checkout', definition, { id: 'a' });
+    await staging.admin!.saveFlag('checkout', definition, { id: 'a' }, { environment: 'staging' });
+    await production.manager.refresh();
+    await staging.manager.refresh();
+    // The same subjects in both environments: 100 in production, 40 in staging.
+    for (let i = 0; i < 100; i++) await production.manager.for(`u${i}`).variant('checkout');
+    for (let i = 0; i < 40; i++) {
+      await staging.manager.for(`u${i}`).variant('checkout');
+      await staging.manager.track(`u${i}`, 'purchase');
+    }
+    await production.buffer!.flush();
+    await staging.buffer!.flush();
+    await production.relay!.drain('warehouse', 50);
+
+    const all = await production.worker!.computeAllResults();
+    const prod = all.find((r) => r.environment === 'production')!;
+    const stag = all.find((r) => r.environment === 'staging')!;
+    expect(Object.values(prod.exposures).reduce((a, b) => a + b, 0)).toBe(100);
+    expect(Object.values(stag.exposures).reduce((a, b) => a + b, 0)).toBe(40);
+    // Production saw no purchases even though the same subjects bought in staging.
+    expect(prod.metrics[0]!.variants.every((v) => v.mean === 0)).toBe(true);
+    expect(stag.metrics[0]!.variants.every((v) => v.mean === 1)).toBe(true);
+    expect((await production.manager.results('checkout', 'staging'))?.environment).toBe('staging');
+
+    await staging.close();
+    await production.close();
+    await testDb.close();
   });
 });

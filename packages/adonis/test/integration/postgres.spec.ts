@@ -20,6 +20,7 @@ const event = (i: number) => ({
   id: `00000000-0000-7000-8000-${String(i).padStart(12, '0')}`,
   schemaVersion: 1,
   app: 'shop',
+  environment: 'production',
   type: 'track' as const,
   name: 'purchase',
   subject: `u${i}`,
@@ -142,6 +143,7 @@ describe('Postgres', () => {
     runtime = await createRuntime(
       defineConfig({
         app: 'shop',
+        environment: 'production',
         flags: { checkout: flag.string({ default: 'control', variants: ['control', 'b'] }) },
         sinks: { warehouse: sinks.lucid() },
         metrics: { revenue: metric.sum('purchase', { cupedMs: 30 * 86_400_000 }) },
@@ -222,6 +224,6 @@ describe('Postgres', () => {
       ['checkout'],
     );
     expect(Number(exposures[0]!.n)).toBe(300);
-    expect(exposureId('shop', 'checkout', 'u7')).toMatch(/^[0-9a-f-]{36}$/);
+    expect(exposureId('shop', 'production', 'checkout', 'u7')).toMatch(/^[0-9a-f-]{36}$/);
   });
 });

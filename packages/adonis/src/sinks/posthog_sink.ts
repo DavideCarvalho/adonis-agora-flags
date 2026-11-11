@@ -49,6 +49,7 @@ export class PostHogSink implements Sink {
               $feature_flag_response: e.variant,
               experiment: e.experiment,
               app: e.app,
+              environment: e.environment,
               subject_type: e.subjectType,
               ...e.props,
             },
@@ -61,6 +62,7 @@ export class PostHogSink implements Sink {
             properties: {
               ...(e.value !== undefined ? { value: e.value } : {}),
               app: e.app,
+              environment: e.environment,
               subject_type: e.subjectType,
               ...e.props,
             },

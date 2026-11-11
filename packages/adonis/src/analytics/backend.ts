@@ -7,12 +7,13 @@ import type { MetricDefinition, VariantMetricStats } from './metrics.js';
  */
 export interface AnalyticsBackend {
   readonly kind: string;
-  /** Subjects exposed to the experiment, per variant. */
-  exposures(experiment: string): Promise<Record<string, number>>;
+  /** Subjects exposed to the experiment in `environment`, per variant. */
+  exposures(experiment: string, environment: string): Promise<Record<string, number>>;
   /** One metric's statistics per variant, over every exposed subject (zeros included). */
   metric(
     experiment: string,
     definition: MetricDefinition,
+    environment: string,
   ): Promise<Record<string, VariantMetricStats>>;
   close?(): Promise<void>;
 }

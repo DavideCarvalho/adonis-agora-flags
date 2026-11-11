@@ -78,6 +78,7 @@ export class ClickHouseClient {
       event_id String,
       schema_version UInt8,
       app LowCardinality(String),
+      environment LowCardinality(String),
       type LowCardinality(String),
       flag Nullable(String),
       experiment Nullable(String),
@@ -90,7 +91,7 @@ export class ClickHouseClient {
       ts Int64
     ) ENGINE = ReplacingMergeTree
     PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(ts))
-    ORDER BY (type, ifNull(experiment, ''), ifNull(name, ''), subject, event_id)`);
+    ORDER BY (environment, type, ifNull(experiment, ''), ifNull(name, ''), subject, event_id)`);
   }
 }
 
@@ -126,6 +127,7 @@ export class ClickHouseSink implements Sink {
         event_id: e.id,
         schema_version: e.schemaVersion,
         app: e.app,
+        environment: e.environment,
         type: e.type,
         flag: e.flag ?? null,
         experiment: e.experiment ?? null,

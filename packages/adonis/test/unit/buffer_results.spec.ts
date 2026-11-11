@@ -10,6 +10,7 @@ const track = (i: number): FlagEvent => ({
   id: `e${i}`,
   schemaVersion: 1,
   app: 'a',
+  environment: 'production',
   type: 'track',
   name: 'n',
   subject: `u${i}`,

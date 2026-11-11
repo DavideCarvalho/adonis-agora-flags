@@ -135,7 +135,7 @@ export function Ops() {
       {ops && ops.topology === 'control-plane' && (
         <Panel
           title="Tenants"
-          subtitle="Apps that evaluate this control-plane's ruleset (seen since this process started)."
+          subtitle="Apps that evaluate this control-plane's ruleset. Version and capabilities are what this replica saw; the rest comes from the declarations every tenant publishes."
         >
           {ops.tenants.length === 0 ? (
             <p className="p-4 text-sm text-zinc-500">No tenant has called in yet.</p>
@@ -146,9 +146,11 @@ export function Ops() {
               {ops.tenants.map((t) => (
                 <tr key={t.partition}>
                   <td className="mono px-4 py-2">{t.partition}</td>
-                  <td className="px-4 py-2">{t.environment}</td>
+                  <td className="px-4 py-2">{t.environment ?? '—'}</td>
                   <td className="mono px-4 py-2">{t.lastRulesetVersion ?? '—'}</td>
-                  <td className="mono px-4 py-2">{formatTime(t.lastSeenAt)}</td>
+                  <td className="mono px-4 py-2">
+                    {t.lastSeenAt ? formatTime(t.lastSeenAt) : '—'}
+                  </td>
                   <td className="px-4 py-2 text-zinc-400">{t.capabilities.join(', ') || '—'}</td>
                 </tr>
               ))}

@@ -28,9 +28,10 @@ describe('ClickHouse sink + backend', () => {
       const subject = `u${i}`;
       const variant = i % 2 === 0 ? 'control' : 'b';
       events.push({
-        id: exposureId('shop', 'checkout', subject),
+        id: exposureId('shop', 'production', 'checkout', subject),
         schemaVersion: EVENT_SCHEMA_VERSION,
         app: 'shop',
+        environment: 'production',
         type: 'exposure',
         flag: 'checkout',
         experiment: 'checkout',
@@ -44,6 +45,7 @@ describe('ClickHouse sink + backend', () => {
           id: uuidv7(),
           schemaVersion: 1,
           app: 'shop',
+          environment: 'production',
           type: 'track',
           name: 'purchase',
           subject,
@@ -58,6 +60,7 @@ describe('ClickHouse sink + backend', () => {
           id: uuidv7(),
           schemaVersion: 1,
           app: 'shop',
+          environment: 'production',
           type: 'track',
           name: 'purchase',
           subject,
@@ -71,11 +74,19 @@ describe('ClickHouse sink + backend', () => {
     await sink.write(events.slice(0, 80)); // at-least-once re-send
 
     const backend = new ClickHouseBackend(opts);
-    expect(await backend.exposures('checkout')).toEqual({ control: 100, b: 100 });
-    const conversion = await backend.metric('checkout', metric.conversion('purchase'));
+    expect(await backend.exposures('checkout', 'production')).toEqual({ control: 100, b: 100 });
+    const conversion = await backend.metric(
+      'checkout',
+      metric.conversion('purchase'),
+      'production',
+    );
     expect(conversion.control).toMatchObject({ n: 100, sumY: 20 });
     expect(conversion.b).toMatchObject({ n: 100, sumY: 50 });
-    const cuped = await backend.metric('checkout', metric.sum('purchase', { cupedMs: 10_000 }));
+    const cuped = await backend.metric(
+      'checkout',
+      metric.sum('purchase', { cupedMs: 10_000 }),
+      'production',
+    );
     expect(cuped.control!.sumX).toBe(999);
 
     const results = await computeResults(
@@ -88,9 +99,9 @@ describe('ClickHouse sink + backend', () => {
     await sink.forget('u1');
     // Mutations are asynchronous in ClickHouse; wait for this one.
     const deadline = Date.now() + 10_000;
-    while (Date.now() < deadline && (await backend.exposures('checkout')).b !== 99) {
+    while (Date.now() < deadline && (await backend.exposures('checkout', 'production')).b !== 99) {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
-    expect((await backend.exposures('checkout')).b).toBe(99);
+    expect((await backend.exposures('checkout', 'production')).b).toBe(99);
   });
 });

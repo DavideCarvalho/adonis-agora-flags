@@ -2,6 +2,7 @@ import type { ApplicationService } from '@adonisjs/core/types';
 import type { FlagsConfig } from '../src/define_config.js';
 import { type DurableEngineLike, registerDurableWorkflows } from '../src/durable.js';
 import { ControlPlane } from '../src/http/control_plane.js';
+import { registerEdgeTag } from '../src/http/edge_tag.js';
 import type { FlagsManager } from '../src/manager.js';
 import { createRuntime, type FlagsRuntime } from '../src/runtime.js';
 import { setRuntime } from '../src/services/accessor.js';
@@ -159,6 +160,8 @@ export default class FlagsProvider {
     await this.app.booted(async () => {
       const runtime = await this.#build();
       const config = this.#config();
+      // `@flag` in Edge views, when the app renders Edge at all.
+      await registerEdgeTag();
       if (config.topology === 'control-plane' && runtime.role !== 'worker') {
         const router = await this.app.container.make('router');
         new ControlPlane(runtime, config.controlPlane).register(router as never);

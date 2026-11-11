@@ -100,17 +100,18 @@ export class DuckDbBackend implements AnalyticsBackend {
   }
 
   /** First exposure per subject, deduped by event id like every other backend. */
-  #exposuresSql(experiment: string) {
+  #exposuresSql(experiment: string, environment: string) {
     return `SELECT subject, arg_min(variant, ts) AS variant, min(ts) AS first_seen_ts
               FROM read_parquet(${this.#glob}, hive_partitioning = true, union_by_name = true)
-             WHERE type = 'exposure' AND experiment = ${literal(experiment)}
+             WHERE type = 'exposure' AND environment = ${literal(environment)}
+               AND experiment = ${literal(experiment)}
              GROUP BY subject`;
   }
 
-  async exposures(experiment: string): Promise<Record<string, number>> {
+  async exposures(experiment: string, environment: string): Promise<Record<string, number>> {
     return this.#duck.withConnection(async (_sql, select) => {
       const rows = await select<{ variant: string; n: number | bigint }>(
-        `SELECT variant, COUNT(*) AS n FROM (${this.#exposuresSql(experiment)}) GROUP BY variant`,
+        `SELECT variant, COUNT(*) AS n FROM (${this.#exposuresSql(experiment, environment)}) GROUP BY variant`,
       ).catch(noFiles);
       return Object.fromEntries(rows.map((row) => [row.variant, Number(row.n)]));
     });
@@ -119,17 +120,19 @@ export class DuckDbBackend implements AnalyticsBackend {
   async metric(
     experiment: string,
     definition: MetricDefinition,
+    environment: string,
   ): Promise<Record<string, VariantMetricStats>> {
     const { post, pre } = subjectAggregates(definition);
     const window = definition.windowMs ?? UNBOUNDED_MS;
     const preWindow = definition.cupedMs ?? 0;
     return this.#duck.withConnection(async (_sql, select) => {
       const rows = await select(
-        `WITH x AS (${this.#exposuresSql(experiment)}),
+        `WITH x AS (${this.#exposuresSql(experiment, environment)}),
               t AS (
                 SELECT DISTINCT ON (event_id) subject, value, ts
                   FROM read_parquet(${this.#glob}, hive_partitioning = true, union_by_name = true)
-                 WHERE type = 'track' AND name = ${literal(definition.event)}
+                 WHERE type = 'track' AND environment = ${literal(environment)}
+                   AND name = ${literal(definition.event)}
               )
          SELECT variant, COUNT(*) AS n,
                 SUM(y) AS sum_y, SUM(y * y) AS sum_y2,

@@ -16,6 +16,10 @@ export interface WorkerOptions {
   relayIntervalMs?: number;
   admin?: FlagsAdmin;
   source: RulesetSource;
+  /** The environment this process reads (results default to it). */
+  environment?: string;
+  /** Environments whose experiment results the worker recomputes. Default: `[environment]`. */
+  resultsEnvironments?: string[];
   analytics?: AnalyticsBackend;
   resultsCache?: ResultsCache;
   metrics?: Record<string, MetricDefinition>;
@@ -114,37 +118,52 @@ export class FlagsWorker {
     const { analytics, resultsCache, experiments } = this.options;
     if (!analytics || !resultsCache || !experiments) return [];
     const out: ExperimentResults[] = [];
-    for (const key of Object.keys(experiments)) {
-      try {
-        const result = await this.computeResults(key);
-        if (result) out.push(result);
-      } catch (error) {
-        this.options.logger?.error(
-          `[flags] results for "${key}" failed: ${(error as Error).message}`,
-        );
+    const environments = this.options.resultsEnvironments ?? [this.#environment];
+    for (const environment of environments) {
+      for (const key of Object.keys(experiments)) {
+        try {
+          const result = await this.computeResults(key, environment);
+          if (result) out.push(result);
+        } catch (error) {
+          this.options.logger?.error(
+            `[flags] results for "${key}" (${environment}) failed: ${(error as Error).message}`,
+          );
+        }
       }
     }
     return out;
   }
 
-  async computeResults(key: string): Promise<ExperimentResults | null> {
+  get #environment(): string {
+    return this.options.environment ?? 'production';
+  }
+
+  /** Computes and caches one experiment's results for an environment (default: this process's). */
+  async computeResults(
+    key: string,
+    environment = this.#environment,
+  ): Promise<ExperimentResults | null> {
     const { analytics, resultsCache, experiments, metrics = {} } = this.options;
     const experiment = experiments?.[key];
     if (!analytics || !resultsCache || !experiment) return null;
     const flagKey = experiment.flag ?? key;
-    const ruleset = this.options.source.current();
+    const ruleset =
+      environment === this.#environment || !this.options.admin
+        ? this.options.source.current()
+        : await this.options.admin.store.readRuleset(environment);
     const definitions: Record<string, MetricDefinition> = {};
     for (const name of new Set([...experiment.metrics, ...(experiment.guardrails ?? [])])) {
       const definition = metrics[name];
       if (!definition) throw new Error(`experiment "${key}" uses unknown metric "${name}"`);
       definitions[name] = definition;
     }
-    const previous = (await resultsCache.get(key)) ?? undefined;
+    const previous = (await resultsCache.get(environment, key)) ?? undefined;
     const result = await computeResults(
       analytics,
       {
         key,
         flag: flagKey,
+        environment,
         metrics: definitions,
         ...(experiment.guardrails ? { guardrails: experiment.guardrails } : {}),
         ...(experiment.control ? { control: experiment.control } : {}),
@@ -153,7 +172,7 @@ export class FlagsWorker {
       ruleset.flags[flagKey],
       previous,
     );
-    await resultsCache.set(key, result);
+    await resultsCache.set(environment, key, result);
     for (const metric of result.metrics) {
       if (metric.alert)
         this.options.logger?.warn(

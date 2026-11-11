@@ -76,6 +76,7 @@ describe('PostHog sink', () => {
         id: 'e1',
         schemaVersion: 1,
         app: 'shop',
+        environment: 'production',
         type: 'exposure',
         flag: 'checkout',
         experiment: 'checkout',
@@ -105,6 +106,7 @@ describe('PostHog sink', () => {
           id: 'x',
           schemaVersion: 1,
           app: 'a',
+          environment: 'production',
           type: 'track',
           name: 'n',
           subject: 's',
@@ -127,9 +129,10 @@ describe('Parquet sink + DuckDB backend', () => {
       const subject = `u${i}`;
       const variant = i % 2 === 0 ? 'control' : 'b';
       events.push({
-        id: exposureId('shop', 'checkout', subject),
+        id: exposureId('shop', 'production', 'checkout', subject),
         schemaVersion: EVENT_SCHEMA_VERSION,
         app: 'shop',
+        environment: 'production',
         type: 'exposure',
         flag: 'checkout',
         experiment: 'checkout',
@@ -144,6 +147,7 @@ describe('Parquet sink + DuckDB backend', () => {
           id: uuidv7(),
           schemaVersion: 1,
           app: 'shop',
+          environment: 'production',
           type: 'track',
           name: 'purchase',
           subject,
@@ -158,8 +162,8 @@ describe('Parquet sink + DuckDB backend', () => {
     await sink.write(events.slice(0, 50));
 
     const backend = new DuckDbBackend({ path });
-    expect(await backend.exposures('checkout')).toEqual({ control: 100, b: 100 });
-    const stats = await backend.metric('checkout', metric.conversion('purchase'));
+    expect(await backend.exposures('checkout', 'production')).toEqual({ control: 100, b: 100 });
+    const stats = await backend.metric('checkout', metric.conversion('purchase'), 'production');
     expect(stats.control!.sumY).toBe(20);
     expect(stats.b!.sumY).toBe(50);
     const results = await computeResults(
@@ -186,14 +190,14 @@ describe('Parquet sink + DuckDB backend', () => {
     expect(results.metrics[1]!.variants.find((v) => v.variant === 'b')!.mean).toBe(25);
 
     await sink.forget('u1');
-    expect((await backend.exposures('checkout')).b).toBe(99);
+    expect((await backend.exposures('checkout', 'production')).b).toBe(99);
     await backend.close();
     await sink.close();
   });
 
   it('reports no data, not an error, before the first file', async () => {
     const backend = new DuckDbBackend({ path: join(tmp, 'empty') });
-    expect(await backend.exposures('x')).toEqual({});
+    expect(await backend.exposures('x', 'production')).toEqual({});
     await backend.close();
   });
 });

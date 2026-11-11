@@ -17,6 +17,12 @@ export type RulesetChange =
 export interface Actor {
   id: string;
   name?: string;
+  /**
+   * Nobody could be identified (e.g. the console with no signed-in user). Allowed to change
+   * environments without approvals; refused where approvals are on, because two anonymous people
+   * would be the same actor and the two-person rule would mean nothing.
+   */
+  anonymous?: boolean;
 }
 
 export interface AuditEntry {

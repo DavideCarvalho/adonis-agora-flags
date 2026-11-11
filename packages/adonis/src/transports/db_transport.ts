@@ -29,6 +29,7 @@ const COLUMNS = [
   'event_id',
   'schema_version',
   'app',
+  'environment',
   'type',
   'flag',
   'experiment',
@@ -83,6 +84,7 @@ export class DbTransport implements Transport {
         e.id,
         e.schemaVersion,
         e.app,
+        e.environment,
         e.type,
         e.flag ?? null,
         e.experiment ?? null,
@@ -270,6 +272,7 @@ export function toEvent(row: Record<string, unknown>): FlagEvent {
     id: String(row.event_id),
     schemaVersion: toNumber(row.schema_version),
     app: String(row.app),
+    environment: String(row.environment),
     type: row.type as FlagEvent['type'],
     ...(row.flag !== null && row.flag !== undefined ? { flag: String(row.flag) } : {}),
     ...(row.experiment !== null && row.experiment !== undefined

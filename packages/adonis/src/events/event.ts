@@ -14,6 +14,8 @@ export interface FlagEvent {
   schemaVersion: number;
   /** The app that produced it (a tenant's `partition`, or the standalone app name). */
   app: string;
+  /** The environment whose ruleset assigned it (`production`, `staging`, …). */
+  environment: string;
   type: 'exposure' | 'track';
   /** Exposure: the flag. Track: absent. */
   flag?: string;
@@ -51,9 +53,14 @@ export function uuidv7(now = Date.now()): string {
  * The id of the exposure of `subject` to `experiment`: a UUIDv5-style hash, identical on every
  * send, so a destination that dedupes by id keeps one row however often the relay retries.
  */
-export function exposureId(app: string, experiment: string, subject: string): string {
+export function exposureId(
+  app: string,
+  environment: string,
+  experiment: string,
+  subject: string,
+): string {
   const bytes = createHash('sha1')
-    .update(`flags:exposure:${app}:${experiment}:${subject}`)
+    .update(`flags:exposure:${app}:${environment}:${experiment}:${subject}`)
     .digest();
   const out = Buffer.from(bytes.subarray(0, 16));
   out[6] = (out[6]! & 0x0f) | 0x50;
@@ -67,7 +74,7 @@ function format(bytes: Uint8Array): string {
 }
 
 /** Light structural validation for events arriving over HTTP from a tenant. */
-export function parseEvents(input: unknown, app: string): FlagEvent[] {
+export function parseEvents(input: unknown, app: string, environment: string): FlagEvent[] {
   if (!Array.isArray(input)) throw new TypeError('events must be an array');
   return input.map((raw, i) => {
     const e = raw as Partial<FlagEvent>;
@@ -91,8 +98,9 @@ export function parseEvents(input: unknown, app: string): FlagEvent[] {
     return {
       id: e.id!,
       schemaVersion: typeof e.schemaVersion === 'number' ? e.schemaVersion : EVENT_SCHEMA_VERSION,
-      // The tenant's identity comes from its verified token, never from the payload.
+      // The tenant's identity and environment come from its verified token, never the payload.
       app,
+      environment,
       type: e.type!,
       ...(e.flag !== undefined ? { flag: String(e.flag) } : {}),
       ...(e.experiment !== undefined ? { experiment: String(e.experiment) } : {}),

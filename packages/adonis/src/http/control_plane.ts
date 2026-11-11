@@ -191,7 +191,11 @@ export class ControlPlane {
     if (!verified) return;
     let events: ReturnType<typeof parseEvents>;
     try {
-      events = parseEvents((ctx.request.body() as { events?: unknown }).events, verified.tenant);
+      events = parseEvents(
+        (ctx.request.body() as { events?: unknown }).events,
+        verified.tenant,
+        this.#environment(verified),
+      );
     } catch (error) {
       return ctx.response.status(400).send({ error: (error as Error).message });
     }

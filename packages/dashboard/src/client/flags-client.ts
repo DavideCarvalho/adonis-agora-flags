@@ -321,10 +321,11 @@ export interface Ops {
   analytics: boolean;
   tenants: Array<{
     partition: string;
-    environment: string;
+    /** `null` when only another replica has heard from it recently. */
+    environment: string | null;
     capabilities: string[];
-    lastSeenAt: string;
-    lastRulesetVersion?: string;
+    lastSeenAt: string | null;
+    lastRulesetVersion: string | null;
   }>;
 }
 

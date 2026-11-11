@@ -75,12 +75,21 @@ When the flag says no, the route answers 404, as if it did not exist. Change it 
 
 ## Edge templates
 
-The middleware shares the request's flags with views as `flags`:
-
 ```edge
-@if(await flags.enabled('new_player'))
+@flag('new_player')
   @include('partials/new_player')
 @else
   @include('partials/classic_player')
 @end
+
+{{-- multivariate: any of the listed variants --}}
+@flag('checkout', 'one_page')
+  @include('partials/one_page_checkout')
+@end
+```
+
+The middleware also shares the request's flags as `flags`, for anything else:
+
+```edge
+<p>Up to {{ await flags.value('max_uploads') }} files.</p>
 ```

@@ -1,7 +1,7 @@
 import type { Actor } from '../stores/store.js';
 
 /** Who a change is attributed to when nobody can be identified. */
-export const FALLBACK_ACTOR: Actor = { id: 'dashboard' };
+export const FALLBACK_ACTOR: Actor = { id: 'dashboard', anonymous: true };
 
 /**
  * The default `actor`: the signed-in user (`ctx.auth.user`, read structurally — this package does

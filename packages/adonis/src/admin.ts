@@ -147,6 +147,15 @@ export class FlagsAdmin {
     return envs === true || (Array.isArray(envs) && envs.includes(environment));
   }
 
+  /** Approvals mean nothing between anonymous actors: refuse them where approvals are on. */
+  #assertIdentified(actor: Actor, environment: string) {
+    if (actor.anonymous && this.requiresApproval(environment)) {
+      throw new ForbiddenError(
+        `changes to "${environment}" need approval, so the person acting must be identified (sign in, or set \`actor\` in the console config)`,
+      );
+    }
+  }
+
   async #authorize(actor: Actor, action: AdminAction, target: Parameters<AdminAuthorizer>[2]) {
     if (!this.options.authorize) return;
     if (!(await this.options.authorize(actor, action, target))) {
@@ -177,6 +186,7 @@ export class FlagsAdmin {
     options: { environment?: string; note?: string } = {},
   ): Promise<ProposeResult> {
     const environment = options.environment ?? this.environment;
+    this.#assertIdentified(actor, environment);
     await this.#authorize(actor, 'write', { environment, change });
     await this.preview(change, environment);
     if (this.requiresApproval(environment)) {
@@ -203,6 +213,7 @@ export class FlagsAdmin {
     const request = await this.store.getChangeRequest(id);
     if (!request) throw new Error(`change request ${id} not found`);
     if (request.status !== 'pending') throw new Error(`change request ${id} is ${request.status}`);
+    this.#assertIdentified(actor, request.environment);
     if (request.requestedBy.id === actor.id) {
       throw new ForbiddenError('a change cannot be approved by the person who requested it');
     }
@@ -236,6 +247,7 @@ export class FlagsAdmin {
     const request = await this.store.getChangeRequest(id);
     if (!request) throw new Error(`change request ${id} not found`);
     if (request.status !== 'pending') throw new Error(`change request ${id} is ${request.status}`);
+    this.#assertIdentified(actor, request.environment);
     await this.#authorize(actor, 'approve', { environment: request.environment, request });
     return this.store.updateChangeRequest(id, {
       status: 'rejected',

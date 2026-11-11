@@ -139,6 +139,7 @@ function statements(dialect: Dialect, options: SchemaOptions): string[] {
       event_id VARCHAR(36) NOT NULL,
       schema_version SMALLINT NOT NULL,
       app ${K} NOT NULL,
+      environment VARCHAR(64) NOT NULL,
       type VARCHAR(16) NOT NULL,
       flag ${K} NULL,
       experiment ${K} NULL,
@@ -166,6 +167,7 @@ function statements(dialect: Dialect, options: SchemaOptions): string[] {
       updated_at BIGINT NOT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS flags_exposures (
+      environment VARCHAR(64) NOT NULL,
       experiment ${K} NOT NULL,
       subject ${K} NOT NULL,
       variant ${K} NOT NULL,
@@ -173,10 +175,11 @@ function statements(dialect: Dialect, options: SchemaOptions): string[] {
       app ${K} NOT NULL,
       subject_type VARCHAR(64) NOT NULL,
       first_seen_ts BIGINT NOT NULL,
-      PRIMARY KEY (experiment, subject)
+      PRIMARY KEY (environment, experiment, subject)
     )`,
     `CREATE TABLE IF NOT EXISTS flags_tracks (
       event_id VARCHAR(36) PRIMARY KEY,
+      environment VARCHAR(64) NOT NULL,
       name ${K} NOT NULL,
       subject ${K} NOT NULL,
       subject_type VARCHAR(64) NOT NULL,
@@ -186,9 +189,11 @@ function statements(dialect: Dialect, options: SchemaOptions): string[] {
       ts BIGINT NOT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS flags_results (
-      experiment ${K} PRIMARY KEY,
+      environment VARCHAR(64) NOT NULL,
+      experiment ${K} NOT NULL,
       payload ${t.json} NOT NULL,
-      computed_at BIGINT NOT NULL
+      computed_at BIGINT NOT NULL,
+      PRIMARY KEY (environment, experiment)
     )`,
   ];
 }
@@ -199,7 +204,7 @@ const INDEXES: Array<[name: string, table: string, columns: string]> = [
   ['flags_schedules_due_idx', 'flags_schedules', 'status, run_at'],
   ['flags_events_ts_idx', 'flags_events', 'ts'],
   ['flags_exposures_subject_idx', 'flags_exposures', 'subject'],
-  ['flags_tracks_name_subject_ts_idx', 'flags_tracks', 'name, subject, ts'],
+  ['flags_tracks_env_name_subject_ts_idx', 'flags_tracks', 'environment, name, subject, ts'],
   ['flags_tracks_subject_idx', 'flags_tracks', 'subject'],
 ];
 

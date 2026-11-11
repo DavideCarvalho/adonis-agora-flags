@@ -10,5 +10,6 @@ allowBuilds:
   '@swc/core': true
   esbuild: true
 minimumReleaseAgeExclude:
+  - '@adonis-agora/durable@1.0.0-rc.11'
   - '@adonis-agora/authkit-client@1.0.0-rc.0'
   - '@adonis-agora/authkit-core@1.0.0-rc.0'

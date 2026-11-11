@@ -187,6 +187,11 @@ interface OwnedStateConfig {
   metrics?: Record<string, MetricDefinition>;
   /** Experiment key → its metrics. */
   experiments?: Record<string, ExperimentConfig>;
+  /**
+   * Environments whose experiment results the worker recomputes. Default: this process's
+   * `environment`. Events carry their environment, so staging traffic never mixes with production.
+   */
+  resultsEnvironments?: string[];
   /** How often the worker recomputes experiment results (ms). Default 600000. */
   resultsIntervalMs?: number;
   /**

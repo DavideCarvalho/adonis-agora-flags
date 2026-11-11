@@ -17,14 +17,15 @@ export class ClickHouseBackend implements AnalyticsBackend {
   #exposuresSql() {
     return `SELECT subject, argMin(variant, ts) AS variant, min(ts) AS first_seen_ts
               FROM ${this.client.table} FINAL
-             WHERE type = 'exposure' AND experiment = {experiment:String}
+             WHERE type = 'exposure' AND environment = {environment:String}
+               AND experiment = {experiment:String}
              GROUP BY subject`;
   }
 
-  async exposures(experiment: string): Promise<Record<string, number>> {
+  async exposures(experiment: string, environment: string): Promise<Record<string, number>> {
     const rows = await this.client.select<{ variant: string; n: string | number }>(
       `SELECT variant, count() AS n FROM (${this.#exposuresSql()}) GROUP BY variant`,
-      { experiment },
+      { experiment, environment },
     );
     return Object.fromEntries(rows.map((row) => [row.variant, Number(row.n)]));
   }
@@ -32,13 +33,15 @@ export class ClickHouseBackend implements AnalyticsBackend {
   async metric(
     experiment: string,
     definition: MetricDefinition,
+    environment: string,
   ): Promise<Record<string, VariantMetricStats>> {
     const { post, pre } = subjectAggregates(definition);
     const rows = await this.client.select(
       `WITH x AS (${this.#exposuresSql()}),
             t AS (
               SELECT subject, value, ts FROM ${this.client.table} FINAL
-               WHERE type = 'track' AND name = {event:String}
+               WHERE type = 'track' AND environment = {environment:String}
+                 AND name = {event:String}
             )
        SELECT variant, count() AS n,
               sum(y) AS sum_y, sum(y * y) AS sum_y2,
@@ -52,7 +55,7 @@ export class ClickHouseBackend implements AnalyticsBackend {
             GROUP BY x.variant, x.subject
          )
         GROUP BY variant`,
-      { experiment, event: definition.event },
+      { experiment, environment, event: definition.event },
     );
     return Object.fromEntries(rows.map((row) => [String(row.variant), statsFromRow(row)]));
   }

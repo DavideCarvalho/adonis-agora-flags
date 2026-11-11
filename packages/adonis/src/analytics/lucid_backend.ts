@@ -17,11 +17,11 @@ export class LucidBackend implements AnalyticsBackend {
 
   constructor(private readonly db: SqlClient) {}
 
-  async exposures(experiment: string): Promise<Record<string, number>> {
+  async exposures(experiment: string, environment: string): Promise<Record<string, number>> {
     const rows = await query<{ variant: string; n: unknown }>(
       this.db,
-      'SELECT variant, COUNT(*) AS n FROM flags_exposures WHERE experiment = ? GROUP BY variant',
-      [experiment],
+      'SELECT variant, COUNT(*) AS n FROM flags_exposures WHERE environment = ? AND experiment = ? GROUP BY variant',
+      [environment, experiment],
     );
     return Object.fromEntries(rows.map((row) => [row.variant, toNumber(row.n)]));
   }
@@ -29,6 +29,7 @@ export class LucidBackend implements AnalyticsBackend {
   async metric(
     experiment: string,
     definition: MetricDefinition,
+    environment: string,
   ): Promise<Record<string, VariantMetricStats>> {
     const { post, pre } = subjectAggregates(definition);
     const window = definition.windowMs ?? UNBOUNDED_MS;
@@ -46,14 +47,15 @@ export class LucidBackend implements AnalyticsBackend {
              FROM flags_exposures x
              LEFT JOIN flags_tracks t
                ON t.subject = x.subject
+              AND t.environment = x.environment
               AND t.name = ?
               AND t.ts >= x.first_seen_ts - ?
               AND t.ts < x.first_seen_ts + ?
-            WHERE x.experiment = ?
+            WHERE x.environment = ? AND x.experiment = ?
             GROUP BY x.variant, x.subject
          ) per_subject
         GROUP BY variant`,
-      [definition.event, preWindow, window, experiment],
+      [definition.event, preWindow, window, environment, experiment],
     );
     return Object.fromEntries(rows.map((row) => [String(row.variant), statsFromRow(row)]));
   }

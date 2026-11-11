@@ -747,7 +747,7 @@ export function listExperiments(deps: Deps, req: ApiRequest): Promise<ApiRespons
     for (const [key, config] of Object.entries(configs)) {
       const flag = config.flag ?? key;
       covered.add(flag);
-      const results = await o.runtime.manager.results(key);
+      const results = await o.runtime.manager.results(key, environment);
       rows.push({
         key,
         flag,
@@ -805,7 +805,8 @@ export function experimentDetail(deps: Deps, req: ApiRequest): Promise<ApiRespon
       flag: config.flag ?? key,
       config,
       analytics: o.runtime.analytics !== undefined,
-      results: await o.runtime.manager.results(key),
+      environment: environmentOf(req, o.runtime),
+      results: await o.runtime.manager.results(key, environmentOf(req, o.runtime)),
     });
   });
 }
@@ -823,7 +824,7 @@ export function recomputeExperiment(deps: Deps, req: ApiRequest): Promise<ApiRes
         'No analytics backend is configured, so experiment results cannot be computed here.',
       );
     }
-    const results = await o.runtime.worker.computeResults(key);
+    const results = await o.runtime.worker.computeResults(key, environmentOf(req, o.runtime));
     if (!results) throw new HttpError(503, `results for "${key}" could not be computed`);
     return ok({ key, results });
   });
@@ -1063,6 +1064,30 @@ export function stale(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
 // ── Ops ─────────────────────────────────────────────────────────────────────
 
 /** `GET /api/ops` — is the machinery healthy: source, buffer, transport and every sink. */
+/**
+ * Tenants that called this control-plane. The in-memory view only covers this replica, so it is
+ * merged with what every replica persisted: the declarations tenants publish at boot.
+ */
+async function tenantsOf(store: FlagsStore) {
+  const live = new Map(knownTenants().map((t) => [t.partition, t]));
+  const persisted = new Map<string, number>();
+  for (const row of await store.declarations()) {
+    persisted.set(row.app, Math.max(persisted.get(row.app) ?? 0, row.lastSeenAt.getTime()));
+  }
+  const names = new Set([...live.keys(), ...persisted.keys()]);
+  return [...names].sort().map((partition) => {
+    const seen = live.get(partition);
+    const declaredAt = persisted.get(partition);
+    return {
+      partition,
+      environment: seen?.environment ?? null,
+      capabilities: seen?.capabilities ?? [],
+      lastRulesetVersion: seen?.lastRulesetVersion ?? null,
+      lastSeenAt: seen?.lastSeenAt ?? (declaredAt ? new Date(declaredAt).toISOString() : null),
+    };
+  });
+}
+
 export function ops(deps: Deps, _req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) => {
     const status = o.runtime.manager.status();
@@ -1089,7 +1114,7 @@ export function ops(deps: Deps, _req: ApiRequest): Promise<ApiResponse> {
       relay: o.runtime.relay !== undefined,
       worker: o.runtime.worker !== undefined,
       analytics: o.runtime.analytics !== undefined,
-      tenants: o.runtime.topology === 'control-plane' ? knownTenants() : [],
+      tenants: o.runtime.topology === 'control-plane' ? await tenantsOf(o.store) : [],
     });
   });
 }

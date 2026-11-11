@@ -217,4 +217,4 @@ tenant, DuckDB/Parquet locais) e de integração (Postgres, Redis e ClickHouse e
 - **Tenant** manda `x-flags-tenant` em toda requisição; a identidade vem do token verificado.
 - **Regex de targeting** limitada (tamanho, quantificador aninhado, backreference, entrada até 4096).
 - **Durable**: o registro (`register` + `registerSchedules`, `overlap: 'skip'`) é testado com um
-  `WorkflowEngine` real (0.60, store em memória) disparando o schedule do relay.
+  `WorkflowEngine` real (0.60 e 1.0.0-rc.11, store em memória) disparando o schedule do relay.

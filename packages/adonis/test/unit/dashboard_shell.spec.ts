@@ -86,13 +86,13 @@ describe('acting user', () => {
       name: 'a@x.com',
     });
     expect(defaultActor({ auth: { user: { id: 'u_1' } } })).toEqual({ id: 'u_1' });
-    expect(defaultActor({})).toEqual({ id: 'dashboard' });
-    expect(defaultActor(undefined)).toEqual({ id: 'dashboard' });
+    expect(defaultActor({})).toEqual({ id: 'dashboard', anonymous: true });
+    expect(defaultActor(undefined)).toEqual({ id: 'dashboard', anonymous: true });
   });
 
   it('normalizes a configured resolver result', () => {
     expect(toActor('sub_1')).toEqual({ id: 'sub_1' });
     expect(toActor({ id: 'sub_1', name: 'Ana' })).toEqual({ id: 'sub_1', name: 'Ana' });
-    expect(toActor(null)).toEqual({ id: 'dashboard' });
+    expect(toActor(null)).toEqual({ id: 'dashboard', anonymous: true });
   });
 });

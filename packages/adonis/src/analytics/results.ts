@@ -19,6 +19,8 @@ export interface ExperimentSpec {
   /** Experiment key (the flag key unless `experiment.key` says otherwise). */
   key: string;
   flag: string;
+  /** Environment whose exposures and events are analysed. Default `production`. */
+  environment?: string;
   /** Metric name → definition. */
   metrics: Record<string, MetricDefinition>;
   /** Metrics that must not get worse; a significant move the wrong way is flagged. */
@@ -60,6 +62,7 @@ export interface MetricResult {
 export interface ExperimentResults {
   experiment: string;
   flag: string;
+  environment: string;
   control: string;
   computedAt: string;
   exposures: Record<string, number>;
@@ -101,7 +104,8 @@ export async function computeResults(
   const control = spec.control ?? flag?.offVariant ?? 'control';
   const confidence = spec.confidence ?? 0.95;
   const warnings: string[] = [];
-  const allExposures = await backend.exposures(spec.key);
+  const environment = spec.environment ?? 'production';
+  const allExposures = await backend.exposures(spec.key, environment);
   // Global-holdout subjects are recorded under a reserved variant; they are not an arm of this
   // experiment, so they are reported apart and left out of every comparison.
   const holdout = allExposures[HOLDOUT_VARIANT] ?? 0;
@@ -127,7 +131,11 @@ export async function computeResults(
 
   const metrics: MetricResult[] = [];
   for (const [name, definition] of Object.entries(spec.metrics)) {
-    const { [HOLDOUT_VARIANT]: _held, ...stats } = await backend.metric(spec.key, definition);
+    const { [HOLDOUT_VARIANT]: _held, ...stats } = await backend.metric(
+      spec.key,
+      definition,
+      environment,
+    );
     const direction = definition.direction ?? 'increase';
     const guardrail = spec.guardrails?.includes(name) ?? false;
     const variantNames = [...new Set([...Object.keys(exposures), ...Object.keys(stats)])].sort(
@@ -218,6 +226,7 @@ export async function computeResults(
   return {
     experiment: spec.key,
     flag: spec.flag,
+    environment,
     control,
     computedAt: new Date().toISOString(),
     exposures,

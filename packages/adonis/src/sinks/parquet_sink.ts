@@ -59,6 +59,7 @@ export class ParquetSink implements Sink {
       event_id: e.id,
       schema_version: e.schemaVersion,
       app: e.app,
+      environment: e.environment,
       type: e.type,
       flag: e.flag ?? null,
       experiment: e.experiment ?? null,
@@ -74,7 +75,7 @@ export class ParquetSink implements Sink {
     const staging = `staging_${randomUUID().replaceAll('-', '')}`;
     await this.#duck.withConnection(async (sql) => {
       await sql(`CREATE TEMP TABLE ${staging} (
-        event_id VARCHAR, schema_version INTEGER, app VARCHAR, type VARCHAR, flag VARCHAR,
+        event_id VARCHAR, schema_version INTEGER, app VARCHAR, environment VARCHAR, type VARCHAR, flag VARCHAR,
         experiment VARCHAR, variant VARCHAR, name VARCHAR, subject VARCHAR, subject_type VARCHAR,
         value DOUBLE, props VARCHAR, ts BIGINT, day VARCHAR)`);
       for (let i = 0; i < rows.length; i += 1000) {
@@ -86,6 +87,7 @@ export class ParquetSink implements Sink {
                 r.event_id,
                 r.schema_version,
                 r.app,
+                r.environment,
                 r.type,
                 r.flag,
                 r.experiment,

@@ -74,6 +74,8 @@ The worker recomputes results every 10 minutes (`resultsIntervalMs`); the consol
 - **Sequential p-value.** The fixed-horizon p-value is only valid if you look once, at the planned end. The sequential one stays valid however often you look; stop when it says so.
 - **Guardrails** alert when they get significantly worse (on the sequential test, so daily checks do not cry wolf).
 
+Every event carries the environment that assigned it, so staging traffic never mixes into production results. The worker computes results for the process's environment; list more with `resultsEnvironments: ['production', 'staging']`, and switch between them in the console.
+
 ## CUPED
 
 `metric.sum('purchase', { cupedMs: 14 days })` uses each subject's same metric in the 14 days *before* exposure to remove noise. Same estimate, much tighter interval when behaviour is stable, so experiments decide with fewer users.

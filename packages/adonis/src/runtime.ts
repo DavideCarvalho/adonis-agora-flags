@@ -277,8 +277,8 @@ export async function createRuntime(
       ? async (subject: string) => {
           const rows = await query<{ flag: string; variant: string }>(
             lucidSink.db,
-            "SELECT flag, variant FROM flags_exposures WHERE subject = ? AND variant <> '__holdout__'",
-            [subject],
+            "SELECT flag, variant FROM flags_exposures WHERE environment = ? AND subject = ? AND variant <> '__holdout__'",
+            [environment, subject],
           );
           return Object.fromEntries(rows.map((row) => [row.flag, row.variant]));
         }
@@ -299,6 +299,8 @@ export async function createRuntime(
     ...(owned.relay?.intervalMs !== undefined ? { relayIntervalMs: owned.relay.intervalMs } : {}),
     admin,
     source,
+    environment,
+    ...(owned.resultsEnvironments ? { resultsEnvironments: owned.resultsEnvironments } : {}),
     ...(analyticsBackend ? { analytics: analyticsBackend } : {}),
     resultsCache,
     ...(owned.metrics ? { metrics: owned.metrics } : {}),
@@ -324,7 +326,7 @@ export async function createRuntime(
     ...(sticky ? { sticky } : {}),
     ...(config.attributes ? { attributes: config.attributes } : {}),
     admin,
-    results: (experiment) => resultsCache.get(experiment),
+    results: (experiment, env) => resultsCache.get(env ?? environment, experiment),
     forget: async (subject) => {
       for (const sink of sinkMap.values()) await sink.forget?.(subject);
       if (transport instanceof DbTransport) {

@@ -25,6 +25,8 @@ approvals: { environments: ['production'] },
 
 Changes to `production` become change requests. Someone else approves them — the requester cannot approve their own. The request is validated again against the current ruleset when approved.
 
+Approvals need to know who is acting. Where approvals are on, an anonymous actor (the console with nobody signed in and no `actor` configured) is refused.
+
 ```sh
 node ace flags:requests                 # pending
 node ace flags:requests approve <id>

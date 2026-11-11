@@ -44,7 +44,7 @@ export interface ManagerDeps {
   /** Extra targeting attributes resolved for every subject (plan, org, …). */
   attributes?: (subject: Subject) => Record<string, unknown> | Promise<Record<string, unknown>>;
   admin?: FlagsAdmin;
-  results?: (experiment: string) => Promise<ExperimentResults | null>;
+  results?: (experiment: string, environment?: string) => Promise<ExperimentResults | null>;
   forget?: (subject: string) => Promise<void>;
   logger?: { warn(message: string): void; error(message: string): void };
 }
@@ -168,9 +168,10 @@ export class FlagsManager {
     if (details.reason !== 'SPLIT' && !holdout) return;
     const subjectId = String(subject.id);
     const event: FlagEvent = {
-      id: exposureId(this.deps.app, experiment, subjectId),
+      id: exposureId(this.deps.app, this.deps.environment, experiment, subjectId),
       schemaVersion: EVENT_SCHEMA_VERSION,
       app: this.deps.app,
+      environment: this.deps.environment,
       type: 'exposure',
       flag: details.flagKey,
       experiment,
@@ -194,6 +195,7 @@ export class FlagsManager {
       id: uuidv7(),
       schemaVersion: EVENT_SCHEMA_VERSION,
       app: this.deps.app,
+      environment: this.deps.environment,
       type: 'track',
       name,
       subject: String(normalized.id),
@@ -225,9 +227,9 @@ export class FlagsManager {
     this.deps.buffer?.push(event);
   }
 
-  /** Experiment results as last computed by the worker (or `null`). */
-  results(experiment: string): Promise<ExperimentResults | null> {
-    return this.deps.results ? this.deps.results(experiment) : Promise.resolve(null);
+  /** Experiment results as last computed by the worker (or `null`), for this process's environment by default. */
+  results(experiment: string, environment?: string): Promise<ExperimentResults | null> {
+    return this.deps.results ? this.deps.results(experiment, environment) : Promise.resolve(null);
   }
 
   /** Deletes everything stored about a subject in every sink that supports it. */
@@ -354,6 +356,16 @@ export class FlagsScope {
 
   async disabled<K extends BooleanFlagKey>(key: K): Promise<boolean> {
     return !(await this.enabled(key));
+  }
+
+  /**
+   * `true` when a boolean flag is on, or — given variants — when the flag serves one of them.
+   * What the Edge `@flag` tag compiles to.
+   */
+  async matches<K extends FlagKey>(key: K, ...variants: string[]): Promise<boolean> {
+    const details = await this.details(key);
+    if (variants.length === 0) return details.value === true;
+    return variants.includes(details.variant ?? String(details.value));
   }
 
   /** The variant name served (experiments). Falls back to the value as a string. */
