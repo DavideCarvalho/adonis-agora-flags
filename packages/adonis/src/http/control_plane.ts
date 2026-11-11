@@ -12,6 +12,7 @@ import { parseEvents } from '../events/event.js';
 import type { FlagsRuntime } from '../runtime.js';
 import { TENANT_SCOPES } from '../topology/token.js';
 import type { VerifiedTenant } from '../topology/verify.js';
+import { BrowserApi } from './browser_api.js';
 
 interface RouterLike {
   get(pattern: string, handler: (ctx: HttpContext) => unknown): { as(name: string): unknown };
@@ -109,6 +110,13 @@ export class ControlPlane {
       .post(`${p}/v1/declarations`, (ctx) => this.declarations(ctx))
       .as('flags.cp.declarations');
     router.post(`${p}/v1/usage`, (ctx) => this.usage(ctx)).as('flags.cp.usage');
+    if (this.options.browser) {
+      new BrowserApi(
+        this.runtime,
+        (environment) => this.ruleset(environment),
+        this.options.browser,
+      ).register(router, p);
+    }
     if (this.options.ofrep !== false) {
       router.post('/ofrep/v1/evaluate/flags', (ctx) => this.ofrepBulk(ctx)).as('flags.ofrep.bulk');
       router

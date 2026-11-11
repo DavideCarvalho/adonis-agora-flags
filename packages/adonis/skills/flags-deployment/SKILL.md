@@ -62,7 +62,30 @@ tenant: {
 },
 ```
 
+Frontends with no Adonis backend (SPA, mobile) read client flags straight from
+the control-plane with `remoteFlags({ url, token })` from
+`@adonis-agora/flags-react`. Enable the browser API on the server:
+
+```ts no-check
+controlPlane: {
+  verifyTenant,
+  browser: {
+    // the user's authkit access token…
+    verifyUser: userVerifiers.authkit({ issuer: env.get('AUTHKIT_ISSUER'), audience: 'flags' }),
+    // …or a context signed by the app's backend with signFlagsContext()
+    // verifyUser: userVerifiers.signedContext({ secret: env.get('FLAGS_BROWSER_SECRET') }),
+    corsOrigins: ['https://app.example.com'],
+  },
+},
+```
+
 ## Common mistakes
+
+### HIGH — Trusting browser-sent attributes
+
+`remoteFlags({ attributes })` are merged *under* the token's identity: they can
+never change who the user is, but anyone can send any value. Never gate access
+on a rule over them; put security-relevant attributes in the signed token.
 
 ### HIGH — Console with approvals but no `actor`
 

@@ -1,57 +1,126 @@
 import type { FlagKey, FlagValue } from '@adonis-agora/flags/types';
-import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef } from 'react';
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from 'react';
+import type { RemoteFlags } from './remote.js';
+
+export { RemoteFlags, type RemoteFlagsOptions, type RemoteState, remoteFlags } from './remote.js';
 
 export const VERSION = '0.0.0';
 
-/** The flag values the server evaluated for this page (`ctx.flags.all()`). */
+/** The flag values available to the tree. */
 export type FlagValues = Record<string, unknown>;
 
-const FlagsContext = createContext<FlagValues | null>(null);
+interface FlagsContextValue {
+  values: FlagValues;
+  ready: boolean;
+  error: Error | null;
+  expose(key: string): void;
+  track(name: string, options?: { value?: number; props?: Record<string, unknown> }): void;
+}
+
+const FlagsContext = createContext<FlagsContextValue | null>(null);
+
+const noop = () => {};
+const subscribeNever = () => noop;
 
 /**
- * Makes the server-evaluated flags available to the tree. With Inertia, share them from the server
- * and pass the page prop:
+ * Makes flags available to the tree, from one of two places:
  *
- * ```ts
- * // config/inertia.ts
- * sharedData: { flags: (ctx) => ctx.flags.all() }
- * ```
- * ```tsx
- * <FlagsProvider values={props.flags}>…</FlagsProvider>
- * ```
+ * - `values` — what your Adonis backend evaluated for the page (Inertia):
+ *   `sharedData: { flags: (ctx) => ctx.flags.all() }`, then `<FlagsProvider values={props.flags}>`.
+ * - `source` — a flags server the browser talks to directly (SPAs, mobile, static sites):
+ *   `<FlagsProvider source={remoteFlags({ url, token })}>`. Rendering an experiment flag records
+ *   the exposure; `useTrack()` records conversions.
  *
- * Only flags declared with `client: true` are included by `ctx.flags.all()`; the browser never sees
- * targeting rules, only values.
+ * Either way the browser receives values, never targeting rules, and only for flags declared
+ * `client: true`.
  */
 export function FlagsProvider({
   values,
+  source,
   children,
 }: {
-  values: FlagValues | undefined;
+  values?: FlagValues | undefined;
+  source?: RemoteFlags;
   children: ReactNode;
 }) {
-  return <FlagsContext.Provider value={values ?? {}}>{children}</FlagsContext.Provider>;
+  useEffect(() => {
+    if (!source) return;
+    source.start();
+    return () => source.stop();
+  }, [source]);
+  const remote = useSyncExternalStore(
+    source?.subscribe ?? subscribeNever,
+    () => source?.getSnapshot() ?? null,
+    () => source?.getSnapshot() ?? null,
+  );
+  const value = useMemo<FlagsContextValue>(() => {
+    if (source && remote) {
+      return {
+        values: remote.values,
+        ready: remote.ready,
+        error: remote.error,
+        expose: (key) => source.expose(key),
+        track: (name, options) => source.track(name, options),
+      };
+    }
+    return { values: values ?? {}, ready: true, error: null, expose: noop, track: noop };
+  }, [source, remote, values]);
+  return <FlagsContext.Provider value={value}>{children}</FlagsContext.Provider>;
+}
+
+function useFlagsContext(): FlagsContextValue {
+  const context = useContext(FlagsContext);
+  if (context === null) throw new Error('flags hooks must be used inside <FlagsProvider>');
+  return context;
+}
+
+/** Records an exposure once the component rendering `key` mounts (remote sources only). */
+function useExposure(key: string, active = true) {
+  const { expose, ready } = useFlagsContext();
+  useEffect(() => {
+    if (active && ready) expose(key);
+  }, [expose, key, ready, active]);
 }
 
 /** All flag values in context. */
 export function useFlags(): FlagValues {
-  const values = useContext(FlagsContext);
-  if (values === null) throw new Error('useFlags() must be used inside <FlagsProvider>');
-  return values;
+  return useFlagsContext().values;
+}
+
+/** Whether the first evaluation arrived (always `true` with `values`), and the last error. */
+export function useFlagsStatus(): { ready: boolean; error: Error | null } {
+  const { ready, error } = useFlagsContext();
+  return { ready, error };
 }
 
 /**
- * One flag's value, typed from the app's flag declarations. `fallback` is used when the server did
- * not send the flag (not declared `client: true`, or an older page).
+ * One flag's value, typed from the app's flags. `fallback` is used until the value is known, or
+ * when the server did not send the flag (not declared `client: true`).
  */
 export function useFlag<K extends FlagKey>(key: K, fallback: FlagValue<K>): FlagValue<K> {
   const values = useFlags();
+  useExposure(key);
   return (Object.hasOwn(values, key) ? values[key] : fallback) as FlagValue<K>;
 }
 
 /** Whether a boolean flag is on (`false` when absent). */
 export function useFlagEnabled(key: FlagKey): boolean {
-  return useFlags()[key] === true;
+  const values = useFlags();
+  useExposure(key);
+  return values[key] === true;
+}
+
+/** Records conversions for the signed-in user (remote sources; a no-op with `values`). */
+export function useTrack(): FlagsContextValue['track'] {
+  return useFlagsContext().track;
 }
 
 /**
@@ -74,6 +143,7 @@ export function Flag({
   children: ReactNode;
 }) {
   const value = useFlags()[name];
+  useExposure(name);
   const show =
     is === undefined ? value === true : (Array.isArray(is) ? is : [is]).includes(String(value));
   return <>{show ? children : fallback}</>;
@@ -89,8 +159,9 @@ export interface TransmitLike {
 }
 
 /**
- * Live updates: when the server's ruleset changes (config `realtime: true`), calls `onChange` —
- * typically an Inertia partial reload of the `flags` prop:
+ * Live updates for the `values` (Inertia) mode: when the server's ruleset changes (config
+ * `realtime: true`), calls `onChange` — typically an Inertia partial reload of the `flags` prop.
+ * Remote sources update themselves.
  *
  * ```tsx
  * useFlagsRealtime({ transmit, onChange: () => router.reload({ only: ['flags'] }) })
@@ -124,7 +195,7 @@ export function useFlagsRealtime(options: {
   }, [transmit, channel]);
 }
 
-/** Memoized helper for non-React code paths that received the values (e.g. a store). */
+/** A frozen copy of the values, for non-React code paths. */
 export function useFlagSnapshot(): Readonly<FlagValues> {
   const values = useFlags();
   return useMemo(() => Object.freeze({ ...values }), [values]);

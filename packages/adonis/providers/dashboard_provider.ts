@@ -60,6 +60,7 @@ import {
 } from '../src/dashboard/handlers.js';
 import { contentTypeFor, renderIndexHtml } from '../src/dashboard/spa.js';
 import type { FlagsConfig } from '../src/define_config.js';
+import { authkitIdentity } from '../src/http/subject_resolver.js';
 import { getRuntime, hasRuntime } from '../src/services/accessor.js';
 import type { Actor } from '../src/stores/store.js';
 
@@ -225,9 +226,19 @@ export default class FlagsDashboardProvider {
     router.get(`${api}/ops`, json(ops)).as(name('ops'));
   }
 
-  /** Who is acting: the configured `actor`, else the signed-in user, else `'dashboard'`. */
+  /**
+   * Who is acting: the configured `actor`, else the authkit identity (its `sub` and name), else
+   * `ctx.auth.user`, else the anonymous `'dashboard'` (refused where approvals are on).
+   */
   private async actorOf(config: ResolvedFlagsDashboardConfig, ctx: HttpContext): Promise<Actor> {
-    if (!config.actor) return defaultActor(ctx);
+    if (!config.actor) {
+      const identity = await authkitIdentity(ctx);
+      if (identity) {
+        const name = identity.profile?.name ?? identity.email;
+        return name ? { id: identity.userId, name } : { id: identity.userId };
+      }
+      return defaultActor(ctx);
+    }
     try {
       return toActor(await config.actor(ctx));
     } catch {

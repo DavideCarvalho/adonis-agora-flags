@@ -17,7 +17,18 @@ async index({ flags }: HttpContext) {
 
 Values are memoized for the request: a flag cannot change halfway through rendering a page.
 
-The subject is the authenticated user. To use something else — an organization, an anonymous id — set `subject` in the config:
+The subject is the signed-in user. With `@adonis-agora/authkit-client` that is the authkit identity, with no configuration, and its claims become targeting attributes:
+
+| Attribute | From |
+|---|---|
+| `targetingKey` | the `sub` claim: the same person in every app |
+| `email`, `emailDomain` | the email claim |
+| `globalRoles` | authkit global roles (`in` matches any) |
+| `orgId`, `orgSlug`, `orgRole` | the session's active organization |
+
+So "everyone in organization `acme`" or "users with the `BETA` role" are plain rules, and a rollout split by `orgId` gives a whole organization the same variant. Without authkit, `ctx.auth.user` is used. The console records changes under the authkit user too.
+
+To use something else — an organization, an anonymous id — set `subject` in the config:
 
 ```ts title="config/flags.ts"
 export default defineConfig({

@@ -150,6 +150,7 @@
     }
   },
   "devDependencies": {
+    "@adonis-agora/authkit-client": "1.0.0-rc.0",
     "@adonis-agora/durable": "1.0.0-rc.11",
     "@adonis-agora/flags-dashboard": "workspace:*",
     "@adonisjs/assembler": "8.6.0",
@@ -168,6 +169,7 @@
     "better-sqlite3": "13.0.3",
     "edge.js": "6.5.1",
     "ioredis": "5.11.1",
+    "jose": "6.2.15",
     "luxon": "3.7.2",
     "mysql2": "3.24.6",
     "pg": "8.23.1",

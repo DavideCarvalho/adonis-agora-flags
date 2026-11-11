@@ -242,12 +242,17 @@ async function withDdlLock<T>(
     });
   }
   if (dialect === 'mysql') {
-    await db.rawQuery("SELECT GET_LOCK('adonis-agora-flags-ddl', 60)");
-    try {
-      return await fn(db);
-    } finally {
-      await db.rawQuery("SELECT RELEASE_LOCK('adonis-agora-flags-ddl')");
-    }
+    // GET_LOCK belongs to the session, so the lock, the DDL and the release must share one
+    // connection: a transaction pins it. DDL commits implicitly, but the session (and the named
+    // lock) survives that.
+    return db.transaction(async (trx) => {
+      await trx.rawQuery("SELECT GET_LOCK('adonis-agora-flags-ddl', 60)");
+      try {
+        return await fn(trx);
+      } finally {
+        await trx.rawQuery("SELECT RELEASE_LOCK('adonis-agora-flags-ddl')");
+      }
+    });
   }
   return fn(db);
 }

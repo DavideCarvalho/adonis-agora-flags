@@ -10,6 +10,7 @@ import type { FlagDeclaration } from './declare.js';
 import type { Enricher } from './enrichers.js';
 import type { BufferOptions } from './events/buffer.js';
 import type { FlagEvent } from './events/event.js';
+import type { BrowserApiOptions } from './http/browser_api.js';
 import type { RelayOptions } from './relay/relay.js';
 import { type ClickHouseOptions, ClickHouseSink } from './sinks/clickhouse.js';
 import { LucidSink } from './sinks/lucid_sink.js';
@@ -232,6 +233,12 @@ export interface ControlPlaneConfig<F extends Record<string, FlagDeclaration>>
     ofrep?: boolean;
     /** Origins allowed to call OFREP from browsers. Default: none (no CORS headers). */
     corsOrigins?: string[];
+    /**
+     * Serve frontends directly (SPAs, mobile): `<prefix>/v1/client/*`. The user is identified by a
+     * token the browser cannot forge — `userVerifiers.authkit(...)` for authkit access tokens, or
+     * `userVerifiers.signedContext(...)` for contexts your backend signs with `signFlagsContext`.
+     */
+    browser?: BrowserApiOptions;
   };
 }
 

@@ -218,3 +218,13 @@ tenant, DuckDB/Parquet locais) e de integração (Postgres, Redis e ClickHouse e
 - **Regex de targeting** limitada (tamanho, quantificador aninhado, backreference, entrada até 4096).
 - **Durable**: o registro (`register` + `registerSchedules`, `overlap: 'skip'`) é testado com um
   `WorkflowEngine` real (0.60 e 1.0.0-rc.11, store em memória) disparando o schedule do relay.
+- **Flags criadas no console** ficam no ruleset (`FlagDefinition.declaration`); declaração no código
+  vence. `flags:types` gera os tipos das flags do console; `strictKeys` recusa chaves não declaradas.
+- **Subject do authkit por padrão**: `ctx.authkit.getIdentity()` vira o subject (`sub` como
+  targetingKey; email, emailDomain, globalRoles, orgId/orgSlug/orgRole como atributos) e o ator do
+  console. Sem authkit, `ctx.auth.user`.
+- **Browser API no control-plane** (`controlPlane.browser`): `/v1/client/evaluate|stream|events`
+  para frontends sem backend Adonis (`remoteFlags` no flags-react). A identidade vem só do token
+  (`userVerifiers.authkit` ou `signFlagsContext` + `userVerifiers.signedContext`); atributos do
+  browser entram por baixo e não mudam targetingKey/subjectType. Só flags `client: true`, só valores.
+  Exposições do browser são reavaliadas no servidor (o browser não escolhe variante).

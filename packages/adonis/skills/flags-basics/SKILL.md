@@ -71,7 +71,9 @@ async show({ flags, inertia }: HttpContext) {
 }
 ```
 
-`ctx.flags` evaluates for `ctx.auth.user`. Outside HTTP:
+`ctx.flags` evaluates for the authkit identity when `@adonis-agora/authkit-client`
+is installed (targetingKey = `sub`; attributes `email`, `emailDomain`,
+`globalRoles`, `orgId`, `orgSlug`, `orgRole`), else `ctx.auth.user`. Outside HTTP:
 
 ```ts
 import flags from '@adonis-agora/flags/services/main'

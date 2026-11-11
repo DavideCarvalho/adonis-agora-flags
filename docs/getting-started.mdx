@@ -59,7 +59,7 @@ export default class PlayerController {
 }
 ```
 
-`ctx.flags` evaluates for the authenticated user (`ctx.auth.user`). Outside HTTP, use the service:
+`ctx.flags` evaluates for the signed-in user (the authkit identity, or `ctx.auth.user`). Outside HTTP, use the service:
 
 ```ts
 import flags from '@adonis-agora/flags/services/main'

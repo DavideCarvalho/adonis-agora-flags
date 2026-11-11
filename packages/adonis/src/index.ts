@@ -53,6 +53,14 @@ export {
 } from './define_config.js';
 export { DIAGNOSTICS_CHANNELS, type Enricher, enrichers } from './enrichers.js';
 export { EVENT_SCHEMA_VERSION, exposureId, type FlagEvent, uuidv7 } from './events/event.js';
+export type { BrowserApiOptions } from './http/browser_api.js';
+export {
+  type AuthkitIdentityLike,
+  authkitIdentity,
+  authkitSubject,
+  defaultSubject,
+  subjectFromIdentity,
+} from './http/subject_resolver.js';
 export { FlagsManager, FlagsScope, type TrackOptions } from './manager.js';
 export { Relay } from './relay/relay.js';
 export { FlagsWorker } from './relay/worker.js';
@@ -81,7 +89,15 @@ export type {
 } from './stores/store.js';
 export type { Subject, SubjectLike } from './subject.js';
 export { TENANT_SCOPES, type TokenSource, tokens } from './topology/token.js';
-export { type TenantVerifier, type VerifiedTenant, verifiers } from './topology/verify.js';
+export {
+  signFlagsContext,
+  type TenantVerifier,
+  type UserVerifier,
+  userVerifiers,
+  type VerifiedTenant,
+  type VerifiedUser,
+  verifiers,
+} from './topology/verify.js';
 export { DbTransport } from './transports/db_transport.js';
 export { MemoryTransport } from './transports/memory_transport.js';
 export { RedisTransport } from './transports/redis_transport.js';

@@ -74,6 +74,41 @@ verifyTenant: verifiers.sharedSecret({
 tenant: { url, partition: 'streaming', token: env.get('FLAGS_SECRET_STREAMING') }
 ```
 
+## Frontends
+
+Frontends without an Adonis backend of their own — SPAs, mobile apps, static sites — can read flags from the control-plane directly, with [`remoteFlags`](/docs/react#straight-from-a-flags-server). Turn on the browser API:
+
+```ts title="config/flags.ts (flags server)"
+import { userVerifiers } from '@adonis-agora/flags'
+
+controlPlane: {
+  verifyTenant: verifiers.authkit({ issuer: env.get('AUTHKIT_ISSUER') }),
+  browser: {
+    verifyUser: userVerifiers.authkit({ issuer: env.get('AUTHKIT_ISSUER'), audience: 'flags' }),
+    corsOrigins: ['https://app.example.com'],
+  },
+},
+```
+
+The browser sends the signed-in user's authkit access token. The control-plane verifies it against authkit's JWKS and evaluates for its `sub`, with `email`, roles and the active organization as targeting attributes. Only flags declared `client: true` are answered, as values. Exposures and tracked events sent by the browser are re-evaluated and attributed on the server.
+
+Without authkit, let your backend sign the context:
+
+```ts
+// in the app's backend
+import { signFlagsContext } from '@adonis-agora/flags'
+
+const flagsToken = signFlagsContext(
+  { id: user.id, attributes: { plan: user.plan } },
+  { secret: env.get('FLAGS_BROWSER_SECRET'), ttlSeconds: 3600 },
+)
+```
+
+```ts
+// flags server
+browser: { verifyUser: userVerifiers.signedContext({ secret: env.get('FLAGS_BROWSER_SECRET') }) }
+```
+
 ## OFREP: browsers, mobile and other languages
 
 Any OpenFeature SDK with an OFREP provider can evaluate against the control-plane — web, React Native, Go, Python. Evaluation happens on the server, so the rules never leave it. Give those clients a token with the `flags:ofrep:evaluate` scope, and list browser origins in `controlPlane.corsOrigins`.
