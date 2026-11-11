@@ -1,0 +1,55 @@
+{
+  "name": "@adonis-agora/flags-core",
+  "version": "0.0.0",
+  "description": "Framework-agnostic feature flag engine: versioned ruleset, deterministic evaluation with OpenFeature-shaped details, and experiment statistics.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DavideCarvalho/adonis-agora-flags.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://davidecarvalho.github.io/agora/docs/flags",
+  "bugs": {
+    "url": "https://github.com/DavideCarvalho/adonis-agora-flags/issues"
+  },
+  "keywords": [
+    "feature-flags",
+    "ab-testing",
+    "experiments",
+    "openfeature",
+    "adonisjs",
+    "agora"
+  ],
+  "author": "Davi Carvalho <davi@goflip.ai>",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "pnpm run build",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
