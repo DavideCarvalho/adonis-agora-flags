@@ -175,7 +175,8 @@ export function ResultsView({ results }: { results: ExperimentResults }) {
       )}
       {total === 0 ? (
         <p className="px-4 py-6 text-sm text-zinc-500">
-          No exposures in <span className="mono text-zinc-300">{results.environment ?? 'this environment'}</span>{' '}
+          No exposures in{' '}
+          <span className="mono text-zinc-300">{results.environment ?? 'this environment'}</span>{' '}
           yet. Subjects are counted once the code reads this experiment's variant here.
         </p>
       ) : (
