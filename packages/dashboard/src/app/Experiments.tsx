@@ -173,9 +173,16 @@ export function ResultsView({ results }: { results: ExperimentResults }) {
           comparisons below until it is explained.
         </div>
       )}
-      {results.metrics.map((metric) => (
-        <MetricTable key={metric.name} metric={metric} control={results.control} />
-      ))}
+      {total === 0 ? (
+        <p className="px-4 py-6 text-sm text-zinc-500">
+          No exposures in <span className="mono text-zinc-300">{results.environment ?? 'this environment'}</span>{' '}
+          yet. Subjects are counted once the code reads this experiment's variant here.
+        </p>
+      ) : (
+        results.metrics.map((metric) => (
+          <MetricTable key={metric.name} metric={metric} control={results.control} />
+        ))
+      )}
       {results.warnings.length > 0 && (
         <ul className="border-t border-line px-4 py-2 text-[11px] text-amber-300">
           {results.warnings.map((w) => (
@@ -195,14 +202,15 @@ export function ExperimentDetail({
   onClose: () => void;
 }) {
   const client = useQueryClient();
+  const { environment } = useEnv();
   const query = useQuery({
-    queryKey: ['experiment', experimentKey],
-    queryFn: () => api.experiment(experimentKey),
+    queryKey: ['experiment', experimentKey, environment],
+    queryFn: () => api.experiment(experimentKey, environment),
   });
   const recompute = useMutation({
-    mutationFn: () => api.recompute(experimentKey),
+    mutationFn: () => api.recompute(experimentKey, environment),
     onSuccess: (data) => {
-      client.setQueryData(['experiment', experimentKey], (old: unknown) =>
+      client.setQueryData(['experiment', experimentKey, environment], (old: unknown) =>
         old && typeof old === 'object' ? { ...old, results: data.results } : old,
       );
       void client.invalidateQueries({ queryKey: ['experiments'] });

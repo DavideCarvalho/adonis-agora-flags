@@ -249,6 +249,10 @@ export interface MetricResult {
 export interface ExperimentResults {
   experiment: string;
   flag: string;
+  /** Environment whose events were analysed (absent in results computed before 0.1). */
+  environment?: string;
+  /** Global-holdout subjects who reached the experiment (not compared). */
+  holdout?: number;
   control: string;
   computedAt: string;
   exposures: Record<string, number>;
@@ -530,9 +534,14 @@ export const api = {
     http<{ analytics: boolean; experiments: ExperimentRow[] }>(
       `/experiments${buildQuery({ environment })}`,
     ),
-  experiment: (key: string) => http<ExperimentDetail>(`/experiments/${seg(key)}`),
-  recompute: (key: string) =>
-    send<{ key: string; results: ExperimentResults }>('POST', `/experiments/${seg(key)}/recompute`),
+  experiment: (key: string, environment: string) =>
+    http<ExperimentDetail>(`/experiments/${seg(key)}${buildQuery({ environment })}`),
+  recompute: (key: string, environment: string) =>
+    send<{ key: string; results: ExperimentResults }>(
+      'POST',
+      `/experiments/${seg(key)}/recompute`,
+      { environment },
+    ),
 
   changeRequests: (environment: string, status: string) =>
     http<{ requiresApproval: boolean; actor: Actor; requests: ChangeRequest[] }>(
