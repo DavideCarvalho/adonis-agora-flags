@@ -159,3 +159,88 @@ describe('remote source', () => {
     }
   });
 });
+
+describe('token endpoint', () => {
+  function endpointServer() {
+    const flags = fakeServer({ values: { banner: 'snow' } });
+    let issued = 0;
+    let reject: string | undefined;
+    const fetch = vi.fn(async (url: string, init: RequestInit = {}) => {
+      if (url === 'https://app.test/_flags/token') {
+        issued++;
+        expect(init.credentials).toBe('include');
+        return new Response(
+          JSON.stringify({
+            token: `tok-${issued}`,
+            expiresAt: Date.now() + 300_000,
+            url: 'https://flags.test/_flags',
+          }),
+          { status: 200 },
+        );
+      }
+      const auth = (init.headers as Record<string, string>).authorization;
+      if (auth === `Bearer ${reject}`) return new Response('{}', { status: 401 });
+      return (flags.fetch as unknown as (u: string, i: RequestInit) => Promise<Response>)(
+        url,
+        init,
+      );
+    }) as unknown as typeof globalThis.fetch;
+    return {
+      fetch,
+      flags,
+      get issued() {
+        return issued;
+      },
+      reject(token: string) {
+        reject = token;
+      },
+    };
+  }
+
+  it('fetches a token once, keeps it until it nears expiry, and goes where it says', async () => {
+    const server = endpointServer();
+    const source = remoteFlags({
+      endpoint: 'https://app.test/_flags/token',
+      credentials: 'include',
+      fetch: server.fetch,
+      stream: false,
+    });
+    await source.refresh();
+    await source.refresh();
+    expect(source.getSnapshot().values).toEqual({ banner: 'snow' });
+    expect(server.issued).toBe(1);
+    expect(server.flags.tokens).toEqual(['Bearer tok-1', 'Bearer tok-1']);
+  });
+
+  it('fetches a new token once when the flags API rejects the cached one', async () => {
+    const server = endpointServer();
+    const source = remoteFlags({
+      endpoint: 'https://app.test/_flags/token',
+      credentials: 'include',
+      fetch: server.fetch,
+      stream: false,
+    });
+    await source.refresh();
+    server.reject('tok-1');
+    server.flags.change({ banner: 'lights' });
+    await source.refresh();
+    expect(server.issued).toBe(2);
+    expect(source.getSnapshot().values).toEqual({ banner: 'lights' });
+  });
+
+  it('starts from a token already in the page, and reload() asks for a new one', async () => {
+    const server = endpointServer();
+    const source = remoteFlags({
+      endpoint: 'https://app.test/_flags/token',
+      credentials: 'include',
+      initial: { token: 'page', expiresAt: Date.now() + 300_000, url: 'https://flags.test/_flags' },
+      fetch: server.fetch,
+      stream: false,
+    });
+    await source.refresh();
+    expect(server.issued).toBe(0);
+    expect(server.flags.tokens).toEqual(['Bearer page']);
+    await source.reload();
+    expect(server.issued).toBe(1);
+  });
+});

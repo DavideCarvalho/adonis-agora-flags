@@ -3,7 +3,7 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flag } from '../../src/declare.js';
 import { defineConfig, sinks } from '../../src/define_config.js';
 import { ControlPlane } from '../../src/http/control_plane.js';
@@ -105,10 +105,12 @@ describe('control-plane and tenant', () => {
     expect(await tenant.manager.for('u2').enabled('new_player')).toBe(false);
     expect(tenant.source.status().mode).toBe('stream');
 
-    // Snapshot written for cold starts.
-    expect(
-      JSON.parse(readFileSync(join(snapshotDir, 'ruleset.json'), 'utf8')).flags.new_player,
-    ).toBeDefined();
+    // Snapshot written for cold starts (asynchronously, after the ruleset is applied).
+    await vi.waitFor(() =>
+      expect(
+        JSON.parse(readFileSync(join(snapshotDir, 'ruleset.json'), 'utf8')).flags.new_player,
+      ).toBeDefined(),
+    );
 
     // Events: the tenant's app name comes from its token, and they reach the control-plane's sinks.
     await tenant.manager.track('u1', 'purchase', { value: 10 });

@@ -62,22 +62,27 @@ tenant: {
 },
 ```
 
-Frontends with no Adonis backend (SPA, mobile) read client flags straight from
-the control-plane with `remoteFlags({ url, token })` from
-`@adonis-agora/flags-react`. Enable the browser API on the server:
+Frontends that do not render through Inertia (SPA, static site) read client
+flags with `remoteFlags({ endpoint: '/_flags/token' })` from
+`@adonis-agora/flags-react`. Set `browser: {}` in the app's config — it mounts
+`GET /_flags/token`, which signs the same subject as `ctx.flags` (authkit
+identity, else `subject` resolver, else anonymous) — and on the control-plane:
 
 ```ts no-check
-controlPlane: {
-  verifyTenant,
-  browser: {
-    // the user's authkit access token…
-    verifyUser: userVerifiers.authkit({ issuer: env.get('AUTHKIT_ISSUER'), audience: 'flags' }),
-    // …or a context signed by the app's backend with signFlagsContext()
-    // verifyUser: userVerifiers.signedContext({ secret: env.get('FLAGS_BROWSER_SECRET') }),
-    corsOrigins: ['https://app.example.com'],
-  },
+// flags server
+browser: {
+  corsOrigins: ['https://app.example.com'],
+  // optional: mobile apps holding their own authkit access token (PKCE)
+  verifyUser: userVerifiers.authkit({ issuer: env.get('AUTHKIT_ISSUER'), audience: 'flags' }),
 },
+
+// each app with a frontend
+browser: {},
 ```
+
+Tenants fetch their signing key from the control-plane over the tenant
+connection (needs the `flags:events:write` scope); keys derive from the
+control-plane's `browser.secret` (default `APP_KEY`), per app and environment.
 
 ## Common mistakes
 
@@ -85,7 +90,13 @@ controlPlane: {
 
 `remoteFlags({ attributes })` are merged *under* the token's identity: they can
 never change who the user is, but anyone can send any value. Never gate access
-on a rule over them; put security-relevant attributes in the signed token.
+on a rule over them; security-relevant attributes come from the `attributes`
+resolver in `config/flags.ts`, which the token endpoint signs into the token.
+
+### HIGH — `browser` only on the tenant
+
+The tenant's token endpoint fetches its key from the control-plane: without
+`browser` there, it answers 503 and the log says so.
 
 ### HIGH — Console with approvals but no `actor`
 

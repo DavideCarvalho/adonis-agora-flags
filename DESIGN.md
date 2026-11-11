@@ -223,8 +223,14 @@ tenant, DuckDB/Parquet locais) e de integração (Postgres, Redis e ClickHouse e
 - **Subject do authkit por padrão**: `ctx.authkit.getIdentity()` vira o subject (`sub` como
   targetingKey; email, emailDomain, globalRoles, orgId/orgSlug/orgRole como atributos) e o ator do
   console. Sem authkit, `ctx.auth.user`.
-- **Browser API no control-plane** (`controlPlane.browser`): `/v1/client/evaluate|stream|events`
-  para frontends sem backend Adonis (`remoteFlags` no flags-react). A identidade vem só do token
-  (`userVerifiers.authkit` ou `signFlagsContext` + `userVerifiers.signedContext`); atributos do
-  browser entram por baixo e não mudam targetingKey/subjectType. Só flags `client: true`, só valores.
-  Exposições do browser são reavaliadas no servidor (o browser não escolhe variante).
+- **Frontends sem Inertia** (`browser` no config, `remoteFlags` no flags-react): cada app monta
+  `GET /_flags/token`, que assina (HMAC, 5 min) o mesmo subject do `ctx.flags` — identidade do
+  authkit, senão o `subject` do config, senão anônimo — com os `attributes` do servidor. A chave é
+  por app+ambiente, derivada do `browser.secret` (default APP_KEY) de quem serve a API; o tenant
+  pega a dele no control-plane (`POST /v1/browser-key`, escopo events:write) pela conexão de tenant
+  que já tem, então não há segredo novo. A API (`/v1/client/evaluate|stream|events`) roda no
+  standalone e no control-plane; deriva a chave de novo a partir de app/env do token. O browser
+  guarda o token só em memória. Por quê: o authkit é BFF — o access token fica na sessão do servidor
+  e o browser nunca o vê. `userVerifiers.authkit` fica para apps com token próprio (mobile PKCE).
+  Atributos do browser entram por baixo e não mudam targetingKey/subjectType. Só flags
+  `client: true`, só valores. Exposições do browser são reavaliadas no servidor.

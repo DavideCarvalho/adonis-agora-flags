@@ -10,7 +10,6 @@ import type { FlagDeclaration } from './declare.js';
 import type { Enricher } from './enrichers.js';
 import type { BufferOptions } from './events/buffer.js';
 import type { FlagEvent } from './events/event.js';
-import type { BrowserApiOptions } from './http/browser_api.js';
 import type { RelayOptions } from './relay/relay.js';
 import { type ClickHouseOptions, ClickHouseSink } from './sinks/clickhouse.js';
 import { LucidSink } from './sinks/lucid_sink.js';
@@ -23,7 +22,7 @@ import { MemoryStore } from './stores/memory_store.js';
 import type { FlagsStore } from './stores/store.js';
 import type { Subject, SubjectLike } from './subject.js';
 import type { TokenSource } from './topology/token.js';
-import type { TenantVerifier } from './topology/verify.js';
+import type { TenantVerifier, UserVerifier } from './topology/verify.js';
 import { DbTransport, type DbTransportOptions } from './transports/db_transport.js';
 import { MemoryTransport } from './transports/memory_transport.js';
 import {
@@ -168,6 +167,41 @@ interface BaseConfig<F extends Record<string, FlagDeclaration>> {
   attributes?: (subject: Subject) => Record<string, unknown> | Promise<Record<string, unknown>>;
   /** Count evaluations per flag for stale-flag detection. Default `true`. */
   usage?: boolean;
+  /**
+   * Frontends that read flags straight from the flags API (`remoteFlags` in
+   * `@adonis-agora/flags-react`). Turns on, in every topology, the token endpoint
+   * (`GET /_flags/token`): it signs the same subject `ctx.flags` uses — the authkit identity, or your
+   * `subject` resolver — into a short-lived token. On standalone and control-plane apps it also
+   * serves the flags API the token is for (`<prefix>/v1/client/*`).
+   */
+  browser?: BrowserConfig;
+}
+
+export interface BrowserConfig {
+  /** Path of the token endpoint on this app. Default `/_flags/token`; `false` to mount none. */
+  tokenRoute?: string | false;
+  /** Token lifetime in seconds. Default 300. */
+  ttlSeconds?: number;
+  /**
+   * The flags API URL handed to the browser with each token. Default: this app's `/_flags`
+   * (standalone, control-plane) or `tenant.url` (tenant). Set it when browsers reach the flags
+   * server under another address than the app does.
+   */
+  publicUrl?: string;
+  /** Standalone and control-plane: route prefix of the flags API. Default `/_flags` (or `controlPlane.prefix`). */
+  prefix?: string;
+  /** Standalone and control-plane: origins allowed to call the flags API cross-origin. */
+  corsOrigins?: string[];
+  /**
+   * Standalone and control-plane: secret the per-app signing keys derive from. Default: the app key
+   * (`APP_KEY`). Rotating it invalidates outstanding tokens; frontends fetch new ones.
+   */
+  secret?: string;
+  /**
+   * Standalone and control-plane: also accept tokens this package did not mint — e.g.
+   * `userVerifiers.authkit(...)` for authkit access tokens held by mobile apps.
+   */
+  verifyUser?: UserVerifier;
 }
 
 interface OwnedStateConfig {
@@ -233,12 +267,6 @@ export interface ControlPlaneConfig<F extends Record<string, FlagDeclaration>>
     ofrep?: boolean;
     /** Origins allowed to call OFREP from browsers. Default: none (no CORS headers). */
     corsOrigins?: string[];
-    /**
-     * Serve frontends directly (SPAs, mobile): `<prefix>/v1/client/*`. The user is identified by a
-     * token the browser cannot forge — `userVerifiers.authkit(...)` for authkit access tokens, or
-     * `userVerifiers.signedContext(...)` for contexts your backend signs with `signFlagsContext`.
-     */
-    browser?: BrowserApiOptions;
   };
 }
 

@@ -1,33 +1,60 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import type { HttpContext } from '@adonisjs/core/http';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { flag } from '../../src/declare.js';
 import { defineConfig, sinks } from '../../src/define_config.js';
+import { registerBrowser } from '../../src/http/browser.js';
+import { BrowserTokens } from '../../src/http/browser_tokens.js';
 import { ControlPlane } from '../../src/http/control_plane.js';
 import { createRuntime, type FlagsRuntime, lucidContext } from '../../src/runtime.js';
 import type { MemorySink } from '../../src/sinks/sink.js';
 import {
-  signFlagsContext,
-  type UserVerifier,
-  userVerifiers,
-  verifiers,
-} from '../../src/topology/verify.js';
+  browserKey,
+  localKeySource,
+  signBrowserToken,
+  verifyBrowserToken,
+} from '../../src/topology/browser_token.js';
+import { userVerifiers, verifiers } from '../../src/topology/verify.js';
 import { quietLogger, sqliteDb, type TestDb } from '../helpers.js';
 import { type Handler, serve } from '../http_harness.js';
 
 const SECRET = 'browser-secret';
 
-async function controlPlane(db: TestDb, verifyUser: UserVerifier) {
+/** Who is signed in, for the tests: `x-user` / `x-plan` headers stand in for a session. */
+const subject = (ctx: HttpContext) => {
+  const id = ctx.request.header('x-user');
+  return id ? { id, attributes: { plan: ctx.request.header('x-plan') } } : undefined;
+};
+
+function collect() {
+  const routes: Array<{ method: string; pattern: string; handler: Handler }> = [];
+  const router = {
+    get: (pattern: string, handler: unknown) => {
+      routes.push({ method: 'GET', pattern, handler: handler as Handler });
+      return { as: () => {} };
+    },
+    post: (pattern: string, handler: unknown) => {
+      routes.push({ method: 'POST', pattern, handler: handler as Handler });
+      return { as: () => {} };
+    },
+  };
+  return { routes, router };
+}
+
+const urlOf = (server: Server) => `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+async function controlPlane(db: TestDb) {
   const runtime = await createRuntime(
     defineConfig({
       topology: 'control-plane',
       flags: { internal_flag: flag.boolean({ default: true }) },
       sinks: { mem: sinks.memory() },
-      controlPlane: {
-        verifyTenant: verifiers.sharedSecret({ shop: 'x' }),
-        browser: { verifyUser, corsOrigins: ['https://app.example'] },
-      },
+      subject,
+      attributes: async () => ({ country: 'BR' }),
+      controlPlane: { verifyTenant: verifiers.sharedSecret({ shop: 's3cret' }) },
+      browser: { secret: SECRET, corsOrigins: ['https://app.example'] },
     }),
     lucidContext(db.database as never),
     { logger: quietLogger },
@@ -72,45 +99,50 @@ async function controlPlane(db: TestDb, verifyUser: UserVerifier) {
     admin,
   );
   await runtime.manager.refresh();
-  const routes: Array<{ method: string; pattern: string; handler: Handler }> = [];
-  new ControlPlane(runtime, (runtime.config as { controlPlane: never }).controlPlane).register({
-    get: (pattern, handler) => {
-      routes.push({ method: 'GET', pattern, handler: handler as Handler });
-      return { as: () => {} };
-    },
-    post: (pattern, handler) => {
-      routes.push({ method: 'POST', pattern, handler: handler as Handler });
-      return { as: () => {} };
-    },
-  });
-  const server = await serve(routes);
-  return {
+  const { routes, router } = collect();
+  const plane = new ControlPlane(
     runtime,
-    server,
-    base: `http://127.0.0.1:${(server.address() as AddressInfo).port}/_flags`,
-  };
+    (runtime.config as { controlPlane: never }).controlPlane,
+    SECRET,
+  );
+  plane.register(router);
+  registerBrowser(router, runtime, { secret: SECRET, controlPlane: plane });
+  const server = await serve(routes);
+  return { runtime, server, origin: urlOf(server) };
+}
+
+async function close(server: Server) {
+  server.closeAllConnections();
+  await new Promise((resolve) => server.close(resolve));
 }
 
 describe('browser API', () => {
   let db: TestDb;
   let runtime: FlagsRuntime;
   let server: Server;
+  let origin: string;
   let base: string;
 
   beforeEach(async () => {
     db = await sqliteDb();
-    ({ runtime, server, base } = await controlPlane(
-      db,
-      userVerifiers.signedContext({ secret: SECRET }),
-    ));
+    ({ runtime, server, origin } = await controlPlane(db));
+    base = `${origin}/_flags`;
   });
 
   afterEach(async () => {
     await runtime.close();
-    server.closeAllConnections();
-    await new Promise((resolve) => server.close(resolve));
+    await close(server);
     await db.close();
   });
+
+  const tokenFor = async (user?: string, plan?: string, at = origin) => {
+    const response = await fetch(`${at}/_flags/token`, {
+      headers: { ...(user ? { 'x-user': user } : {}), ...(plan ? { 'x-plan': plan } : {}) },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    return (await response.json()) as { token: string; expiresAt: number; url: string };
+  };
 
   const evaluate = (
     token: string | undefined,
@@ -127,43 +159,72 @@ describe('browser API', () => {
       body: JSON.stringify(body),
     });
 
+  it('issues a token for the session subject, with server attributes signed in', async () => {
+    const issued = await tokenFor('u1', 'pro');
+    expect(issued.url).toBe('/_flags');
+    expect(issued.expiresAt).toBeGreaterThan(Date.now() + 200_000);
+    const payload = JSON.parse(Buffer.from(issued.token.split('.')[1]!, 'base64url').toString());
+    expect(payload).toMatchObject({ sub: 'u1', attrs: { plan: 'pro', country: 'BR' } });
+  });
+
   it('serves only client flags, for the identity in the token', async () => {
-    const token = signFlagsContext(
-      { id: 'u1', attributes: { plan: 'pro' } },
-      { secret: SECRET, app: 'web' },
-    );
+    const { token } = await tokenFor('u1', 'pro');
     const response = await evaluate(token);
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.values).toEqual({ banner: 'snow', checkout: 'b' });
     expect(body.values).not.toHaveProperty('internal_flag');
     expect(body.experiments).toEqual(['checkout']);
-    // Same ruleset and context: 304.
     const again = await evaluate(token, {}, { 'if-none-match': response.headers.get('etag')! });
     expect(again.status).toBe(304);
   });
 
+  it('serves anonymous visitors static values, and records nothing for them', async () => {
+    const { token } = await tokenFor();
+    expect((await (await evaluate(token)).json()).values).toEqual({
+      banner: 'off',
+      checkout: 'control',
+    });
+    const events = await fetch(`${base}/v1/client/events`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ events: [{ type: 'track', name: 'x' }] }),
+    });
+    expect(await events.json()).toEqual({ accepted: 0 });
+  });
+
   it('never lets browser attributes override the token', async () => {
-    const free = signFlagsContext({ id: 'u2', attributes: { plan: 'free' } }, { secret: SECRET });
-    const spoof = await evaluate(free, { attributes: { plan: 'pro', targetingKey: 'admin' } });
+    const { token } = await tokenFor('u2', 'free');
+    const spoof = await evaluate(token, { attributes: { plan: 'pro', targetingKey: 'admin' } });
     expect((await spoof.json()).values.banner).toBe('off');
   });
 
-  it('refuses missing, tampered and expired tokens', async () => {
+  it('refuses missing, tampered, moved, expired and foreign tokens', async () => {
     expect((await evaluate(undefined)).status).toBe(401);
-    const token = signFlagsContext({ id: 'u1' }, { secret: SECRET });
-    const [payload, signature] = token.split('.');
-    const forged = `${Buffer.from(JSON.stringify({ sub: 'admin', exp: 9e9 })).toString('base64url')}.${signature}`;
-    expect((await evaluate(forged)).status).toBe(401);
-    expect((await evaluate(`${payload}.x`)).status).toBe(401);
-    expect(
-      (await evaluate(signFlagsContext({ id: 'u1' }, { secret: SECRET, ttlSeconds: -10 }))).status,
-    ).toBe(401);
-    expect((await evaluate(signFlagsContext({ id: 'u1' }, { secret: 'other' }))).status).toBe(401);
+    const { token } = await tokenFor('u1');
+    const [version, payload, signature] = token.split('.');
+    const decoded = JSON.parse(Buffer.from(payload!, 'base64url').toString());
+    const reencode = (changes: Record<string, unknown>) =>
+      `${version}.${Buffer.from(JSON.stringify({ ...decoded, ...changes })).toString('base64url')}.${signature}`;
+    expect((await evaluate(reencode({ sub: 'admin' }))).status).toBe(401);
+    // Same signature, another app or environment: a different key.
+    expect((await evaluate(reencode({ app: 'billing' }))).status).toBe(401);
+    expect((await evaluate(reencode({ env: 'staging' }))).status).toBe(401);
+    const key = browserKey(SECRET, 'app', 'production');
+    const expired = signBrowserToken(
+      { id: 'u1' },
+      { key, app: 'app', environment: 'production', ttlSeconds: -10 },
+    );
+    expect((await evaluate(expired.token)).status).toBe(401);
+    const foreign = signBrowserToken(
+      { id: 'u1' },
+      { key: browserKey('other', 'app', 'production'), app: 'app', environment: 'production' },
+    );
+    expect((await evaluate(foreign.token)).status).toBe(401);
   });
 
   it('records exposures re-evaluated on the server, and tracks', async () => {
-    const token = signFlagsContext({ id: 'u3' }, { secret: SECRET, app: 'web' });
+    const { token } = await tokenFor('u3');
     const response = await fetch(`${base}/v1/client/events`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
@@ -179,7 +240,7 @@ describe('browser API', () => {
     await runtime.relay!.drain('mem');
     const events = (runtime.sinks.get('mem') as MemorySink).events;
     expect(events.find((e) => e.type === 'exposure')).toMatchObject({
-      app: 'web',
+      app: 'app',
       subject: 'u3',
       experiment: 'checkout',
       // The server's answer, not the one the browser claimed.
@@ -192,8 +253,8 @@ describe('browser API', () => {
     });
   });
 
-  it('answers CORS preflights only for allowed origins', async () => {
-    const token = signFlagsContext({ id: 'u1' }, { secret: SECRET });
+  it('answers CORS only for allowed origins', async () => {
+    const { token } = await tokenFor('u1');
     const allowed = await evaluate(token, {}, { origin: 'https://app.example' });
     expect(allowed.headers.get('access-control-allow-origin')).toBe('https://app.example');
     const other = await evaluate(token, {}, { origin: 'https://evil.example' });
@@ -201,20 +262,143 @@ describe('browser API', () => {
   });
 
   it('streams ruleset changes over SSE with the token in the query string', async () => {
-    const token = signFlagsContext({ id: 'u1' }, { secret: SECRET });
+    const { token } = await tokenFor('u1');
     const controller = new AbortController();
     const response = await fetch(`${base}/v1/client/stream?token=${encodeURIComponent(token)}`, {
       signal: controller.signal,
     });
     expect(response.status).toBe(200);
     const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
-    const first = await reader.read();
-    expect(first.value).toContain('event: ruleset');
+    expect((await reader.read()).value).toContain('event: ruleset');
     await runtime.admin!.setEnabled('banner', false, { id: 'alice' });
     await runtime.manager.refresh();
-    const next = await reader.read();
-    expect(next.value).toContain('event: ruleset');
+    expect((await reader.read()).value).toContain('event: ruleset');
     controller.abort();
+  });
+
+  describe('from a tenant app', () => {
+    let tenant: FlagsRuntime;
+    let tenantServer: Server;
+
+    beforeEach(async () => {
+      tenant = await createRuntime(
+        defineConfig({
+          topology: 'tenant',
+          flags: {},
+          subject,
+          tenant: { url: base, token: 's3cret', partition: 'shop', stream: false },
+          browser: {},
+        }),
+        lucidContext(db.database as never),
+        { logger: quietLogger },
+      );
+      const { routes, router } = collect();
+      registerBrowser(router, tenant, {});
+      tenantServer = await serve(routes);
+    });
+
+    afterEach(async () => {
+      await tenant.close();
+      await close(tenantServer);
+    });
+
+    it('signs with a key fetched from the control-plane, for its own app only', async () => {
+      const issued = await tokenFor('u5', 'pro', urlOf(tenantServer));
+      // The browser goes straight to the control-plane.
+      expect(issued.url).toBe(base);
+      const response = await evaluate(issued.token);
+      expect((await response.json()).values.banner).toBe('snow');
+      await fetch(`${base}/v1/client/events`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${issued.token}` },
+        body: JSON.stringify({ events: [{ type: 'track', name: 'signup' }] }),
+      });
+      await runtime.relay!.drain('mem');
+      const events = (runtime.sinks.get('mem') as MemorySink).events;
+      expect(events.find((e) => e.type === 'track')).toMatchObject({ app: 'shop', subject: 'u5' });
+    });
+
+    it('gives keys only to authenticated tenants', async () => {
+      const unauthenticated = await fetch(`${base}/v1/browser-key`, { method: 'POST' });
+      expect(unauthenticated.status).toBe(401);
+      const wrong = await fetch(`${base}/v1/browser-key`, {
+        method: 'POST',
+        headers: { authorization: 'Bearer nope', 'x-flags-tenant': 'shop' },
+      });
+      expect(wrong.status).toBe(401);
+    });
+  });
+});
+
+describe('token endpoint subjects (no subject resolver configured)', () => {
+  let db: TestDb;
+  let runtime: FlagsRuntime;
+  let tokens: BrowserTokens;
+
+  beforeEach(async () => {
+    db = await sqliteDb();
+    runtime = await createRuntime(
+      defineConfig({
+        flags: {},
+        // Server-side attributes, read from your own data.
+        attributes: async (subject) => ({ plan: subject.id === 7 ? 'pro' : 'free' }),
+        browser: {},
+      }),
+      lucidContext(db.database as never),
+      { logger: quietLogger },
+    );
+    tokens = new BrowserTokens(runtime, localKeySource(SECRET, 'app', 'production'), '/_flags', {});
+  });
+
+  afterEach(async () => {
+    await runtime.close();
+    await db.close();
+  });
+
+  const issueFor = async (ctx: Record<string, unknown>) => {
+    const { token } = await tokens.issue({ request: { header: () => undefined }, ...ctx } as never);
+    return verifyBrowserToken(token, SECRET);
+  };
+
+  it('uses ctx.auth.user from @adonisjs/auth when authkit is not installed', async () => {
+    const verified = await issueFor({ auth: { user: { id: 7, email: 'a@b.c' } } });
+    expect(verified?.subject).toEqual({ id: '7', attributes: { plan: 'pro' } });
+  });
+
+  it('checks the session silently when no auth middleware ran', async () => {
+    const auth = {
+      user: undefined as { id: number } | undefined,
+      async check() {
+        auth.user = { id: 9 };
+        return true;
+      },
+    };
+    expect((await issueFor({ auth }))?.subject?.id).toBe('9');
+  });
+
+  it('uses the authkit identity when authkit-client is installed', async () => {
+    const verified = await issueFor({
+      authkit: {
+        getIdentity: async () => ({
+          userId: 'sub-1',
+          email: 'bia@acme.dev',
+          globalRoles: ['BETA'],
+          orgSlug: 'acme',
+        }),
+      },
+      auth: { user: { id: 7 } },
+    });
+    expect(verified?.subject).toMatchObject({
+      id: 'sub-1',
+      type: 'user',
+      attributes: { email: 'bia@acme.dev', globalRoles: ['BETA'], orgSlug: 'acme', plan: 'free' },
+    });
+  });
+
+  it('issues an anonymous token when nobody is signed in', async () => {
+    const verified = await issueFor({});
+    expect(verified).not.toBeNull();
+    expect(verified?.subject).toBeUndefined();
   });
 });
 

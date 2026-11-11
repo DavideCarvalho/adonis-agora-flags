@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual } from 'node:crypto';
 import type { Subject } from '../subject.js';
 import { TENANT_SCOPES } from './token.js';
 
@@ -127,7 +127,8 @@ export const verifiers = {
 
 /** A browser's verified identity: who is evaluating, from a token the browser cannot forge. */
 export interface VerifiedUser {
-  subject: Subject;
+  /** Absent for anonymous visitors: they get static values only (no targeting key). */
+  subject?: Subject;
   /** The environment whose ruleset applies. Default: the control-plane's. */
   environment?: string;
   /** The app the browser belongs to (stamped on its events). Default `browser`. */
@@ -150,42 +151,11 @@ export interface AuthkitUserVerifierOptions {
   allowAnyTyp?: boolean;
 }
 
-function base64url(input: Buffer | string): string {
-  return Buffer.from(input).toString('base64url');
-}
-
-/**
- * A short-lived, HMAC-signed evaluation context, minted by your app's backend for its frontend when
- * there is no authkit token to hand over:
- *
- * ```ts
- * // a controller of the app
- * const flagsToken = signFlagsContext({ id: user.id, attributes: { plan: user.plan } }, { secret: env.get('FLAGS_BROWSER_SECRET') })
- * ```
- *
- * The control-plane verifies it with `verifiers.signedContext({ secret })`. The browser can read
- * it but cannot change it.
- */
-export function signFlagsContext(
-  subject: Subject,
-  options: { secret: string; ttlSeconds?: number; environment?: string; app?: string },
-): string {
-  const payload = {
-    sub: String(subject.id),
-    ...(subject.type ? { typ: subject.type } : {}),
-    ...(subject.attributes ? { attrs: subject.attributes } : {}),
-    ...(options.environment ? { env: options.environment } : {}),
-    ...(options.app ? { app: options.app } : {}),
-    exp: Math.floor(Date.now() / 1000) + (options.ttlSeconds ?? 3600),
-  };
-  const body = base64url(JSON.stringify(payload));
-  const signature = createHmac('sha256', options.secret).update(body).digest('base64url');
-  return `${body}.${signature}`;
-}
-
 export const userVerifiers = {
   /**
-   * The signed-in user's authkit access token (a JWT verified against the issuer's JWKS). The
+   * An authkit access token held by the client itself — a mobile app or SPA that signs in with
+   * PKCE — verified against the issuer's JWKS. Browsers of an Adonis app with a session use the
+   * app's token endpoint instead (`browser` in `config/flags.ts`). The
    * subject is the `sub` claim — the same person in every app — and `email`, `roles`/`global_roles`
    * and the `org_*` claims become trusted targeting attributes.
    */
@@ -226,46 +196,6 @@ export const userVerifiers = {
         ...(environment ? { environment } : {}),
         ...(clientId ? { app: clientId } : {}),
         ...(verified.expiresAt ? { expiresAt: verified.expiresAt } : {}),
-      };
-    };
-  },
-
-  /** Contexts minted by your app's backend with {@link signFlagsContext}. */
-  signedContext(options: { secret: string }): UserVerifier {
-    return ({ token }) => {
-      if (!token) return null;
-      const [body, signature] = token.split('.');
-      if (!body || !signature) return null;
-      const expected = createHmac('sha256', options.secret).update(body).digest('base64url');
-      if (!sameSecret(signature, expected)) return null;
-      let payload: {
-        sub?: unknown;
-        typ?: unknown;
-        attrs?: unknown;
-        env?: unknown;
-        app?: unknown;
-        exp?: unknown;
-      };
-      try {
-        payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
-      } catch {
-        return null;
-      }
-      if (typeof payload.sub !== 'string' || typeof payload.exp !== 'number') return null;
-      if (payload.exp * 1000 < Date.now()) return null;
-      const attributes =
-        payload.attrs && typeof payload.attrs === 'object' && !Array.isArray(payload.attrs)
-          ? (payload.attrs as Record<string, unknown>)
-          : undefined;
-      return {
-        subject: {
-          id: payload.sub,
-          ...(typeof payload.typ === 'string' ? { type: payload.typ } : {}),
-          ...(attributes ? { attributes } : {}),
-        },
-        ...(typeof payload.env === 'string' ? { environment: payload.env } : {}),
-        ...(typeof payload.app === 'string' ? { app: payload.app } : {}),
-        expiresAt: payload.exp * 1000,
       };
     };
   },

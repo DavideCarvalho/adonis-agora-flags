@@ -6,13 +6,16 @@ import { HOLDOUT_VARIANT } from '../analytics/results.js';
 import { EVENT_SCHEMA_VERSION, exposureId, type FlagEvent, uuidv7 } from '../events/event.js';
 import type { FlagsRuntime } from '../runtime.js';
 import { toContext } from '../subject.js';
+import { verifyBrowserToken } from '../topology/browser_token.js';
 import type { UserVerifier, VerifiedUser } from '../topology/verify.js';
 
 export interface BrowserApiOptions {
-  /** Verifies the browser's token (an authkit access token, or a signed context). */
-  verifyUser: UserVerifier;
+  /** Secret the apps' signing keys derive from (see `browser_token.ts`). */
+  secret: string;
+  /** Also accept other tokens (authkit access tokens from mobile apps). */
+  verifyUser?: UserVerifier | undefined;
   /** Origins allowed to call from browsers (CORS). */
-  corsOrigins?: string[];
+  corsOrigins?: string[] | undefined;
 }
 
 interface RouterLike {
@@ -43,7 +46,8 @@ function browserAttributes(input: unknown): Record<string, string | number | boo
  * - `POST <prefix>/v1/client/events` — exposures (`{ type: 'exposure', flag }`, re-evaluated here)
  *   and tracks (`{ type: 'track', name, value?, props? }`).
  *
- * The identity always comes from the verified token. Attributes the browser sends are merged
+ * Tokens are minted by the apps' token endpoints (`GET /_flags/token`) or, with `verifyUser`, by
+ * an identity provider. The identity always comes from the verified token. Attributes the browser sends are merged
  * underneath the token's, so they can never change who the user is or what the token says.
  */
 export class BrowserApi {
@@ -92,7 +96,9 @@ export class BrowserApi {
     const bearer =
       token ??
       (header && /^bearer\s+/i.test(header) ? header.replace(/^bearer\s+/i, '').trim() : undefined);
-    const verified = await this.options.verifyUser({ token: bearer });
+    const verified =
+      verifyBrowserToken(bearer, this.options.secret) ??
+      (bearer && this.options.verifyUser ? await this.options.verifyUser({ token: bearer }) : null);
     if (!verified) {
       ctx.response.status(401).send({ error: 'unauthorized' });
       return null;
@@ -219,6 +225,8 @@ export class BrowserApi {
     const environment = this.#environment(user);
     const ruleset = await this.rulesetOf(environment);
     const clientKeys = await this.#clientKeys(ruleset);
+    // Anonymous visitors have no targeting key: nothing to attribute.
+    if (!user.subject) return ctx.response.status(202).send({ accepted: 0 });
     const app = user.app ?? 'browser';
     const subject = String(user.subject.id);
     const subjectType = user.subject.type ?? 'user';

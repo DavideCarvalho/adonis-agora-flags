@@ -64,25 +64,53 @@ import { useFlagsRealtime } from '@adonis-agora/flags-react'
 useFlagsRealtime({ transmit, onChange: () => router.reload({ only: ['flags'] }) })
 ```
 
-## Straight from a flags server
+## Without Inertia: `remoteFlags`
 
-When the frontend has no Adonis backend to ask, point it at the flags server. The user is identified by a token the browser cannot forge — with authkit, the user's access token:
+For an SPA, a static site or anything that does not render through Inertia, the frontend asks the flags API itself. Turn on `browser` in `config/flags.ts`:
+
+```ts title="config/flags.ts"
+export default defineConfig({
+  flags: { /* … */ },
+  browser: {},
+})
+```
 
 ```tsx
 import { FlagsProvider, remoteFlags } from '@adonis-agora/flags-react'
 
-const flags = remoteFlags({
-  url: 'https://flags.example.com/_flags',
-  token: () => authkit.getAccessToken(),
-  attributes: { locale: navigator.language },
-})
+const flags = remoteFlags({ endpoint: '/_flags/token' })
 
 <FlagsProvider source={flags}>
   <App />
 </FlagsProvider>
 ```
 
-- Values arrive on mount, refresh every 30 seconds (an unchanged ruleset costs a `304`), and change instantly through a server-sent event stream. When the stream closes because the token expired, it reopens with a fresh one.
+`browser` mounts `GET /_flags/token` on your app. It signs the **same user `ctx.flags` uses** into a five-minute token and says where the flags API is:
+
+- **with `@adonisjs/auth`** (sessions, access tokens, any guard): `ctx.auth.user`. Nothing to configure;
+- **with `@adonis-agora/authkit-client`**: the authkit identity of the session (`sub`, email, roles, organization), also with nothing to configure;
+- with your own `subject` resolver in `config/flags.ts`: whatever it returns;
+- nobody signed in: an anonymous token, which gets static values only.
+
+The `attributes` resolver of `config/flags.ts` runs too, so plan, country and the like travel signed inside the token. With `@adonisjs/auth`, that is where the user's targeting data comes from:
+
+```ts title="config/flags.ts"
+export default defineConfig({
+  flags: { /* … */ },
+  browser: {},
+  attributes: async (subject) => {
+    const user = await User.find(subject.id)
+    return { plan: user?.plan, country: user?.country }
+  },
+})
+``` The browser holds the token in memory only (never `localStorage`), fetches a new one shortly before it expires, and retries once with a fresh one if the flags API refuses it.
+
+1. The browser calls `/_flags/token` with its session cookie and gets `{ token, expiresAt, url }`.
+2. It calls the flags API at `url` with the token.
+
+Where the flags API is depends on the [topology](/docs/central-server): on a standalone app it is the app itself; on a tenant, the token points the browser straight at the control-plane. The frontend code is the same either way.
+
+- Values arrive on mount, refresh every 30 seconds (an unchanged ruleset costs a `304`), and change instantly through a server-sent event stream.
 - Until the first answer, hooks return their fallbacks; `useFlagsStatus()` tells you when values are ready.
 - Rendering an experiment flag (`useFlag`, `useFlagEnabled`, `<Flag>`) records the exposure once per page load. The server re-evaluates the flag, so the browser cannot report a variant it was not assigned.
 - `useTrack()` records conversions:
@@ -92,6 +120,24 @@ const track = useTrack()
 <button onClick={() => track('signup_click')}>Sign up</button>
 ```
 
-`attributes` are conveniences (locale, screen). They are merged under the token's identity, so they can never change who the user is, and rules on them should never gate access.
+After sign-in or sign-out, call `flags.reload()`: it drops the token and evaluates for the new user.
 
-The server side is [the browser API of the central server](/docs/central-server#frontends).
+### Options
+
+| Option | |
+|---|---|
+| `endpoint` | The token endpoint. |
+| `credentials` | `'include'` when the frontend is on another origin than the app (also allow it in `config/cors.ts`). Default `'same-origin'`. |
+| `initial` | A token already in the page, to skip the first request: `browserToken(ctx)` from `@adonis-agora/flags`. |
+| `attributes` | Conveniences (locale, screen). Merged under the token's identity: they cannot change who the user is, and rules on them must never gate access. |
+| `pollMs`, `stream` | Refresh interval (default 30 s) and the live stream (default on). |
+
+### Apps that hold their own token
+
+A mobile app or SPA that signs in to authkit itself (PKCE) has an access token and no Adonis session. Give it the flags API URL and the token:
+
+```tsx
+remoteFlags({ url: 'https://flags.example.com/_flags', token: () => auth.accessToken })
+```
+
+and let the flags server accept authkit tokens with [`browser.verifyUser`](/docs/central-server#apps-with-their-own-authkit-token).

@@ -40,6 +40,7 @@ export {
 } from './declare.js';
 export {
   analytics,
+  type BrowserConfig,
   type ControlPlaneConfig,
   defineConfig,
   type ExperimentConfig,
@@ -53,7 +54,8 @@ export {
 } from './define_config.js';
 export { DIAGNOSTICS_CHANNELS, type Enricher, enrichers } from './enrichers.js';
 export { EVENT_SCHEMA_VERSION, exposureId, type FlagEvent, uuidv7 } from './events/event.js';
-export type { BrowserApiOptions } from './http/browser_api.js';
+export { browserToken, registerBrowser } from './http/browser.js';
+export type { BrowserTokenResponse } from './http/browser_tokens.js';
 export {
   type AuthkitIdentityLike,
   authkitIdentity,
@@ -90,7 +92,6 @@ export type {
 export type { Subject, SubjectLike } from './subject.js';
 export { TENANT_SCOPES, type TokenSource, tokens } from './topology/token.js';
 export {
-  signFlagsContext,
   type TenantVerifier,
   type UserVerifier,
   userVerifiers,

@@ -11,6 +11,7 @@ import type {
 import { analytics as analyticsFactories, sinks as sinkFactories } from './define_config.js';
 import { enrichers as builtInEnrichers, type Enricher } from './enrichers.js';
 import { EventBuffer } from './events/buffer.js';
+import type { BrowserTokens } from './http/browser_tokens.js';
 import { FlagsManager } from './manager.js';
 import { Relay } from './relay/relay.js';
 import { LucidResultsCache, MemoryResultsCache, type ResultsCache } from './relay/results_cache.js';
@@ -59,6 +60,8 @@ export interface FlagsRuntime {
   enrichers: Enricher[];
   /** Tenant only: how it authenticates to the control-plane. */
   token?: TokenSource;
+  /** Issues browser tokens, when `browser` is configured (set by the provider). */
+  browser?: BrowserTokens | undefined;
   close(): Promise<void>;
 }
 

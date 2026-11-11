@@ -10,9 +10,9 @@ import type { FlagDeclaration } from '../declare.js';
 import type { ControlPlaneConfig } from '../define_config.js';
 import { parseEvents } from '../events/event.js';
 import type { FlagsRuntime } from '../runtime.js';
+import { browserKey } from '../topology/browser_token.js';
 import { TENANT_SCOPES } from '../topology/token.js';
 import type { VerifiedTenant } from '../topology/verify.js';
-import { BrowserApi } from './browser_api.js';
 
 interface RouterLike {
   get(pattern: string, handler: (ctx: HttpContext) => unknown): { as(name: string): unknown };
@@ -54,6 +54,8 @@ export class ControlPlane {
   constructor(
     private readonly runtime: FlagsRuntime,
     private readonly options: ControlPlaneConfig<Record<string, FlagDeclaration>>['controlPlane'],
+    /** Set when `browser` is configured: tenants fetch their browser signing keys. */
+    private readonly browserSecret?: string,
   ) {
     this.prefix = (options.prefix ?? '/_flags').replace(/\/$/, '');
   }
@@ -110,12 +112,8 @@ export class ControlPlane {
       .post(`${p}/v1/declarations`, (ctx) => this.declarations(ctx))
       .as('flags.cp.declarations');
     router.post(`${p}/v1/usage`, (ctx) => this.usage(ctx)).as('flags.cp.usage');
-    if (this.options.browser) {
-      new BrowserApi(
-        this.runtime,
-        (environment) => this.ruleset(environment),
-        this.options.browser,
-      ).register(router, p);
+    if (this.browserSecret) {
+      router.post(`${p}/v1/browser-key`, (ctx) => this.browserKey(ctx)).as('flags.cp.browserKey');
     }
     if (this.options.ofrep !== false) {
       router.post('/ofrep/v1/evaluate/flags', (ctx) => this.ofrepBulk(ctx)).as('flags.ofrep.bulk');
@@ -127,6 +125,22 @@ export class ControlPlane {
         router.route('/ofrep/v1/evaluate/flags/:key', ['OPTIONS'], (ctx) => this.#preflight(ctx));
       }
     }
+  }
+
+  /**
+   * A tenant's browser signing key, for its own partition and environment only. Requires the
+   * events scope: a browser token lets the browser send events in the tenant's name.
+   */
+  async browserKey(ctx: HttpContext) {
+    const verified = await this.#auth(ctx, TENANT_SCOPES.eventsWrite);
+    if (!verified) return;
+    const environment = this.#environment(verified);
+    ctx.response.header('cache-control', 'no-store');
+    return ctx.response.json({
+      key: browserKey(this.browserSecret!, verified.tenant, environment),
+      app: verified.tenant,
+      environment,
+    });
   }
 
   async getRuleset(ctx: HttpContext) {

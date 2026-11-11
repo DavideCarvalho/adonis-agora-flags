@@ -76,38 +76,47 @@ tenant: { url, partition: 'streaming', token: env.get('FLAGS_SECRET_STREAMING') 
 
 ## Frontends
 
-Frontends without an Adonis backend of their own — SPAs, mobile apps, static sites — can read flags from the control-plane directly, with [`remoteFlags`](/docs/react#straight-from-a-flags-server). Turn on the browser API:
+With `browser: {}` in `config/flags.ts`, frontends read flags with [`remoteFlags({ endpoint: '/_flags/token' })`](/docs/react#without-inertia-remoteflags). Turn it on in each app that has a frontend **and** on the control-plane:
+
+```ts title="config/flags.ts (flags server)"
+topology: 'control-plane',
+controlPlane: { verifyTenant },
+browser: { corsOrigins: ['https://app.example.com', 'https://shop.example.com'] },
+```
+
+```ts title="config/flags.ts (an app)"
+topology: 'tenant',
+tenant: { url, partition: 'shop', token },
+browser: {},
+```
+
+The app signs its users' tokens; the browser then talks to the control-plane directly:
+
+1. The browser calls the app's `GET /_flags/token` with its session cookie.
+2. The app signs the session's user with **its own key**. It got that key from the control-plane (`POST /v1/browser-key`) over the tenant connection it already has, authenticated by its authkit client credentials or shared secret. No new secret to distribute.
+3. The browser calls the control-plane with the token. The control-plane derives the app's key again from the token's app and environment, so a token cannot be moved to another app or environment, and an app can only mint tokens for itself.
+
+The control-plane derives every app key from `browser.secret`, which defaults to its `APP_KEY`. Rotating it invalidates outstanding tokens; frontends fetch new ones on their own. Set `browser.publicUrl` on a tenant when browsers reach the control-plane under another address than the app does (an internal hostname, for example).
+
+### With authkit
+
+When your app is an authkit client (it signs users in against an authkit-server, with `@adonis-agora/authkit-client`), the token endpoint signs that session's identity: `sub`, email, global roles and active organization. The authkit-server, the control-plane and the app can be three different apps. The flags server never calls the authkit-server for browsers: the app vouches for its signed-in user, the same way it already does in `ctx.flags`.
+
+Since authkit gives a person the same `sub` in every app, a user lands in the same variant in every frontend.
+
+### Apps with their own authkit token
+
+A mobile app or SPA that signs in to authkit itself (PKCE) has no Adonis session to ask. Let the control-plane accept its access tokens too:
 
 ```ts title="config/flags.ts (flags server)"
 import { userVerifiers } from '@adonis-agora/flags'
 
-controlPlane: {
-  verifyTenant: verifiers.authkit({ issuer: env.get('AUTHKIT_ISSUER') }),
-  browser: {
-    verifyUser: userVerifiers.authkit({ issuer: env.get('AUTHKIT_ISSUER'), audience: 'flags' }),
-    corsOrigins: ['https://app.example.com'],
-  },
+browser: {
+  verifyUser: userVerifiers.authkit({ issuer: env.get('AUTHKIT_ISSUER'), audience: 'flags' }),
 },
 ```
 
-The browser sends the signed-in user's authkit access token. The control-plane verifies it against authkit's JWKS and evaluates for its `sub`, with `email`, roles and the active organization as targeting attributes. Only flags declared `client: true` are answered, as values. Exposures and tracked events sent by the browser are re-evaluated and attributed on the server.
-
-Without authkit, let your backend sign the context:
-
-```ts
-// in the app's backend
-import { signFlagsContext } from '@adonis-agora/flags'
-
-const flagsToken = signFlagsContext(
-  { id: user.id, attributes: { plan: user.plan } },
-  { secret: env.get('FLAGS_BROWSER_SECRET'), ttlSeconds: 3600 },
-)
-```
-
-```ts
-// flags server
-browser: { verifyUser: userVerifiers.signedContext({ secret: env.get('FLAGS_BROWSER_SECRET') }) }
-```
+The token's audience must include `flags`, and its `client_id` becomes the app on events.
 
 ## OFREP: browsers, mobile and other languages
 

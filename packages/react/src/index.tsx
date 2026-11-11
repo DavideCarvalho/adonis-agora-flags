@@ -10,7 +10,15 @@ import {
 } from 'react';
 import type { RemoteFlags } from './remote.js';
 
-export { RemoteFlags, type RemoteFlagsOptions, type RemoteState, remoteFlags } from './remote.js';
+export {
+  type BrowserToken,
+  type EndpointOptions,
+  RemoteFlags,
+  type RemoteFlagsOptions,
+  type RemoteState,
+  remoteFlags,
+  type TokenOptions,
+} from './remote.js';
 
 export const VERSION = '0.0.0';
 
@@ -36,7 +44,7 @@ const subscribeNever = () => noop;
  * - `values` — what your Adonis backend evaluated for the page (Inertia):
  *   `sharedData: { flags: (ctx) => ctx.flags.all() }`, then `<FlagsProvider values={props.flags}>`.
  * - `source` — a flags server the browser talks to directly (SPAs, mobile, static sites):
- *   `<FlagsProvider source={remoteFlags({ url, token })}>`. Rendering an experiment flag records
+ *   `<FlagsProvider source={remoteFlags({ endpoint: '/_flags/token' })}>`. Rendering an experiment flag records
  *   the exposure; `useTrack()` records conversions.
  *
  * Either way the browser receives values, never targeting rules, and only for flags declared
