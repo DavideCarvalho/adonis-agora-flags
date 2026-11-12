@@ -1,5 +1,11 @@
 # @adonis-agora/flags
 
+## 0.2.1
+
+### Patch Changes
+
+- [`b54aed8`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/b54aed804ef0f8a88ccfa89ec032917fac55aa8c) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `flags:list` shows the type and default of flags created in the console (they were listed as `undeclared`). Docs: turn off `refresh.notify` behind PgBouncer in transaction mode.
+
 ## 0.2.0
 
 ### Minor Changes
