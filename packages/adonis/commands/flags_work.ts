@@ -23,6 +23,13 @@ export default class FlagsWork extends FlagsCommand {
     const runtime = await this.runtime();
     const worker = runtime.worker!;
     if (this.sink) {
+      if (!runtime.relay && runtime.transport?.attachSinks) {
+        this.logger.error(
+          `the "${runtime.transport.name}" transport has no relay: its own jobs deliver to the sinks`,
+        );
+        this.exitCode = 1;
+        return;
+      }
       if (!runtime.sinks.has(this.sink)) {
         this.logger.error(
           `unknown sink "${this.sink}" (configured: ${[...runtime.sinks.keys()].join(', ') || 'none'})`,

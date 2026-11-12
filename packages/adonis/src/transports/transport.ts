@@ -1,4 +1,5 @@
 import type { FlagEvent } from '../events/event.js';
+import type { Sink } from '../sinks/sink.js';
 import type { SqlClient } from '../sql.js';
 
 /** What a transport guarantees. The provider warns once at boot about what it does not. */
@@ -56,6 +57,11 @@ export interface Transport {
     sink: string,
     options: { batchSize: number; leaseMs: number; owner: string },
   ): Promise<Delivery | null>;
+  /**
+   * Transports that deliver to the sinks themselves (`queue`: one job per batch per sink) receive
+   * them here, once at boot. They have no consumer side and no relay runs for them.
+   */
+  attachSinks?(sinks: ReadonlyMap<string, Sink>): void;
   /** Moves a sink's cursor back to the beginning (replay / backfill a new destination). */
   rewind?(sink: string): Promise<void>;
   status?(sinks: string[]): Promise<SinkStatus[]>;

@@ -91,9 +91,13 @@ export function Ops() {
                 />
               </div>
               <div className="flex flex-wrap gap-1 px-4 pb-3">
-                <Badge variant={ops.relay ? 'type' : 'danger'}>
-                  {ops.relay ? 'relay configured' : 'no relay'}
-                </Badge>
+                {ops.delivery === 'transport' ? (
+                  <Badge variant="type">{`delivered by ${ops.transport?.name ?? 'transport'} jobs`}</Badge>
+                ) : (
+                  <Badge variant={ops.relay ? 'type' : 'danger'}>
+                    {ops.relay ? 'relay configured' : 'no relay'}
+                  </Badge>
+                )}
                 <Badge variant={ops.worker ? 'type' : 'outline'}>
                   {ops.worker ? 'worker available' : 'no worker'}
                 </Badge>
@@ -101,6 +105,12 @@ export function Ops() {
                   {ops.analytics ? 'analytics backend' : 'no analytics'}
                 </Badge>
               </div>
+              {ops.delivery === 'transport' && (
+                <p className="px-4 pb-2 text-xs text-zinc-500">
+                  This transport keeps no per-sink log: pending, retried and failed batches are in
+                  your queue.
+                </p>
+              )}
               {ops.sinkError && (
                 <p className="px-4 pb-2 text-xs text-rose-300">
                   Sink status unavailable: {ops.sinkError}

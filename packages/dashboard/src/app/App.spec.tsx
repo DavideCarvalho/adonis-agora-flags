@@ -7,6 +7,7 @@ import { META } from './render.test-helper';
 
 const originalFetch = globalThis.fetch;
 let calls: Call[];
+let opsOverride: Record<string, unknown> = {};
 
 function stubApi() {
   ({ calls } = stubFetch((_method, url) => {
@@ -30,6 +31,7 @@ function stubApi() {
         worker: true,
         analytics: true,
         tenants: [],
+        ...opsOverride,
       };
     }
     return {};
@@ -60,6 +62,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  opsOverride = {};
   globalThis.fetch = originalFetch;
   clearConfig();
   window.location.hash = '';
@@ -105,5 +108,18 @@ describe('the shell', () => {
     renderApp();
     expect(await screen.findByText('timeout')).toBeTruthy();
     expect(screen.getByText('warehouse')).toBeTruthy();
+  });
+
+  it('shows a transport that delivers through its own jobs instead of "no relay"', async () => {
+    opsOverride = {
+      transport: { name: 'queue', transactional: false, durable: true },
+      sinks: [{ sink: 'warehouse' }],
+      relay: false,
+      delivery: 'transport',
+    };
+    window.location.hash = '#/ops';
+    renderApp();
+    expect(await screen.findByText('delivered by queue jobs')).toBeTruthy();
+    expect(screen.queryByText('no relay')).toBeNull();
   });
 });
