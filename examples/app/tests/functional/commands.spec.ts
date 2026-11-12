@@ -36,6 +36,18 @@ test.group('ace commands against the same database', () => {
     assert.equal(await variant('classic'), 'classic')
   }).timeout(60_000)
 
+  test('a refused change is a message and exit code 1, not a stack trace', async ({ assert }) => {
+    const failed = await ace('flags:set', 'nope', 'on').then(
+      () => null,
+      (error: { code: number; stdout: string; stderr: string }) => error
+    )
+    assert.isNotNull(failed)
+    assert.equal(failed!.code, 1)
+    const output = failed!.stdout + failed!.stderr
+    assert.include(output, 'flag "nope" is neither in the ruleset nor declared in code')
+    assert.notMatch(output, /\n\s+at /)
+  }).timeout(60_000)
+
   test('flags:types writes the types of console-created flags', async ({ assert }) => {
     await ace('flags:types', '--out', 'tmp/flags_types.d.ts')
     const generated = readFileSync('tmp/flags_types.d.ts', 'utf8')

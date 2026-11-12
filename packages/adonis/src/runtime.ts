@@ -100,11 +100,8 @@ export async function createRuntime(
   const topology: Topology = config.topology ?? 'standalone';
   const role: Role = config.role ?? 'all';
   const environment = config.environment ?? 'production';
-  const appName = (ctx.app as { appName?: unknown } | undefined)?.appName;
   const app =
-    config.topology === 'tenant'
-      ? config.tenant.partition
-      : (config.app ?? (typeof appName === 'string' && appName ? appName : 'app'));
+    config.topology === 'tenant' ? config.tenant.partition : (config.app ?? ctx.appName ?? 'app');
   const logger = options.logger;
   const declarations = config.flags;
   const enricherList = [builtInEnrichers.diagnostics(), ...(config.enrichers ?? [])];

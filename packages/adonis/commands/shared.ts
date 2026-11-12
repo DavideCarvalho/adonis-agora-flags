@@ -46,24 +46,22 @@ export abstract class FlagsCommand extends BaseCommand {
 
   /**
    * A refused change (unknown flag, invalid value, not allowed) is a message, not a stack trace.
-   * Programming errors keep their stack.
+   * `@adonisjs/core` hands a command's error to this hook before printing it; returning `true`
+   * marks it handled. Programming errors keep their stack.
    */
-  override async exec() {
-    try {
-      return await super.exec();
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        !(error instanceof TypeError) &&
-        !(error instanceof ReferenceError) &&
-        !(error instanceof SyntaxError)
-      ) {
-        this.logger.error(error.message);
-        this.exitCode = 1;
-        return undefined;
-      }
-      throw error;
+  override async completed() {
+    const error = this.error as unknown;
+    if (
+      error instanceof Error &&
+      !(error instanceof TypeError) &&
+      !(error instanceof ReferenceError) &&
+      !(error instanceof SyntaxError)
+    ) {
+      this.logger.error(error.message);
+      this.exitCode = 1;
+      return true;
     }
+    return false;
   }
 
   protected async runtime(): Promise<FlagsRuntime> {

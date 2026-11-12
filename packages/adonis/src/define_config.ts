@@ -36,6 +36,8 @@ import type { Transport } from './transports/transport.js';
 /** What factories receive: the app and lazy access to its database and Redis connections. */
 export interface FactoryContext {
   app?: ApplicationService;
+  /** The application's name (its package.json `name`), the default `app` stamped on events. */
+  appName?: string | undefined;
   /** A Lucid query client for `connection` (default connection when omitted). */
   db(connection?: string): Promise<SqlDatabase>;
   redis(connection?: string): Promise<RedisStreamClient>;

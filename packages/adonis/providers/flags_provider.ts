@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import type { ApplicationService } from '@adonisjs/core/types';
 import type { FlagsConfig } from '../src/define_config.js';
 import { type DurableEngineLike, registerDurableWorkflows } from '../src/durable.js';
@@ -59,6 +60,7 @@ export default class FlagsProvider {
         config,
         {
           app: this.app,
+          ...(this.#packageName() ? { appName: this.#packageName() } : {}),
           async db(connection?: string) {
             if (!lucid) throw new Error('@adonisjs/lucid is not configured');
             const db = (await container.make('lucid.db')) as unknown as {
@@ -183,6 +185,21 @@ export default class FlagsProvider {
         });
       }
     });
+  }
+
+  /**
+   * The app's name from its package.json (`@acme/shop` → `shop`). AdonisJS 7's `appName` is always
+   * `adonisjs_app`, which would tag every app on a control-plane alike.
+   */
+  #packageName(): string | undefined {
+    try {
+      const raw = readFileSync(this.app.makePath('package.json'), 'utf8');
+      const name = (JSON.parse(raw) as { name?: unknown }).name;
+      if (typeof name !== 'string' || !name) return undefined;
+      return name.replace(/^@[^/]+\//, '');
+    } catch {
+      return undefined;
+    }
   }
 
   /**
