@@ -1,6 +1,7 @@
 import { channel } from 'node:diagnostics_channel';
 import type { EvaluationContext, EvaluationDetails } from '@adonis-agora/flags-core';
 import type { FlagEvent } from './events/event.js';
+import type { Actor, RulesetChange } from './stores/store.js';
 
 /**
  * Synchronous hooks around evaluation (DESIGN §8): they attach flag state to whatever the request is
@@ -12,6 +13,50 @@ export interface Enricher {
   setup?(): Promise<void>;
   onEvaluation?(details: EvaluationDetails, context: EvaluationContext): void;
   onEvent?(event: FlagEvent): void;
+  /** A change was applied to the ruleset by this process (console, command, approval, schedule). */
+  onChange?(change: FlagsChange): void;
+}
+
+/** A ruleset change, as enrichers and `agora:flags:change` see it. */
+export interface FlagsChange {
+  environment: string;
+  /** The ruleset version the change produced. */
+  version: string;
+  entity: RulesetChange['entity'];
+  key?: string;
+  /** `true` when the change removed the entity. */
+  deleted: boolean;
+  actor: Actor;
+  changeRequestId?: string;
+}
+
+/** The `<event>`s published on `agora:flags:<event>`. */
+export const FLAGS_DIAGNOSTIC_EVENTS = ['evaluation', 'exposure', 'track', 'change'] as const;
+export type FlagsDiagnosticEvent = (typeof FLAGS_DIAGNOSTIC_EVENTS)[number];
+
+/** The `emit` of `@adonis-agora/diagnostics`, read from its global slot: flags never imports it. */
+const EMIT_SLOT = Symbol.for('@agora/diagnostics:emit');
+type EmitFn = (lib: string, event: string, payload: unknown) => void;
+
+/**
+ * Diagnostics' claim registry (a reference-counted `Map<'lib:event', number>`): its generic OTel
+ * bridge skips claimed events, so `enrichers.otel()` claims evaluations it already records.
+ */
+const CLAIMS_SLOT = Symbol.for('@agora/diagnostics:claims');
+
+function claimDiagnostic(key: string): void {
+  const g = globalThis as Record<symbol, unknown>;
+  let claims = g[CLAIMS_SLOT] as Map<string, number> | undefined;
+  if (claims === undefined) {
+    claims = new Map<string, number>();
+    g[CLAIMS_SLOT] = claims;
+  }
+  claims.set(key, (claims.get(key) ?? 0) + 1);
+}
+
+function diagnosticsEmit(): EmitFn | undefined {
+  const emit = (globalThis as Record<symbol, unknown>)[EMIT_SLOT];
+  return typeof emit === 'function' ? (emit as EmitFn) : undefined;
 }
 
 /** Channel names, following the ecosystem's `agora:<lib>:<event>` convention. */
@@ -37,29 +82,41 @@ interface OtelApi {
 
 export const enrichers = {
   /**
-   * Publishes evaluations, exposures and tracks on `node:diagnostics_channel` (`agora:flags:*`):
-   * `@adonis-agora/diagnostics` and telescope pick them up. Free when nobody subscribes.
+   * Publishes evaluations, exposures, tracks and ruleset changes through `@adonis-agora/diagnostics`
+   * (`agora:flags:<event>`), so its OpenTelemetry bridge, telescope and `onDiagnostic('flags', …)`
+   * listeners see them. Always on; does nothing when diagnostics is not installed.
    */
   diagnostics(): Enricher {
-    const evaluation = channel(DIAGNOSTICS_CHANNELS.evaluation);
-    const exposure = channel(DIAGNOSTICS_CHANNELS.exposure);
-    const track = channel(DIAGNOSTICS_CHANNELS.track);
+    // Each event goes through diagnostics' `emit` once even with no subscriber: that call is what
+    // registers the channel, and its OTel bridge only subscribes to registered channels. After that
+    // the payload is built only when someone listens.
+    const registered = new Set<FlagsDiagnosticEvent>();
+    const channels = new Map(
+      FLAGS_DIAGNOSTIC_EVENTS.map((event) => [event, channel(`agora:flags:${event}`)]),
+    );
+    const publish = (event: FlagsDiagnosticEvent, payload: () => unknown) => {
+      if (registered.has(event) && !channels.get(event)?.hasSubscribers) return;
+      const emit = diagnosticsEmit();
+      if (!emit) return;
+      registered.add(event);
+      emit('flags', event, payload());
+    };
     return {
       name: 'diagnostics',
       onEvaluation(details, context) {
-        if (evaluation.hasSubscribers) {
-          evaluation.publish({
-            flag: details.flagKey,
-            variant: details.variant,
-            reason: details.reason,
-            errorCode: details.errorCode,
-            subject: context.targetingKey,
-          });
-        }
+        publish('evaluation', () => ({
+          flag: details.flagKey,
+          variant: details.variant,
+          reason: details.reason,
+          errorCode: details.errorCode,
+          subject: context.targetingKey,
+        }));
       },
       onEvent(event) {
-        const target = event.type === 'exposure' ? exposure : track;
-        if (target.hasSubscribers) target.publish(event);
+        publish(event.type === 'exposure' ? 'exposure' : 'track', () => event);
+      },
+      onChange(change) {
+        publish('change', () => change);
       },
     };
   },
@@ -67,7 +124,8 @@ export const enrichers = {
   /**
    * OpenTelemetry: a `feature_flag.evaluation` event on the active span, with the semantic
    * convention attributes (`feature_flag.key`, `feature_flag.result.variant`, …). Needs
-   * `@opentelemetry/api` (optional peer); without it this enricher does nothing.
+   * `@opentelemetry/api` (optional peer); without it this enricher does nothing. It takes over
+   * evaluations from diagnostics' generic OTel bridge, so each one is recorded once.
    */
   otel(): Enricher {
     let api: OtelApi | undefined;
@@ -76,6 +134,7 @@ export const enrichers = {
       async setup() {
         try {
           api = (await import('@opentelemetry/api')) as unknown as OtelApi;
+          claimDiagnostic('flags:evaluation');
         } catch {
           api = undefined;
         }

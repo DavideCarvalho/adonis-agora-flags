@@ -53,7 +53,14 @@ export {
   type TenantConfig,
   transports,
 } from './define_config.js';
-export { DIAGNOSTICS_CHANNELS, type Enricher, enrichers } from './enrichers.js';
+export {
+  DIAGNOSTICS_CHANNELS,
+  type Enricher,
+  enrichers,
+  FLAGS_DIAGNOSTIC_EVENTS,
+  type FlagsChange,
+  type FlagsDiagnosticEvent,
+} from './enrichers.js';
 export { EVENT_SCHEMA_VERSION, exposureId, type FlagEvent, uuidv7 } from './events/event.js';
 export { browserToken, registerBrowser } from './http/browser.js';
 export type { BrowserTokenResponse } from './http/browser_tokens.js';

@@ -16,6 +16,13 @@ import {
   type ScheduledChange,
 } from './stores/store.js';
 
+/** What was applied, for `onApplied`. */
+export interface AppliedChange {
+  change: RulesetChange;
+  actor: Actor;
+  changeRequestId?: string;
+}
+
 /** What an admin action is about, for authorization. */
 export type AdminAction = 'read' | 'write' | 'approve';
 
@@ -133,7 +140,7 @@ export class FlagsAdmin {
       declarations: Record<string, FlagDeclaration>;
       approvals?: ApprovalsConfig;
       authorize?: AdminAuthorizer;
-      onApplied?: (environment: string, version: string) => void;
+      onApplied?: (environment: string, version: string, applied: AppliedChange) => void;
     },
   ) {}
 
@@ -203,7 +210,7 @@ export class FlagsAdmin {
       return { status: 'pending', request };
     }
     const { version } = await this.store.apply(environment, change, actor);
-    this.options.onApplied?.(environment, version);
+    this.options.onApplied?.(environment, version, { change, actor });
     return { status: 'applied', version };
   }
 
@@ -242,7 +249,11 @@ export class FlagsAdmin {
       },
     );
     const applied = await this.store.updateChangeRequest(id, { status: 'applied' });
-    this.options.onApplied?.(request.environment, version);
+    this.options.onApplied?.(request.environment, version, {
+      change: request.change,
+      actor: request.requestedBy,
+      changeRequestId: id,
+    });
     return { version, request: applied };
   }
 
@@ -587,7 +598,7 @@ export class FlagsAdmin {
         }
         await this.preview(change, schedule.environment);
         const { version } = await this.store.apply(schedule.environment, change, actor);
-        this.options.onApplied?.(schedule.environment, version);
+        this.options.onApplied?.(schedule.environment, version, { change, actor });
         await this.store.updateSchedule(schedule.id, { status: 'done', executedAt: new Date() });
         results.push({ id: schedule.id, ok: true });
       } catch (error) {

@@ -71,7 +71,28 @@ Deletes the subject's events and exposures from the log and from every sink that
 
 ## Observability
 
-Evaluations, exposures and tracks are published on `node:diagnostics_channel` (`agora:flags:*`), which `@adonis-agora/diagnostics` and telescope pick up. Add OpenTelemetry span events and Sentry flag context with enrichers:
+With [`@adonis-agora/diagnostics`](/docs/diagnostics) installed, flags publish four events on `agora:flags:<event>`:
+
+| Event | When | Payload |
+|---|---|---|
+| `evaluation` | A flag is read | `flag`, `variant`, `reason`, `errorCode`, `subject` |
+| `exposure` | An experiment flag is read | The exposure event |
+| `track` | `track()` records a conversion | The track event |
+| `change` | The console, a command, an approval or a schedule changes the ruleset | `environment`, `version`, `entity`, `key`, `deleted`, `actor`, `changeRequestId` |
+
+The diagnostics OpenTelemetry bridge adds them to the active span, and you can listen to them:
+
+```ts
+import { onDiagnostic } from '@adonis-agora/diagnostics'
+
+onDiagnostic('flags', 'change', (event) => {
+  logger.info({ ...event.payload }, 'flag changed')
+})
+```
+
+`change` fires in the process that made the change. Other processes pick the new ruleset up without publishing it again.
+
+For OpenTelemetry's feature-flag attributes (`feature_flag.key`, `feature_flag.result.variant`…) and Sentry flag context, add enrichers:
 
 ```ts
 import * as Sentry from '@sentry/node'
@@ -79,3 +100,5 @@ import { enrichers } from '@adonis-agora/flags'
 
 enrichers: [enrichers.otel(), enrichers.sentry(Sentry)]
 ```
+
+`enrichers.otel()` records evaluations as `feature_flag.evaluation` span events and takes them over from the diagnostics bridge, so each evaluation appears on the span once. It needs `@opentelemetry/api`, and works without diagnostics.

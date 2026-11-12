@@ -9,7 +9,7 @@ import type {
   StandaloneConfig,
 } from './define_config.js';
 import { analytics as analyticsFactories, sinks as sinkFactories } from './define_config.js';
-import { enrichers as builtInEnrichers, type Enricher } from './enrichers.js';
+import { enrichers as builtInEnrichers, type Enricher, runEnrichers } from './enrichers.js';
 import { EventBuffer } from './events/buffer.js';
 import type { BrowserTokens } from './http/browser_tokens.js';
 import { FlagsManager } from './manager.js';
@@ -304,8 +304,20 @@ export async function createRuntime(
       : config.identity?.can
         ? { authorize: config.identity.can.bind(config.identity) }
         : {}),
-    onApplied: (env, version) => {
+    onApplied: (env, version, applied) => {
       if (env === environment) void source.refresh();
+      const { change, actor, changeRequestId } = applied;
+      runEnrichers(enricherList, (e) =>
+        e.onChange?.({
+          environment: env,
+          version,
+          entity: change.entity,
+          ...(change.key !== undefined ? { key: change.key } : {}),
+          deleted: change.value === null,
+          actor,
+          ...(changeRequestId ? { changeRequestId } : {}),
+        }),
+      );
       options.onApplied?.(env, version);
     },
   });
