@@ -97,7 +97,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && pnpm run copy:stubs && pnpm run copy:spa",
-    "copy:stubs": "rm -rf dist/stubs && mkdir -p dist/stubs && cp -r stubs/config stubs/database dist/stubs/",
+    "copy:stubs": "rm -rf dist/stubs/config dist/stubs/database && mkdir -p dist/stubs && cp -r stubs/config stubs/database dist/stubs/",
     "prepack": "pnpm run build",
     "test": "vitest run --passWithNoTests",
     "test:integration": "vitest run -c vitest.integration.config.ts",

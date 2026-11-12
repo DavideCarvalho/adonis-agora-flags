@@ -136,3 +136,17 @@ describe('a custom provider', () => {
     expect(calls).toEqual(['ana:write:production', 'cli:bob:write:production']);
   });
 });
+
+describe('flagsCsrfExceptions', () => {
+  it('skips the token-authenticated APIs only', async () => {
+    const { flagsCsrfExceptions } = await import('../../src/http/csrf.js');
+    expect(flagsCsrfExceptions('/_flags/v1/client/evaluate')).toBe(true);
+    expect(flagsCsrfExceptions('/_flags/v1/events?x=1')).toBe(true);
+    expect(flagsCsrfExceptions('/ofrep/v1/evaluate/flags')).toBe(true);
+    expect(flagsCsrfExceptions('/api/flags/v1/events', { prefix: '/api/flags' })).toBe(true);
+    // Session-cookie routes stay protected.
+    expect(flagsCsrfExceptions('/_flags/token')).toBe(false);
+    expect(flagsCsrfExceptions('/flags/api/flags/x/enabled')).toBe(false);
+    expect(flagsCsrfExceptions('/login')).toBe(false);
+  });
+});

@@ -1,0 +1,11 @@
+# A standalone AdonisJS app, NOT part of the library workspace: it installs the packages the way a
+# user would, from the tarballs `pnpm pack` produces (`scripts/e2e.sh` packs them into .packs/).
+packages: []
+
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+  '@swc/core': true
+
+overrides:
+  '@adonis-agora/flags-core': 'file:.packs/flags-core.tgz'

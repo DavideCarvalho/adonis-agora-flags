@@ -8,6 +8,7 @@ export type {
   Ruleset,
   Segment,
 } from '@adonis-agora/flags-core';
+export { configure } from '../configure.js';
 export {
   type AdminAction,
   type AdminAuthorizer,
@@ -56,6 +57,7 @@ export { DIAGNOSTICS_CHANNELS, type Enricher, enrichers } from './enrichers.js';
 export { EVENT_SCHEMA_VERSION, exposureId, type FlagEvent, uuidv7 } from './events/event.js';
 export { browserToken, registerBrowser } from './http/browser.js';
 export type { BrowserTokenResponse } from './http/browser_tokens.js';
+export { flagsCsrfExceptions } from './http/csrf.js';
 export {
   type AuthkitIdentityLike,
   authkitIdentity,

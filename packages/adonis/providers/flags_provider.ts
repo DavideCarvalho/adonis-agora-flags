@@ -165,7 +165,7 @@ export default class FlagsProvider {
       await registerEdgeTag();
       if (runtime.role === 'worker') return;
       const router = await this.app.container.make('router');
-      const secret = browserSecret(runtime, this.app.config.get('app.appKey', undefined));
+      const secret = browserSecret(runtime, this.#appKey());
       let controlPlane: ControlPlane | undefined;
       if (config.topology === 'control-plane') {
         controlPlane = new ControlPlane(runtime, config.controlPlane, secret);
@@ -180,6 +180,21 @@ export default class FlagsProvider {
         });
       }
     });
+  }
+
+  /**
+   * The app key: `app.appKey` (AdonisJS 6), else the first key of the default encryptor
+   * (`config/encryption.ts`, AdonisJS 7), else `APP_KEY`.
+   */
+  #appKey(): unknown {
+    const legacy = this.app.config.get('app.appKey', undefined);
+    if (legacy) return legacy;
+    const encryption = this.app.config.get<
+      { default?: string; list?: Record<string, { keys?: unknown[] }> } | undefined
+    >('encryption', undefined);
+    const encryptor = encryption?.list?.[encryption.default ?? ''];
+    if (encryptor?.keys?.[0]) return encryptor.keys[0];
+    return process.env.APP_KEY;
   }
 
   async shutdown() {

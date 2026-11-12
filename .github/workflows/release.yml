@@ -72,6 +72,8 @@ jobs:
       # runner ships Docker), as in ci.yml.
       - run: pnpm --filter @adonis-agora/flags test:integration
       - run: pnpm build
+      # The packed tarballs in a real AdonisJS app (examples/app), as in ci.yml.
+      - run: pnpm e2e
 
       # A Renovate patch/minor bump automerges on its own and brings no changeset with it, so
       # the new dependency would reach npm only with the next hand-written changeset. This writes

@@ -93,6 +93,12 @@ never change who the user is, but anyone can send any value. Never gate access
 on a rule over them; security-relevant attributes come from the `attributes`
 resolver in `config/flags.ts`, which the token endpoint signs into the token.
 
+### HIGH — CSRF refusing the flags API
+
+With `@adonisjs/shield`, browsers calling the flags API and tenants posting
+events are refused (redirect/403) unless config/shield.ts has
+`exceptRoutes: (ctx) => flagsCsrfExceptions(ctx.request.url())`.
+
 ### HIGH — `browser` only on the tenant
 
 The tenant's token endpoint fetches its key from the control-plane: without

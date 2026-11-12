@@ -1,0 +1,11 @@
+<main>
+  @flag('new_checkout')
+    <p id="checkout">new checkout</p>
+  @else
+    <p id="checkout">classic checkout</p>
+  @end
+  @flag('checkout', 'one_page')
+    <p id="variant">one page</p>
+  @end
+  <p id="uploads">Up to {{ await flags.value('max_uploads') }} files</p>
+</main>

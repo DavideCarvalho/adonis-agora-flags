@@ -75,3 +75,22 @@ jobs:
       - run: pnpm build
 
       - run: pnpm --filter @adonis-agora/flags test:integration
+
+  # examples/app: a real AdonisJS app (SQLite, @adonisjs/auth, Bouncer, Shield, Edge) installing the
+  # packed tarballs as npm would ship them, driven over real HTTP — including a control-plane and a
+  # tenant as two processes — and `node ace configure` on a pristine copy.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: pnpm/action-setup@v6.1.1
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24.22.2
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm e2e

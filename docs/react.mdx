@@ -75,6 +75,17 @@ export default defineConfig({
 })
 ```
 
+The flags API authenticates with the token, never with cookies, so `@adonisjs/shield`'s CSRF check must skip it, or it refuses the browser's POSTs:
+
+```ts title="config/shield.ts"
+import { flagsCsrfExceptions } from '@adonis-agora/flags'
+
+csrf: {
+  enabled: true,
+  exceptRoutes: (ctx) => flagsCsrfExceptions(ctx.request.url()),
+},
+```
+
 ```tsx
 import { FlagsProvider, remoteFlags } from '@adonis-agora/flags-react'
 

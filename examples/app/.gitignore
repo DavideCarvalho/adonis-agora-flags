@@ -1,0 +1,8 @@
+node_modules
+build
+tmp
+.adonisjs
+.packs
+pnpm-lock.yaml
+.env
+src/generated

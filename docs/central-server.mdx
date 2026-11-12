@@ -22,6 +22,14 @@ export default defineConfig({
 })
 ```
 
+Tenants authenticate with tokens, not cookies: exempt the flags API from `@adonisjs/shield`'s CSRF check on the control-plane, or it refuses their events.
+
+```ts title="config/shield.ts (flags server)"
+import { flagsCsrfExceptions } from '@adonis-agora/flags'
+
+csrf: { enabled: true, exceptRoutes: (ctx) => flagsCsrfExceptions(ctx.request.url()) },
+```
+
 It serves, under `/_flags`:
 
 - `GET /v1/ruleset` (with `ETag`) and `GET /v1/ruleset/stream` (server-sent events on every change);

@@ -16,6 +16,9 @@ import { defineConfig } from '@adonis-agora/flags/dashboard'
  * \`authkitDashboardAuthorize(...)\` from @adonis-agora/authkit-client fits as-is.
  * For machine access use \`authorizeByToken({ token: env.get('CONSOLE_TOKEN') })\`.
  *
+ * An identity provider in config/flags.ts (\`identity: identities.adonisAuth({ canOpenConsole })\`,
+ * \`identities.authkit()\` or your own class) answers both questions for you.
+ *
  * \`actor\` names who made a change (audit log, two-person approvals). Default:
  * the signed-in user's id, else 'dashboard'.
  *

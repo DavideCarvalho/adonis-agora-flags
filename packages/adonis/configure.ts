@@ -33,4 +33,8 @@ export async function configure(command: Configure) {
     leadingComment: 'Feature flags',
     variables: { FLAGS_ENVIRONMENT: 'Env.schema.string.optional()' },
   });
+
+  command.logger.info(
+    'With @adonisjs/shield, a central flags server or frontends reading flags (`browser`): exempt the token-authenticated flags API from CSRF in config/shield.ts — `exceptRoutes: (ctx) => flagsCsrfExceptions(ctx.request.url())`, imported from @adonis-agora/flags.',
+  );
 }
