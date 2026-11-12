@@ -1,4 +1,5 @@
 import { flags } from '@adonisjs/core/ace';
+import { effectiveDeclarations } from '../src/declare.js';
 import { describeServing, FlagsCommand } from './shared.js';
 
 export default class FlagsList extends FlagsCommand {
@@ -15,7 +16,8 @@ export default class FlagsList extends FlagsCommand {
     const runtime = await this.runtime();
     const environment = this.env ?? runtime.manager.environment;
     const ruleset = await runtime.store!.readRuleset(environment);
-    const declarations = runtime.manager.declarations;
+    // Flags declared in code and flags created in the console alike.
+    const declarations = effectiveDeclarations(runtime.manager.declarations, ruleset);
     const keys = [...new Set([...Object.keys(declarations), ...Object.keys(ruleset.flags)])].sort();
     const rows = keys.map((key) => {
       const declaration = declarations[key];

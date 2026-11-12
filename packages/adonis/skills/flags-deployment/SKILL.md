@@ -126,6 +126,12 @@ A connection with `searchPath` (or `SET search_path`) leaks into other clients
 behind PgBouncer in transaction mode. Use `schema: 'flags'` in
 `config/flags.ts`: every query names the schema. Set it before the first boot.
 
+### HIGH — `LISTEN` behind PgBouncer in transaction mode
+
+The held `LISTEN` connection does not survive transaction pooling: other
+replicas silently miss instant updates. Set `refresh: { notify: false }`;
+they poll every `refresh.intervalMs` (default 5 s).
+
 ### MEDIUM — `role: 'worker'` on a tenant
 
 Refused at boot: tenants have no relay; the control-plane fans events out.

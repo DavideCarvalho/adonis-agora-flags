@@ -75,6 +75,18 @@ describe('commands', () => {
     expect(audit[0]!.actor.id).toMatch(/^cli:/);
   });
 
+  it('flags:list shows the type and default of flags created in the console', async () => {
+    await (await runtime()).admin!.createFlag(
+      'console_banner',
+      { type: 'boolean', default: false },
+      { id: 'ana' },
+    );
+    const rows = JSON.parse(logs(await run(FlagsList as never, ['--json'])));
+    expect(rows).toContainEqual(
+      expect.objectContaining({ key: 'console_banner', type: 'boolean', default: 'false' }),
+    );
+  });
+
   it('flags:set in an approval environment files a request; flags:requests approves it', async () => {
     const set = await run(FlagsSet as never, ['new_player', 'on', '--env=locked', '--as=alice']);
     expect(logs(set)).toMatch(/approval required/);
