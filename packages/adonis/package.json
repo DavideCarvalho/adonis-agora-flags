@@ -1,6 +1,6 @@
 {
   "name": "@adonis-agora/flags",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Feature flags, A/B experiments and their analysis for AdonisJS \u2014 typed flags in code, targeting in your database, exposures relayed to Postgres, Parquet/DuckDB, ClickHouse or PostHog. Speaks OpenFeature. Part of the Agora ecosystem.",
   "license": "MIT",
   "repository": {
