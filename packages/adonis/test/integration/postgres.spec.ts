@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { metric } from '../../src/analytics/metrics.js';
 import { flag } from '../../src/declare.js';
 import { defineConfig, sinks } from '../../src/define_config.js';
@@ -12,7 +12,7 @@ import {
   pruneEvents,
 } from '../../src/schema.js';
 import { MemorySink } from '../../src/sinks/sink.js';
-import { query } from '../../src/sql.js';
+import { inSchema, query } from '../../src/sql.js';
 import { DbTransport } from '../../src/transports/db_transport.js';
 import { postgresDb, quietLogger, type TestDb } from '../helpers.js';
 
@@ -55,6 +55,93 @@ describe('Postgres', () => {
       "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = current_schema() AND table_name LIKE 'flags_%'",
     );
     expect(Number(tables[0]!.n)).toBe(12);
+  });
+
+  it('keeps every table in the configured schema, with no search_path involved', async () => {
+    const own = `${db.schema}_own`;
+    const count = async (schema: string) =>
+      Number(
+        (
+          await query<{ n: string }>(
+            db.db,
+            "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = ? AND table_name LIKE 'flags_%'",
+            [schema],
+          )
+        )[0]!.n,
+      );
+    const config = defineConfig({
+      app: 'shop',
+      flags: { new_player: flag.boolean({ default: false }) },
+      sinks: { warehouse: sinks.lucid() },
+      refresh: { intervalMs: 60_000 },
+      schema: own,
+    });
+    try {
+      runtime = await createRuntime(config, lucidContext(db.database as never), {
+        logger: quietLogger,
+      });
+      expect(await count(own)).toBe(12);
+      // The connection's own schema (its search_path) stays empty.
+      expect(await count(db.schema)).toBe(0);
+
+      const other = await createRuntime(config, lucidContext(db.database as never), {
+        logger: quietLogger,
+      });
+      try {
+        expect(other.source.status().mode).toBe('notify');
+        await runtime.admin!.turnOn('new_player', { id: 'alice' });
+        await vi.waitFor(async () =>
+          expect(await other.manager.for('u1').enabled('new_player')).toBe(true),
+        );
+      } finally {
+        await other.close();
+      }
+
+      // An event written inside the app's own transaction lands in the schema too.
+      await db.database.transaction(async (trx) => {
+        await runtime!.manager.track('u1', 'purchase', { value: 10, client: trx as never });
+      });
+      await runtime.buffer!.flush();
+      await runtime.relay!.drain('warehouse', 100);
+      const tracks = await query<{ n: string }>(
+        db.db,
+        `SELECT COUNT(*) AS n FROM "${own}".flags_tracks`,
+      );
+      expect(Number(tracks[0]!.n)).toBe(1);
+      const audit = await runtime.store!.audit({ key: 'new_player' });
+      expect(audit).toHaveLength(1);
+    } finally {
+      await runtime?.close();
+      runtime = undefined;
+      await db.db.rawQuery(`DROP SCHEMA IF EXISTS "${own}" CASCADE`);
+    }
+  });
+
+  it('partitions and prunes the event log inside the configured schema', async () => {
+    const own = `${db.schema}_own`;
+    try {
+      await createFlagsTables(db.db, { partitionEvents: true, schema: own });
+      const client = inSchema(db.db, own);
+      expect(await eventsArePartitioned(client)).toBe(true);
+      const transport = new DbTransport(client, { autoCreateSchema: false });
+      const old = Date.UTC(2020, 0, 15);
+      await ensureEventPartitions(client, old);
+      await transport.publish([{ ...event(1), ts: old }]);
+      await transport.publish([event(2)]);
+      const parts = await query<{ n: string }>(
+        db.db,
+        "SELECT COUNT(*) AS n FROM pg_tables WHERE schemaname = ? AND tablename LIKE 'flags_events_%'",
+        [own],
+      );
+      expect(Number(parts[0]!.n)).toBeGreaterThanOrEqual(4);
+      const all = await query<{ id: string }>(client, 'SELECT id FROM flags_events ORDER BY id');
+      const result = await pruneEvents(client, Date.UTC(2021, 0, 1), Number(all.at(-1)!.id));
+      expect(result.partitions).toBeGreaterThanOrEqual(1);
+      const left = await query<{ subject: string }>(client, 'SELECT subject FROM flags_events');
+      expect(left.map((r) => r.subject)).toEqual(['u2']);
+    } finally {
+      await db.db.rawQuery(`DROP SCHEMA IF EXISTS "${own}" CASCADE`);
+    }
   });
 
   it('propagates changes to another process through LISTEN/NOTIFY, faster than the poll', async () => {

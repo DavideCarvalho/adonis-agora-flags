@@ -252,6 +252,12 @@ interface OwnedStateConfig {
   approvals?: ApprovalsConfig;
   /** Create the tables at boot. Default `true` (the ecosystem convention). */
   autoCreateSchema?: boolean;
+  /**
+   * Keep every table in this Postgres schema (MySQL: database), created at boot if missing. Every
+   * query names it (`flags.flags_events`), so nothing depends on `search_path`: safe behind
+   * PgBouncer in transaction mode. Default: none (the connection's default schema).
+   */
+  schema?: string;
   /** Postgres: partition the event log by month. Default `false`. Decide before first boot. */
   partitionEvents?: boolean;
   /** Push ruleset changes to browsers through `@adonisjs/transmit`. Default `false`. */

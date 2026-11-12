@@ -22,6 +22,82 @@ export function dialectOf(client: SqlClient): Dialect {
   throw new Error(`@adonis-agora/flags: unsupported database dialect "${name}"`);
 }
 
+/** Every table this package owns. */
+export const FLAGS_TABLES = [
+  'flags_environments',
+  'flags_entities',
+  'flags_audit',
+  'flags_change_requests',
+  'flags_schedules',
+  'flags_usage',
+  'flags_declarations',
+  'flags_events',
+  'flags_sink_cursors',
+  'flags_exposures',
+  'flags_tracks',
+  'flags_results',
+] as const;
+
+const SCHEMA_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
+// A table name (or a monthly `flags_events_YYYYMM` partition) used as an identifier: not inside a
+// string literal, not already qualified, not part of a longer name such as an index.
+const TABLE_REF = new RegExp(
+  `(?<![\\w.'"\`])(${FLAGS_TABLES.join('|')}|flags_events_\\d{6})(?![\\w'"\`])`,
+  'g',
+);
+const IN_SCHEMA = Symbol.for('adonis-agora.flags.schema');
+
+/** Checks a schema name from the config: a plain identifier, since it is written into SQL. */
+export function assertSchemaName(schema: string): void {
+  if (!SCHEMA_NAME.test(schema)) {
+    throw new Error(
+      `@adonis-agora/flags: invalid schema "${schema}" (letters, digits and _, not starting with a digit)`,
+    );
+  }
+}
+
+/** Rewrites this package's SQL so every table it owns lives in `schema`. */
+export function qualifyTables(sql: string, schema: string, dialect: Dialect): string {
+  const quoted = dialect === 'mysql' ? `\`${schema}\`` : `"${schema}"`;
+  return sql.replace(TABLE_REF, `${quoted}.$1`).replaceAll('current_schema()', `'${schema}'`);
+}
+
+/** The schema a client was bound to with {@link inSchema}, if any. */
+export function schemaOf(client: SqlClient): string | undefined {
+  return (client as unknown as Record<symbol, string | undefined>)[IN_SCHEMA];
+}
+
+/**
+ * Binds a client to a schema (Postgres) or database (MySQL): every query this package sends through
+ * it, and through its transactions, names its tables as `schema.table`. Nothing depends on the
+ * connection's `search_path`, so it is safe behind PgBouncer in transaction mode. Everything else
+ * on the client (the knex instance `LISTEN` needs, the dialect) passes through untouched.
+ */
+export function inSchema<T extends SqlClient>(client: T, schema: string | undefined): T {
+  if (!schema || schemaOf(client) === schema) return client;
+  assertSchemaName(schema);
+  const dialect = dialectOf(client);
+  if (dialect === 'sqlite') {
+    throw new Error('@adonis-agora/flags: `schema` needs Postgres or MySQL, not SQLite');
+  }
+  return new Proxy(client, {
+    get(target, property) {
+      if (property === IN_SCHEMA) return schema;
+      if (property === 'rawQuery') {
+        return (sql: string, bindings?: readonly unknown[]) =>
+          target.rawQuery(qualifyTables(sql, schema, dialect), bindings);
+      }
+      if (property === 'transaction') {
+        const transaction = (target as unknown as SqlDatabase).transaction.bind(target);
+        return <R>(callback: (trx: SqlClient) => Promise<R>) =>
+          transaction((trx) => callback(inSchema(trx, schema)));
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
 /** Normalizes `rawQuery` results across drivers into an array of row objects. */
 export function rowsOf<T = Record<string, unknown>>(result: unknown): T[] {
   if (Array.isArray(result)) {

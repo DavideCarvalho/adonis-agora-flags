@@ -120,6 +120,12 @@ until it reconnects.
 The event table is created on first boot; switching to partitioning later
 needs a manual migration.
 
+### MEDIUM — `search_path` to keep the tables apart
+
+A connection with `searchPath` (or `SET search_path`) leaks into other clients
+behind PgBouncer in transaction mode. Use `schema: 'flags'` in
+`config/flags.ts`: every query names the schema. Set it before the first boot.
+
 ### MEDIUM — `role: 'worker'` on a tenant
 
 Refused at boot: tenants have no relay; the control-plane fans events out.

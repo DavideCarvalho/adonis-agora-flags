@@ -1,23 +1,15 @@
-import { type Dialect, dialectOf, query, type SqlClient, type SqlDatabase } from './sql.js';
+import {
+  type Dialect,
+  dialectOf,
+  FLAGS_TABLES,
+  inSchema,
+  query,
+  type SqlClient,
+  type SqlDatabase,
+  schemaOf,
+} from './sql.js';
 
-/**
- * Every table this package owns. Timestamps are BIGINT epoch milliseconds throughout (see
- * `toDate` in sql.ts), JSON is JSONB / JSON / TEXT depending on the dialect.
- */
-export const FLAGS_TABLES = [
-  'flags_environments',
-  'flags_entities',
-  'flags_audit',
-  'flags_change_requests',
-  'flags_schedules',
-  'flags_usage',
-  'flags_declarations',
-  'flags_events',
-  'flags_sink_cursors',
-  'flags_exposures',
-  'flags_tracks',
-  'flags_results',
-] as const;
+export { FLAGS_TABLES } from './sql.js';
 
 export interface SchemaOptions {
   /**
@@ -26,6 +18,11 @@ export interface SchemaOptions {
    * manual migration. Default `false`.
    */
   partitionEvents?: boolean;
+  /**
+   * The Postgres schema (MySQL: database) holding the tables, created if missing. Default: none, so
+   * the tables land wherever the connection resolves unqualified names.
+   */
+  schema?: string;
 }
 
 interface Types {
@@ -266,8 +263,17 @@ export async function createFlagsTables(
   db: SqlDatabase,
   options: SchemaOptions = {},
 ): Promise<void> {
+  db = inSchema(db, options.schema);
   const dialect = dialectOf(db);
+  const schema = schemaOf(db);
   await withDdlLock(db, dialect, async (client) => {
+    if (schema) {
+      await client.rawQuery(
+        dialect === 'mysql'
+          ? `CREATE DATABASE IF NOT EXISTS \`${schema}\``
+          : `CREATE SCHEMA IF NOT EXISTS "${schema}"`,
+      );
+    }
     for (const sql of statements(dialect, options)) await client.rawQuery(sql);
     for (const [name, table, columns] of INDEXES) {
       // A BRIN index fits an append-only log ordered by time far better than a B-tree.
@@ -289,7 +295,11 @@ export async function createFlagsTables(
 }
 
 /** Drops every table this package owns. */
-export async function dropFlagsTables(db: SqlDatabase): Promise<void> {
+export async function dropFlagsTables(
+  db: SqlDatabase,
+  options: Pick<SchemaOptions, 'schema'> = {},
+): Promise<void> {
+  db = inSchema(db, options.schema);
   for (const table of [...FLAGS_TABLES].reverse())
     await db.rawQuery(`DROP TABLE IF EXISTS ${table}`);
 }

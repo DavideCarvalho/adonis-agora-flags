@@ -34,6 +34,49 @@ describe('MySQL', () => {
     expect(Number(tables[0]!.n)).toBe(12);
   });
 
+  it('keeps every table in the configured database', async () => {
+    const own = `${db.schema}_own`;
+    try {
+      runtime = await createRuntime(
+        defineConfig({
+          app: 'shop',
+          flags: { new_player: flag.boolean({ default: false }) },
+          sinks: { warehouse: sinks.lucid() },
+          schema: own,
+        }),
+        lucidContext(db.database as never),
+        { logger: quietLogger },
+      );
+      const count = async (where: string) =>
+        Number(
+          (
+            await query<{ n: number }>(
+              db.db,
+              `SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = ${where} AND table_name LIKE 'flags\\_%'`,
+            )
+          )[0]!.n,
+        );
+      expect(await count(`'${own}'`)).toBe(12);
+      expect(await count('DATABASE()')).toBe(0);
+      await runtime.admin!.turnOn('new_player', { id: 'alice' });
+      await runtime.manager.refresh();
+      expect(await runtime.manager.for('u1').enabled('new_player')).toBe(true);
+      await db.database.transaction(async (trx) => {
+        await runtime!.manager.track('u1', 'purchase', { value: 10, client: trx as never });
+      });
+      await runtime.buffer!.flush();
+      const events = await query<{ n: number }>(
+        db.db,
+        `SELECT COUNT(*) AS n FROM \`${own}\`.flags_events`,
+      );
+      expect(Number(events[0]!.n)).toBe(1);
+    } finally {
+      await runtime?.close();
+      runtime = undefined;
+      await db.db.rawQuery(`DROP DATABASE IF EXISTS \`${own}\``);
+    }
+  });
+
   it('relays every event exactly once with concurrent relays', async () => {
     await createFlagsTables(db.db);
     const transport = new DbTransport(db.db, { autoCreateSchema: false, mysqlSafetyMs: 0 });

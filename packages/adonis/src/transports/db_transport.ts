@@ -3,12 +3,14 @@ import { createFlagsTables, ensureEventPartitions, type SchemaOptions } from '..
 import {
   type Dialect,
   dialectOf,
+  inSchema,
   insertIgnore,
   jsonValue,
   parseJson,
   query,
   type SqlClient,
   type SqlDatabase,
+  schemaOf,
   toNumber,
 } from '../sql.js';
 import type { Delivery, PublishOptions, SinkStatus, Transport } from './transport.js';
@@ -75,7 +77,8 @@ export class DbTransport implements Transport {
 
   async publish(events: FlagEvent[], options: PublishOptions = {}): Promise<void> {
     if (events.length === 0) return;
-    const client = options.client ?? this.db;
+    // The caller's transaction gets the same schema as this transport's own client.
+    const client = inSchema(options.client ?? this.db, schemaOf(this.db));
     // Chunked: one statement per 500 rows keeps every driver under its bind-parameter limit.
     for (let i = 0; i < events.length; i += 500) {
       const chunk = events.slice(i, i + 500);

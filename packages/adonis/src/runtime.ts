@@ -19,7 +19,7 @@ import { FlagsWorker } from './relay/worker.js';
 import { type RulesetSource, StoreSource } from './ruleset_source.js';
 import { LucidSink } from './sinks/lucid_sink.js';
 import type { Sink } from './sinks/sink.js';
-import { query, type SqlDatabase } from './sql.js';
+import { assertSchemaName, inSchema, query, type SqlDatabase } from './sql.js';
 import { LucidStore } from './stores/lucid_store.js';
 import { MemoryStore } from './stores/memory_store.js';
 import type { FlagsStore } from './stores/store.js';
@@ -86,7 +86,9 @@ async function lucidAvailable(ctx: FactoryContext): Promise<boolean> {
   try {
     await ctx.db();
     return true;
-  } catch {
+  } catch (error) {
+    // A misconfiguration (a `schema` the database cannot honour) must not fall back to memory.
+    if ((error as { flagsConfigError?: boolean }).flagsConfigError) throw error;
     return false;
   }
 }
@@ -98,6 +100,24 @@ export async function createRuntime(
   options: RuntimeOptions = {},
 ): Promise<FlagsRuntime> {
   const topology: Topology = config.topology ?? 'standalone';
+  const schema = (config as { schema?: string }).schema;
+  if (schema) {
+    assertSchemaName(schema);
+    // Every factory (store, transport, sinks, analytics) gets clients bound to the schema. A client
+    // that cannot honour it (SQLite) fails here, loudly, not later as "no database".
+    const db = ctx.db.bind(ctx);
+    ctx = {
+      ...ctx,
+      db: async (connection) => {
+        const client = await db(connection);
+        try {
+          return inSchema(client, schema);
+        } catch (error) {
+          throw Object.assign(error as Error, { flagsConfigError: true });
+        }
+      },
+    };
+  }
   const role: Role = config.role ?? 'all';
   const environment = config.environment ?? 'production';
   const app =

@@ -10,6 +10,8 @@ import type { SqlDatabase } from '../src/sql.js';
 export interface TestDb {
   database: Database;
   db: SqlDatabase;
+  /** Postgres: the connection's schema (its search_path); MySQL: its database. */
+  schema: string;
   close(): Promise<void>;
 }
 
@@ -35,6 +37,7 @@ export async function sqliteDb(): Promise<TestDb> {
   return {
     database,
     db: database.connection() as unknown as SqlDatabase,
+    schema: 'main',
     async close() {
       await database.manager.closeAll();
       rmSync(dir, { recursive: true, force: true });
@@ -64,6 +67,7 @@ export async function postgresDb(schema: string): Promise<TestDb> {
   return {
     database,
     db: database.connection() as unknown as SqlDatabase,
+    schema,
     async close() {
       await database.rawQuery(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
       await database.manager.closeAll();
@@ -110,6 +114,7 @@ export async function mysqlDb(name: string): Promise<TestDb> {
   return {
     database,
     db: database.connection() as unknown as SqlDatabase,
+    schema: name,
     async close() {
       await database.rawQuery(`DROP DATABASE IF EXISTS \`${name}\``);
       await database.manager.closeAll();

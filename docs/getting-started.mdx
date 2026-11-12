@@ -42,6 +42,17 @@ node ace configure @adonis-agora/flags
 
 The tables are created at boot. If you prefer migrations to own the schema, keep the published migration and set `autoCreateSchema: false`.
 
+To keep them out of your own tables, put them in a schema of their own (Postgres; on MySQL, a database):
+
+```ts title="config/flags.ts"
+export default defineConfig({
+  flags: { /* … */ },
+  schema: 'flags',
+})
+```
+
+The schema is created at boot if missing, and every query names it (`flags.flags_events`), so nothing depends on the connection's `search_path`: it is safe behind PgBouncer in transaction mode. Events you track inside your own transaction (`{ client: trx }`) land there too. Not available on SQLite. Set it before the first boot: tables created elsewhere are not moved.
+
 ## Create a flag
 
 Open the console at `/flags`, click **New flag**, and give it a key, a type and a default — say `new_player`, boolean, `false`. It exists for every process as soon as it is saved. [Creating flags](/docs/declaring-flags) covers the fields, typing console flags with `node ace flags:types`, and declaring flags in `config/flags.ts` instead.
