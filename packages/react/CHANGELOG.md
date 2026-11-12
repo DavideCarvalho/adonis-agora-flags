@@ -1,5 +1,11 @@
 # @adonis-agora/flags-react
 
+## 0.1.1
+
+### Patch Changes
+
+- [`0a0f152`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/0a0f1529205895820d3d8372aed936c5db46ee2a) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `InertiaFlagsProvider` takes `realtime={{ transmit }}`: it reloads the flags prop whenever the ruleset changes, so a kill switch reaches an open page without a visit.
+
 ## 0.1.0
 
 ### Minor Changes

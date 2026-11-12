@@ -1,6 +1,6 @@
 {
   "name": "@adonis-agora/flags-react",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "React/Inertia bindings for @adonis-agora/flags: FlagsProvider, InertiaFlagsProvider, useFlag, <Flag>, remote flags from a flags server, and live updates.",
   "license": "MIT",
   "repository": {
