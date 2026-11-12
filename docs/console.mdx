@@ -8,19 +8,23 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 `node ace configure @adonis-agora/flags` registers the console and publishes `config/flags_dashboard.ts`. It is served at `/flags`.
 
+Who may open it and who is acting come from the [identity provider](/docs/authentication) in `config/flags.ts`. You can also set them here, which wins:
+
 ```ts title="config/flags_dashboard.ts"
 import { defineConfig } from '@adonis-agora/flags/dashboard'
-import { authkitDashboardAuthorize } from '@adonis-agora/authkit-client'
 
 export default defineConfig({
   path: '/flags',
-  authorize: authkitDashboardAuthorize({ loginPath: '/login' }),
+  authorize: async (ctx) => {
+    if (!(await ctx.auth.check())) return { redirectTo: '/login' }
+    return ctx.bouncer.allows(manageFlags)
+  },
   // Who made a change, for the audit log and approvals.
   actor: (ctx) => (ctx.auth.user ? { id: String(ctx.auth.user.id), name: ctx.auth.user.email } : undefined),
 })
 ```
 
-Instead of `authorize` and `actor` here, an [identity provider](/docs/authentication) in `config/flags.ts` can answer both, together with who may change what. `identities.adonisAuth({ canOpenConsole })` covers `@adonisjs/auth` with Bouncer.
+With authkit, `identity: identities.authkit()` in `config/flags.ts` covers both.
 
 <Callout type="warn">
   Without `authorize`, the console is open outside production and answers 403 in production. With approvals on, set `actor` (or sign people in): two anonymous people are the same actor, and nobody can approve their own change.
@@ -37,3 +41,40 @@ Instead of `authorize` and `actor` here, an [identity provider](/docs/authentica
 - **Ops.** The ruleset version and how it is kept fresh, the event transport, every sink's lag and last error, and the in-process buffer.
 
 The console runs on the control-plane in a [central setup](/docs/central-server); tenants have none.
+
+## The console API
+
+Everything the console does goes through JSON endpoints under `<path>/api`, behind the same `authorize`. Writes carry the `x-xsrf-token` header when `@adonisjs/shield` sets the `XSRF-TOKEN` cookie. Every endpoint takes `?environment=` (or `environment` in the body).
+
+| Request | Body | Does |
+|---|---|---|
+| `GET /api/flags` | | Flags, declarations and what each serves |
+| `POST /api/flags` | `{ key, declaration }` | Create a flag |
+| `PUT /api/flags/:key` | `{ definition, note? }` | Replace a flag's targeting |
+| `POST /api/flags/:key/enabled` | `{ enabled }` | The kill switch: `false` serves `offVariant` to everyone; `true` lifts it, back to the targeting |
+| `POST /api/flags/:key/rollout` | `{ percent }` | Percentage rollout of an on/off flag |
+| `POST /api/flags/:key/variant` | `{ variant }` | Serve one variant to everyone |
+| `GET /api/audit?key=` | | The change history |
+
+`enabled: true` does not turn a flag on: on a flag that was never configured, the targeting created for it still serves the default. Use `variant` (`on`) or a rollout.
+
+A `definition`:
+
+```json
+{
+  "variants": { "classic": "classic", "one_page": "one_page" },
+  "enabled": true,
+  "offVariant": "classic",
+  "rules": [
+    {
+      "id": "pro",
+      "conditions": [{ "attribute": "plan", "op": "in", "values": ["pro"] }],
+      "serve": { "variant": "one_page" }
+    }
+  ],
+  "fallthrough": { "split": [{ "variant": "classic", "weight": 1 }, { "variant": "one_page", "weight": 1 }] },
+  "experiment": {}
+}
+```
+
+`fallthrough` is `{ "variant": … }` or `{ "split": [...] }`; [Targeting](/docs/targeting) lists the operators, segments, overrides and prerequisites. A change that needs approval answers `202` with the pending request.

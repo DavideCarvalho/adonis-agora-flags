@@ -155,6 +155,16 @@ export class FlagsManager {
       };
     } else {
       details = evaluate(this.ruleset(), key, fallback, context, options);
+      if (details.errorCode === 'FLAG_NOT_FOUND' && key in this.deps.declarations) {
+        // Declared in code, not configured yet: serving the declared default is the normal state,
+        // not an error (alerts on reason ERROR would fire for every new flag).
+        details = {
+          flagKey: key,
+          value: details.value,
+          reason: 'DEFAULT',
+          flagMetadata: { ...details.flagMetadata, configured: false },
+        };
+      }
     }
     if (details.errorCode && details.errorCode !== 'FLAG_NOT_FOUND') {
       this.deps.logger?.warn(

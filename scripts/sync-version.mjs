@@ -8,7 +8,7 @@
  * bumps package.json but leaves the source literal stale, shipping a wrong
  * VERSION in dist. This script is chained after `changeset version` to keep
  * the literal in lockstep with every release bump. It is idempotent and only
- * touches packages whose index.ts actually declares a VERSION const.
+ * touches packages whose index.ts(x) actually declares a VERSION const.
  */
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -30,8 +30,11 @@ for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
   if (!entry.isDirectory()) continue;
   const pkgDir = join(packagesDir, entry.name);
   const pkgJsonPath = join(pkgDir, 'package.json');
-  const indexPath = join(pkgDir, 'src', 'index.ts');
-  if (!existsSync(pkgJsonPath) || !existsSync(indexPath)) continue;
+  // React packages keep their entry in index.tsx.
+  const indexPath = ['index.ts', 'index.tsx']
+    .map((file) => join(pkgDir, 'src', file))
+    .find((path) => existsSync(path));
+  if (!existsSync(pkgJsonPath) || !indexPath) continue;
 
   const { name, version } = JSON.parse(readFileSync(pkgJsonPath, 'utf8'));
   const source = readFileSync(indexPath, 'utf8');

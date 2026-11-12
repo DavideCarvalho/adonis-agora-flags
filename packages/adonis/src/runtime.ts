@@ -73,6 +73,12 @@ export interface RuntimeOptions {
   start?: boolean;
   /** Whether this process runs the in-process worker loop. Decided by the provider. */
   runWorker?: boolean;
+  /**
+   * Hold a connection for Postgres `LISTEN` (instant ruleset changes). Default `true`; the provider
+   * turns it off in ace commands and the REPL: a held connection keeps Lucid from closing its
+   * pool, so `node ace migration:run` and friends would never exit.
+   */
+  listen?: boolean;
 }
 
 /** Resolves defaults that depend on what is installed (`lucid` when available, else memory). */
@@ -94,7 +100,11 @@ export async function createRuntime(
   const topology: Topology = config.topology ?? 'standalone';
   const role: Role = config.role ?? 'all';
   const environment = config.environment ?? 'production';
-  const app = config.topology === 'tenant' ? config.tenant.partition : (config.app ?? 'app');
+  const appName = (ctx.app as { appName?: unknown } | undefined)?.appName;
+  const app =
+    config.topology === 'tenant'
+      ? config.tenant.partition
+      : (config.app ?? (typeof appName === 'string' && appName ? appName : 'app'));
   const logger = options.logger;
   const declarations = config.flags;
   const enricherList = [builtInEnrichers.diagnostics(), ...(config.enrichers ?? [])];
@@ -245,7 +255,11 @@ export async function createRuntime(
   const source = new StoreSource(store, {
     environment,
     ...(owned.refresh?.intervalMs !== undefined ? { intervalMs: owned.refresh.intervalMs } : {}),
-    ...(owned.refresh?.notify !== undefined ? { notify: owned.refresh.notify } : {}),
+    ...(options.listen === false
+      ? { notify: false }
+      : owned.refresh?.notify !== undefined
+        ? { notify: owned.refresh.notify }
+        : {}),
     onError: (error) =>
       logger?.warn(`[flags] reloading the ruleset failed: ${(error as Error).message}`),
   });

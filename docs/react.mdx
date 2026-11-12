@@ -20,19 +20,33 @@ npm i @adonis-agora/flags-react
 
 Only flags declared with `client: true` are sent — the browser receives values, never targeting rules.
 
-```ts title="config/inertia.ts"
-sharedData: {
-  flags: (ctx) => ctx.flags.all(),
-},
+Share them from the Inertia middleware:
+
+```ts title="app/middleware/inertia_middleware.ts"
+async share(ctx: HttpContext) {
+  return {
+    // `await`: all() is async. The `?.` covers pages rendered outside a route (a 404), where the
+    // router middleware that sets ctx.flags never ran.
+    flags: (await ctx.flags?.all()) ?? {},
+  }
+}
 ```
+
+Then wrap the app in `InertiaFlagsProvider`. It starts from the first page and follows the `flags` prop on every Inertia response — visits and reloads:
 
 ```tsx title="inertia/app.tsx"
-import { FlagsProvider } from '@adonis-agora/flags-react'
+import { InertiaFlagsProvider } from '@adonis-agora/flags-react/inertia'
 
-<FlagsProvider values={props.initialPage.props.flags}>
-  <App {...props} />
-</FlagsProvider>
+setup({ el, App, props }) {
+  createRoot(el).render(
+    <InertiaFlagsProvider initialPage={props.initialPage}>
+      <App {...props} />
+    </InertiaFlagsProvider>,
+  )
+}
 ```
+
+A plain `<FlagsProvider values={props.initialPage.props.flags}>` there would keep the first page's values: `setup` runs once.
 
 ## Read them
 
@@ -50,7 +64,7 @@ function Player() {
 </Flag>
 ```
 
-Keys and values are typed from your `config/flags.ts`.
+Values are typed from your `config/flags.ts`. Keys are checked too once you turn on `strictKeys` (see [`flags:types`](/docs/declaring-flags)); without it any string is accepted, so flags created in the console work before you regenerate types.
 
 ## Live updates
 

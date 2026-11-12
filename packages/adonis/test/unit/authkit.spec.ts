@@ -99,3 +99,18 @@ describe('authkit integration', () => {
     });
   });
 });
+
+describe('authkit-client 0.x', () => {
+  it('reads the identity from ctx.auth when it is the authkit authenticator', async () => {
+    const auth = { getIdentity: async () => identity, user: undefined };
+    expect(await defaultSubject(ctxWith({ auth }))).toMatchObject({
+      id: 'sub-123',
+      attributes: { orgSlug: 'acme' },
+    });
+  });
+
+  it('never mistakes @adonisjs/auth for authkit', async () => {
+    const auth = { user: { id: 7 }, check: async () => true };
+    expect(await defaultSubject(ctxWith({ auth }))).toEqual({ id: 7 });
+  });
+});

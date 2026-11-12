@@ -84,6 +84,25 @@ describe('Postgres', () => {
     }
   });
 
+  it('holds no LISTEN connection in ace commands, so Lucid can close its pool', async () => {
+    runtime = await createRuntime(
+      defineConfig({ flags: { new_player: flag.boolean({ default: false }) } }),
+      lucidContext(db.database as never),
+      { logger: quietLogger, listen: false },
+    );
+    expect(runtime.source.status().mode).toBe('poll');
+    const knex = (
+      db.database as unknown as {
+        connection(): { getWriteClient(): { client: { pool: { numUsed(): number } } } };
+      }
+    )
+      .connection()
+      .getWriteClient();
+    // `node ace migration:run` ends with db.manager.closeAll(), which waits for every used
+    // connection: with a LISTEN held here it never returned.
+    expect(knex.client.pool.numUsed()).toBe(0);
+  });
+
   it('never skips an event committed late by a slow transaction', async () => {
     await createFlagsTables(db.db);
     const transport = new DbTransport(db.db, { autoCreateSchema: false });

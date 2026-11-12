@@ -62,8 +62,8 @@ export default defineConfig({
 | Option | |
 |---|---|
 | `guard` | The guard to read (`'web'`, `'api'`). Default: the default guard. The request is checked silently, so no auth middleware is needed on flagged routes. |
-| `canOpenConsole` | Who may open the console once signed in. |
-| `loginPath` | Where the console sends people who are not signed in. Default: answer 401. |
+| `canOpenConsole` | Who may open the console once signed in. Without it, the console keeps its defaults (open outside production, closed in production). |
+| `loginPath` | Where the console sends people who are not signed in (with `canOpenConsole`). Default: answer 401. |
 | `can` | Who may change what (below). Default: anyone the console lets in. |
 | `type` | Subject type stored on events. Default `user`. |
 
@@ -141,7 +141,7 @@ Options set directly in the configs still win over the provider: `subject` and `
 identity: identities.authkit({ loginPath: '/login' }),
 ```
 
-Everything comes from the authkit session: the subject is the `sub` claim (the same person in every app), with `email`, `emailDomain`, `globalRoles`, `orgId`, `orgSlug` and `orgRole` as targeting attributes. The console actor is the authkit user. The console needs the `ADMIN` global role (`consoleRole` changes it). Pass `can` for finer rules.
+It works with `@adonis-agora/authkit-client` 0.x and 1.x, with no extra middleware. Everything comes from the authkit session: the subject is the `sub` claim (the same person in every app), with `email`, `emailDomain`, `globalRoles`, `orgId`, `orgSlug` and `orgRole` as targeting attributes. The console actor is the authkit user. The console needs the `ADMIN` global role (`consoleRole` changes it). Pass `can` for finer rules.
 
 ## Frontends
 

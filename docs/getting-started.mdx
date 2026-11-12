@@ -35,9 +35,9 @@ node ace configure @adonis-agora/flags
 
 `configure`:
 
-1. registers the provider and the `flags:*` commands in `adonisrc.ts`;
+1. registers the providers (flags and the console) and the `flags:*` commands in `adonisrc.ts`;
 2. adds the `flags_middleware` to the router middleware (it puts `ctx.flags` on every request) and the `flag` named middleware (a route guard);
-3. publishes `config/flags.ts` and an optional migration;
+3. publishes `config/flags.ts`, `config/flags_dashboard.ts` (the console) and an optional migration;
 4. adds `FLAGS_ENVIRONMENT` to `start/env.ts`.
 
 The tables are created at boot. If you prefer migrations to own the schema, keep the published migration and set `autoCreateSchema: false`.

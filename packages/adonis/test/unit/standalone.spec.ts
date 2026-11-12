@@ -42,7 +42,15 @@ describe('standalone runtime on SQLite', () => {
     expect(await flags.enabled('new_player')).toBe(false);
     expect(await flags.value('checkout')).toBe('control');
     expect(await flags.value('max_items')).toBe(10);
-    expect((await flags.details('new_player')).errorCode).toBe('FLAG_NOT_FOUND');
+    // Declared but not configured yet: the normal state, not an error.
+    expect(await flags.details('new_player')).toMatchObject({
+      reason: 'DEFAULT',
+      value: false,
+      flagMetadata: { configured: false },
+    });
+    expect((await flags.details('new_player')).errorCode).toBeUndefined();
+    // A key nobody declared is still an error.
+    expect((await flags.details('ghost' as never)).errorCode).toBe('FLAG_NOT_FOUND');
   });
 
   it('applies admin changes, bumps the version and audits them', async () => {

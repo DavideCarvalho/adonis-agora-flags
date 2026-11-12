@@ -2,7 +2,8 @@
   exports({ to: app.configPath('flags.ts') })
 }}}
 import env from '#start/env'
-import { defineConfig, flag, metric, type InferFlags } from '@adonis-agora/flags'
+import app from '@adonisjs/core/services/app'
+import { defineConfig, flag, type InferFlags } from '@adonis-agora/flags'
 
 const flagsConfig = defineConfig({
   /**
@@ -21,11 +22,15 @@ const flagsConfig = defineConfig({
     }),
   },
 
-  /** Which environment's ruleset this process reads. */
-  environment: env.get('FLAGS_ENVIRONMENT', 'production'),
+  /**
+   * Which environment's ruleset this process reads (and the console and \`flags:*\` commands edit
+   * by default). Each environment has its own targeting.
+   */
+  environment: env.get('FLAGS_ENVIRONMENT', app.inProduction ? 'production' : 'development'),
 
   /**
    * Metrics experiments are judged by, computed from \`flags.track(subject, 'event', { value })\`.
+   * Build them with \`metric\` from '@adonis-agora/flags'.
    */
   metrics: {
     // conversion: metric.conversion('purchase'),
@@ -43,6 +48,3 @@ export default flagsConfig
 declare module '@adonis-agora/flags/types' {
   interface FlagsList extends InferFlags<typeof flagsConfig> {}
 }
-
-// \`metric\` is imported for the examples above.
-void metric

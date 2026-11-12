@@ -44,6 +44,28 @@ export function describeServing(definition: FlagDefinition | undefined): string 
 export abstract class FlagsCommand extends BaseCommand {
   static override options: CommandOptions = { startApp: true };
 
+  /**
+   * A refused change (unknown flag, invalid value, not allowed) is a message, not a stack trace.
+   * Programming errors keep their stack.
+   */
+  override async exec() {
+    try {
+      return await super.exec();
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        !(error instanceof TypeError) &&
+        !(error instanceof ReferenceError) &&
+        !(error instanceof SyntaxError)
+      ) {
+        this.logger.error(error.message);
+        this.exitCode = 1;
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
   protected async runtime(): Promise<FlagsRuntime> {
     const runtime = (await this.app.container.make('flags.runtime')) as FlagsRuntime;
     if (runtime.topology === 'tenant') {

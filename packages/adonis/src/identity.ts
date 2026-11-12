@@ -44,10 +44,6 @@ export interface FlagsIdentityProvider {
   ): boolean | Promise<boolean>;
 }
 
-interface AuthkitLike {
-  getIdentity(): Promise<{ globalRoles?: string[] } | null>;
-}
-
 interface GuardLike {
   user?: Record<string, unknown> | null;
   check?(): Promise<boolean>;
@@ -121,8 +117,7 @@ export const identities = {
         return name ? { id: identity.userId, name } : { id: identity.userId };
       },
       async authorizeConsole(ctx) {
-        const authkit = (ctx as unknown as { authkit?: AuthkitLike }).authkit;
-        const identity = authkit ? await authkit.getIdentity().catch(() => null) : null;
+        const identity = await authkitIdentity(ctx);
         if (!identity) {
           return options.loginPath
             ? { redirectTo: options.loginPath }

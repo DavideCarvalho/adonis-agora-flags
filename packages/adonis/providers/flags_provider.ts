@@ -82,6 +82,9 @@ export default class FlagsProvider {
           // Timers run in servers and tests; one-shot ace commands only read and write.
           start: true,
           runWorker: false,
+          // A held LISTEN connection keeps `db.manager.closeAll()` waiting: ace commands
+          // (migration:run, db:seed…) would never exit.
+          listen: environment !== 'console' && environment !== 'repl',
           onApplied: () => {},
         },
       );

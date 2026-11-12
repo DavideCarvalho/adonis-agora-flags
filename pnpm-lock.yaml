@@ -359,6 +359,9 @@ importers:
       '@adonis-agora/flags':
         specifier: workspace:*
         version: link:../adonis
+      '@inertiajs/react':
+        specifier: 3.7.0
+        version: 3.7.0(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       '@testing-library/react':
         specifier: 16.3.3
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -1032,6 +1035,20 @@ packages:
     resolution: {integrity: sha512-wtF6h+DY6M3YaDBPAmvuuA6jV8Sif9MjtOI5euKFWRgCDl5PeDpPsHR9u2l6St5ceY8AZgoNDww5+HvEsXFsGg==}
     engines: {node: '>=6'}
     hasBin: true
+
+  '@inertiajs/core@3.7.0':
+    resolution: {integrity: sha512-JzysXTPsOpKcnR7ohwpgKE+UWBrKwW7z23DydWHSxjfQ02tJAKmNnZJAxnX7zH3zUSTqbtPge6QC8XhvfjNXmw==}
+    peerDependencies:
+      axios: ^1.15.2
+    peerDependenciesMeta:
+      axios:
+        optional: true
+
+  '@inertiajs/react@3.7.0':
+    resolution: {integrity: sha512-rc/TsVT7ihDk+cMeCuU3BjdUfTq6HJwXqGy7oPaysLQCeyfhIaP2QgExo5R1QSCFIwl9un0MeZnzTOG+i38jLw==}
+    peerDependencies:
+      react: ^19.0.0
+      react-dom: ^19.0.0
 
   '@ioredis/commands@1.10.0':
     resolution: {integrity: sha512-UmeW7z4LfctwoQ5wkhVzgq8tXkreED2xZGpX+Bg+zA+WJFZCT6c062AfCK/Dfk81xZnnwdhJCUMkitihRaoC2Q==}
@@ -2310,6 +2327,9 @@ packages:
   es-module-lexer@2.3.2:
     resolution: {integrity: sha512-poHGpORABojJJucnV9KbOavETW8lBVnphkW77ER5/BQ5Fz7oXSoCNek7IH3vR5nRjdsEz926ibFYX8KtLQmdyw==}
 
+  es-toolkit@1.53.2:
+    resolution: {integrity: sha512-iUqZ+NlwH4jUgRmXZUxFBsV/9762TQEa1O4IXLFBmDEjVHScBytKuseX23I0+v9ShZ5MYxEx6WKNzm6IPnex8g==}
+
   escalade@3.2.0:
     resolution: {integrity: sha512-WUj2qlxaQtO4g6Pq5c29GTcWGDyd8itL8zTlipgECz3JesAiiOKotd8JU6otB3PACgG6xkJUyVhboMS+bje/jA==}
     engines: {node: '>=6'}
@@ -2702,6 +2722,14 @@ packages:
       sqlite3:
         optional: true
       tedious:
+        optional: true
+
+  laravel-precognition@2.1.1:
+    resolution: {integrity: sha512-Wg05+puJ5qiNsE8rdO5JmSiqQ2xcEf7442AIZiDhZg1JyPOePv5SSCu0fO7z7LqmJcPMxNNuOIcZd6UatEmYug==}
+    peerDependencies:
+      axios: ^1.4.0
+    peerDependenciesMeta:
+      axios:
         optional: true
 
   launch-editor@2.14.2:
@@ -4447,6 +4475,22 @@ snapshots:
       protobufjs: 7.6.6
       yargs: 17.7.3
 
+  '@inertiajs/core@3.7.0':
+    dependencies:
+      '@jridgewell/trace-mapping': 0.3.31
+      es-toolkit: 1.53.2
+      laravel-precognition: 2.1.1
+
+  '@inertiajs/react@3.7.0(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
+    dependencies:
+      '@inertiajs/core': 3.7.0
+      es-toolkit: 1.53.2
+      laravel-precognition: 2.1.1
+      react: 19.3.1
+      react-dom: 19.3.1(react@19.3.1)
+    transitivePeerDependencies:
+      - axios
+
   '@ioredis/commands@1.10.0': {}
 
   '@ioredis/commands@2.0.0': {}
@@ -5495,6 +5539,8 @@ snapshots:
 
   es-module-lexer@2.3.2: {}
 
+  es-toolkit@1.53.2: {}
+
   escalade@3.2.0: {}
 
   escape-goat@4.0.0: {}
@@ -5858,6 +5904,10 @@ snapshots:
       pg: 8.23.1
     transitivePeerDependencies:
       - supports-color
+
+  laravel-precognition@2.1.1:
+    dependencies:
+      es-toolkit: 1.53.2
 
   launch-editor@2.14.2:
     dependencies:

@@ -1,7 +1,7 @@
 {
   "name": "@adonis-agora/flags-react",
   "version": "0.1.0",
-  "description": "React/Inertia bindings for @adonis-agora/flags: FlagsProvider, useFlag, useFlags, <Flag>, and live updates through @adonisjs/transmit.",
+  "description": "React/Inertia bindings for @adonis-agora/flags: FlagsProvider, InertiaFlagsProvider, useFlag, <Flag>, remote flags from a flags server, and live updates.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -28,6 +28,11 @@
       "types": "./dist/src/index.d.ts",
       "import": "./dist/src/index.js",
       "default": "./dist/src/index.js"
+    },
+    "./inertia": {
+      "types": "./dist/src/inertia.d.ts",
+      "import": "./dist/src/inertia.js",
+      "default": "./dist/src/inertia.js"
     }
   },
   "files": [
@@ -45,15 +50,20 @@
   },
   "peerDependencies": {
     "@adonis-agora/flags": ">=0.0.0 <2.0.0",
-    "react": "^19.0.0"
+    "react": "^19.0.0",
+    "@inertiajs/react": ">=2.0.0"
   },
   "peerDependenciesMeta": {
     "@adonis-agora/flags": {
+      "optional": true
+    },
+    "@inertiajs/react": {
       "optional": true
     }
   },
   "devDependencies": {
     "@adonis-agora/flags": "workspace:*",
+    "@inertiajs/react": "3.7.0",
     "@testing-library/react": "16.3.3",
     "@types/node": "26.6.6",
     "@types/react": "19.3.0",

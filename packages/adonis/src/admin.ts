@@ -411,6 +411,35 @@ export class FlagsAdmin {
   }
 
   /**
+   * Serves `value` to everyone: the variant with that value when there is one, else a new variant
+   * named after it. For number, string and JSON flags without a variant for the value yet
+   * (`node ace flags:set max_uploads 25`).
+   */
+  async setValue(
+    key: string,
+    value: JsonValue,
+    actor: Actor,
+    options: { environment?: string; note?: string } = {},
+  ) {
+    const definition = await this.definition(key, options.environment);
+    const same = JSON.stringify(value);
+    let variant = Object.keys(definition.variants).find(
+      (name) => JSON.stringify(definition.variants[name]) === same,
+    );
+    const variants = { ...definition.variants };
+    if (!variant) {
+      variant = typeof value === 'string' ? value : same;
+      variants[variant] = value;
+    }
+    return this.saveFlag(
+      key,
+      { ...definition, variants, enabled: true, fallthrough: { variant } },
+      actor,
+      options,
+    );
+  }
+
+  /**
    * Percentage rollout of a boolean flag: `percent`% get `on`. Keeps the `on` arm first so raising
    * the percentage only adds people (see `pickVariant`).
    */

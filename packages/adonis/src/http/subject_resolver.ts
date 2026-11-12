@@ -46,10 +46,23 @@ export function subjectFromIdentity(identity: AuthkitIdentityLike): Subject {
   return { id: identity.userId, type: 'user', attributes };
 }
 
-/** The authkit identity of the request, when `@adonis-agora/authkit-client` populated `ctx.authkit`. */
+/**
+ * The request's authkit surface: `ctx.authkit` (authkit-client 1.x), else `ctx.auth` when it is
+ * authkit's authenticator (authkit-client 0.x's `authkit_middleware` puts it there and never sets
+ * `ctx.authkit`). `@adonisjs/auth`'s authenticator has no `getIdentity`, so it is never mistaken
+ * for it.
+ */
+function authkitOf(ctx: HttpContext): AuthkitLike | undefined {
+  const holder = ctx as unknown as { authkit?: AuthkitLike; auth?: AuthkitLike };
+  if (holder.authkit && typeof holder.authkit.getIdentity === 'function') return holder.authkit;
+  if (holder.auth && typeof holder.auth.getIdentity === 'function') return holder.auth;
+  return undefined;
+}
+
+/** The authkit identity of the request, from `@adonis-agora/authkit-client` (0.x or 1.x). */
 export async function authkitIdentity(ctx: HttpContext): Promise<AuthkitIdentityLike | null> {
-  const authkit = (ctx as unknown as { authkit?: AuthkitLike }).authkit;
-  if (!authkit || typeof authkit.getIdentity !== 'function') return null;
+  const authkit = authkitOf(ctx);
+  if (!authkit) return null;
   try {
     return await authkit.getIdentity();
   } catch {
