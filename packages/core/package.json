@@ -1,6 +1,6 @@
 {
   "name": "@adonis-agora/flags-core",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Framework-agnostic feature flag engine: versioned ruleset, deterministic evaluation with OpenFeature-shaped details, and experiment statistics.",
   "license": "MIT",
   "repository": {
