@@ -68,10 +68,19 @@ Values are typed from your `config/flags.ts`. Keys are checked too once you turn
 
 ## Live updates
 
-With `realtime: true` in `config/flags.ts` and `@adonisjs/transmit` installed, the server broadcasts every ruleset change. Reload the flags prop when it happens:
+Values follow every Inertia visit. To change them while the page stays open (a kill switch hiding a banner right away), set `realtime: true` in `config/flags.ts`, install `@adonisjs/transmit`, and hand the provider your Transmit client. It reloads the `flags` prop whenever the ruleset changes:
+
+```tsx title="inertia/app.tsx"
+import { transmit } from '~/transmit'
+
+<InertiaFlagsProvider initialPage={props.initialPage} realtime={{ transmit }}>
+  <App {...props} />
+</InertiaFlagsProvider>
+```
+
+Inertia apps need nothing else: no `browser`, no token endpoint. Outside the provider, the same thing is a hook:
 
 ```tsx
-import { transmit } from '~/transmit'
 import { router } from '@inertiajs/react'
 import { useFlagsRealtime } from '@adonis-agora/flags-react'
 
@@ -128,7 +137,9 @@ export default defineConfig({
     return { plan: user?.plan, country: user?.country }
   },
 })
-``` The browser holds the token in memory only (never `localStorage`), fetches a new one shortly before it expires, and retries once with a fresh one if the flags API refuses it.
+```
+
+The token is signed, not encrypted: the user can read their own subject and attributes, but cannot change them. The browser holds the token in memory only (never `localStorage`), fetches a new one shortly before it expires, and retries once with a fresh one if the flags API refuses it.
 
 1. The browser calls `/_flags/token` with its session cookie and gets `{ token, expiresAt, url }`.
 2. It calls the flags API at `url` with the token.
@@ -146,6 +157,24 @@ const track = useTrack()
 ```
 
 After sign-in or sign-out, call `flags.reload()`: it drops the token and evaluates for the new user.
+
+### The first token in the page
+
+When your Adonis app renders the page that mounts `remoteFlags`, send the first token with it and skip the first request. `browserToken(ctx)` signs it like the endpoint does:
+
+```ts title="app/middleware/inertia_middleware.ts"
+import { browserToken } from '@adonis-agora/flags'
+
+async share(ctx: HttpContext) {
+  return { flagsToken: await browserToken(ctx) }
+}
+```
+
+```tsx
+remoteFlags({ endpoint: '/_flags/token', initial: props.initialPage.props.flagsToken })
+```
+
+Keep `endpoint`: tokens last five minutes, and a page left open needs a new one.
 
 ### Options
 

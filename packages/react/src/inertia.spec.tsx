@@ -5,8 +5,11 @@ import { useFlag } from './index.js';
 type Listener = (event: { detail: { page: { props: Record<string, unknown> } } }) => void;
 const listeners = new Set<Listener>();
 
+const reloads: unknown[] = [];
+
 vi.mock('@inertiajs/react', () => ({
   router: {
+    reload: (options: unknown) => reloads.push(options),
     on: (_type: string, listener: Listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -52,5 +55,36 @@ describe('InertiaFlagsProvider', () => {
     expect(listeners.size).toBe(1);
     unmount();
     expect(listeners.size).toBe(0);
+  });
+
+  it('reloads the flags prop when the ruleset changes, with realtime', async () => {
+    let deliver: ((message: { version: string }) => void) | undefined;
+    const channels: string[] = [];
+    const transmit = {
+      subscription: (channel: string) => {
+        channels.push(channel);
+        return {
+          create: async () => {},
+          onMessage: <T,>(handler: (message: T) => void) => {
+            deliver = handler as never;
+            return () => {
+              deliver = undefined;
+            };
+          },
+          delete: async () => {},
+        };
+      },
+    };
+    const { unmount } = render(
+      <InertiaFlagsProvider initialPage={{ props: {} }} prop="ff" realtime={{ transmit }}>
+        <Banner />
+      </InertiaFlagsProvider>,
+    );
+    await vi.waitFor(() => expect(deliver).toBeDefined());
+    expect(channels).toEqual(['flags/ruleset']);
+    deliver!({ version: '7' });
+    expect(reloads).toEqual([{ only: ['ff'] }]);
+    unmount();
+    expect(deliver).toBeUndefined();
   });
 });

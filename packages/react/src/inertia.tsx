@@ -1,6 +1,6 @@
 import { router } from '@inertiajs/react';
 import { type ReactNode, useEffect, useState } from 'react';
-import { FlagsProvider } from './index.js';
+import { FlagsProvider, type TransmitLike, useFlagsRealtime } from './index.js';
 
 type Values = Record<string, unknown>;
 
@@ -9,7 +9,29 @@ export interface InertiaFlagsProviderProps {
   initialPage: { props: Record<string, unknown> };
   /** The shared prop holding the flags. Default `flags`. */
   prop?: string;
+  /**
+   * Live updates: with `realtime: true` in `config/flags.ts` and `@adonisjs/transmit`, reloads the
+   * flags prop (`router.reload({ only: [prop] })`) whenever the ruleset changes.
+   */
+  realtime?: { transmit: TransmitLike; channel?: string };
   children: ReactNode;
+}
+
+function Realtime({
+  transmit,
+  channel,
+  prop,
+}: {
+  transmit: TransmitLike;
+  channel: string | undefined;
+  prop: string;
+}) {
+  useFlagsRealtime({
+    transmit,
+    ...(channel ? { channel } : {}),
+    onChange: () => router.reload({ only: [prop] }),
+  });
+  return null;
 }
 
 /**
@@ -27,12 +49,15 @@ export interface InertiaFlagsProviderProps {
  * }
  * ```
  *
+ * Pass `realtime={{ transmit }}` to also follow ruleset changes while the page stays open.
+ *
  * A plain `<FlagsProvider values={props.initialPage.props.flags}>` there would keep the first
  * page's values forever: `setup` runs once.
  */
 export function InertiaFlagsProvider({
   initialPage,
   prop = 'flags',
+  realtime,
   children,
 }: InertiaFlagsProviderProps) {
   const [values, setValues] = useState<Values>(
@@ -48,5 +73,12 @@ export function InertiaFlagsProvider({
       }),
     [prop],
   );
-  return <FlagsProvider values={values}>{children}</FlagsProvider>;
+  return (
+    <FlagsProvider values={values}>
+      {realtime ? (
+        <Realtime transmit={realtime.transmit} channel={realtime.channel} prop={prop} />
+      ) : null}
+      {children}
+    </FlagsProvider>
+  );
 }
