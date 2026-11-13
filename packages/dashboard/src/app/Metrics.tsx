@@ -47,7 +47,7 @@ function describe(metric: MetricDefinition): string {
 function UsedBy({ usedBy }: { usedBy: string[] }) {
   if (usedBy.length === 0) return null;
   return (
-    <span className="text-[11px] text-zinc-500">
+    <span className="text-[11px] text-dim">
       used by{' '}
       {usedBy.map((key) => (
         <Badge key={key}>{key}</Badge>
@@ -99,7 +99,7 @@ function MetricForm({
             onChange={(e) => setKey(e.target.value)}
           />
         ) : (
-          <span className="mono text-sm text-zinc-100">{metricKey}</span>
+          <span className="mono text-sm text-fg">{metricKey}</span>
         )}
         <UsedBy usedBy={usedBy} />
       </div>
@@ -207,12 +207,12 @@ function ConfigMetric({
   return (
     <div className="space-y-1 border-b border-line px-4 py-3 last:border-b-0">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="mono text-sm text-zinc-100">{name}</span>
+        <span className="mono text-sm text-fg">{name}</span>
         <Badge>config</Badge>
         <UsedBy usedBy={usedBy} />
       </div>
-      <p className="text-[11px] text-zinc-500">{describe(metric)}</p>
-      {metric.description && <p className="text-[11px] text-zinc-400">{metric.description}</p>}
+      <p className="text-[11px] text-dim">{describe(metric)}</p>
+      {metric.description && <p className="text-[11px] text-dim">{metric.description}</p>}
     </div>
   );
 }
@@ -229,7 +229,7 @@ export function Metrics() {
   const bySource = (source: DefinitionSource) => metrics.filter((m) => m.source === source);
   return (
     <Panel
-      title="Metrics"
+      title="All metrics"
       subtitle="What experiments measure, from events sent with track(). Pick them per experiment in the flag editor. Metrics from config/flags.ts are read-only here."
       actions={<Button onClick={() => setAdding(true)}>New metric</Button>}
     >

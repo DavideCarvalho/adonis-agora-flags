@@ -76,15 +76,24 @@ afterEach(() => {
 describe('the shell', () => {
   it('opens on the flag list', () => {
     renderApp();
-    expect(screen.getByRole('tab', { name: 'Flags' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('link', { name: 'Flags' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('heading', { level: 1, name: 'Flags' })).toBeTruthy();
   });
 
-  it('writes the hash when a tab is pressed and follows it back', async () => {
+  it('groups the sidebar into the four sections, each screen a real link', () => {
     renderApp();
-    fireEvent.click(screen.getByRole('tab', { name: 'Approvals' }));
+    for (const section of ['Flags', 'Experiments', 'Governance', 'Config']) {
+      expect(screen.getAllByText(section).length).toBeGreaterThan(0);
+    }
+    expect(screen.getByRole('link', { name: 'Hygiene' }).getAttribute('href')).toBe('#/hygiene');
+  });
+
+  it('writes the hash when a nav item is pressed and follows it back', async () => {
+    renderApp();
+    fireEvent.click(screen.getByRole('link', { name: 'Approvals' }));
     expect(window.location.hash).toBe('#/approvals');
     setHash('#/segments');
-    expect(await screen.findByRole('heading', { name: 'Segments' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Segments' })).toBeTruthy();
   });
 
   it('switches environment through the hash, and every read follows it', async () => {
@@ -95,10 +104,30 @@ describe('the shell', () => {
     await waitFor(() => expect(select.options.length).toBe(2));
     fireEvent.change(select, { target: { value: 'staging' } });
     expect(window.location.hash).toBe('#/flags?env=staging');
+    // The nav keeps the environment in every link.
     setHash('#/flags?env=staging');
+    expect(screen.getByRole('link', { name: 'Segments' }).getAttribute('href')).toBe(
+      '#/segments?env=staging',
+    );
     await waitFor(() =>
       expect(calls.some((c) => c.url === '/f/api/flags?environment=staging')).toBe(true),
     );
+  });
+
+  it('shows the viewer the provider sent, else the acting person the API reports', async () => {
+    renderApp();
+    expect(await screen.findByText('alice')).toBeTruthy();
+  });
+
+  it('prefers the data block viewer and offers ⌘K search when the provider announces it', async () => {
+    injectConfig({
+      viewer: { label: 'Ann Lee', role: 'admin' },
+      search: { endpoint: '/f/api/consoles/search' },
+    });
+    renderApp();
+    expect(await screen.findByText('Ann Lee')).toBeTruthy();
+    expect(screen.queryByText('alice')).toBeNull();
+    expect(screen.getByRole('button', { name: /search/i })).toBeTruthy();
   });
 
   it('flags an environment that needs approvals', async () => {

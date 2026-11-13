@@ -34,8 +34,8 @@ export function Section({
 }) {
   return (
     <section className="border-b border-line px-4 py-3 last:border-b-0">
-      <h3 className="text-xs text-zinc-300">{title}</h3>
-      {hint !== undefined && <p className="mb-2 text-[11px] text-zinc-500">{hint}</p>}
+      <h3 className="text-xs text-fg-2">{title}</h3>
+      {hint !== undefined && <p className="mb-2 text-[11px] text-dim">{hint}</p>}
       <div className="mt-2 space-y-2">{children}</div>
     </section>
   );
@@ -203,7 +203,7 @@ export function ServeEditor({
                     })
                   }
                 />
-                <span className="mono w-16 text-[11px] text-zinc-500">{percents[i]}%</span>
+                <span className="mono w-16 text-[11px] text-dim">{percents[i]}%</span>
                 <Button
                   variant="ghost"
                   disabled={serve.split.length <= 1}
@@ -261,7 +261,7 @@ function ConditionEditor({
 }) {
   const segment = isSegmentCondition(condition);
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-sm border border-line-soft p-2">
+    <div className="flex flex-wrap items-center gap-2 rounded-md border border-line-soft p-2">
       <Select
         aria-label={`${label} kind`}
         value={segment ? 'segment' : 'attribute'}
@@ -299,7 +299,7 @@ function ConditionEditor({
           label={label}
         />
       )}
-      <label className="inline-flex items-center gap-1 text-[11px] text-zinc-400">
+      <label className="inline-flex items-center gap-1 text-[11px] text-dim">
         <input
           type="checkbox"
           checked={condition.negate === true}
@@ -395,10 +395,10 @@ export function RulesEditor({
         <div
           // biome-ignore lint/suspicious/noArrayIndexKey: positional rows with editable names; a name key would remount the input being typed into.
           key={i}
-          className="space-y-2 rounded-sm border border-line p-3"
+          className="space-y-2 rounded-md border border-line p-3"
         >
           <div className="flex flex-wrap items-center gap-2">
-            <span className="mono text-[11px] text-zinc-500">#{i + 1}</span>
+            <span className="mono text-[11px] text-dim">#{i + 1}</span>
             <Field label="Rule id" className="flex-row items-center gap-2">
               <Input
                 aria-label={`Rule ${i + 1} id`}
@@ -419,7 +419,7 @@ export function RulesEditor({
               </Button>
             </span>
           </div>
-          <p className="text-[11px] text-zinc-500">When all of these match:</p>
+          <p className="text-[11px] text-dim">When all of these match:</p>
           {rule.conditions.map((condition, j) => (
             <ConditionEditor
               // biome-ignore lint/suspicious/noArrayIndexKey: positional rows with editable names; a name key would remount the input being typed into.
@@ -443,7 +443,7 @@ export function RulesEditor({
           >
             Add condition
           </Button>
-          <p className="text-[11px] text-zinc-500">Serve:</p>
+          <p className="text-[11px] text-dim">Serve:</p>
           <ServeEditor
             label={`Rule ${i + 1} serve`}
             serve={rule.serve}
@@ -558,7 +558,7 @@ export function PrerequisitesEditor({
               </option>
             ))}
           </Select>
-          <span className="text-[11px] text-zinc-500">must serve</span>
+          <span className="text-[11px] text-dim">must serve</span>
           <VariantSelect
             label={`Prerequisite ${i + 1} variant`}
             value={p.variant}
@@ -605,7 +605,7 @@ export function ExperimentEditor({
   const experiment = definition.experiment;
   return (
     <>
-      <label className="inline-flex items-center gap-2 text-xs text-zinc-300">
+      <label className="inline-flex items-center gap-2 text-xs text-fg-2">
         <input
           type="checkbox"
           checked={experiment !== undefined}
@@ -647,7 +647,7 @@ export function ExperimentEditor({
               ))}
             </Select>
           </Field>
-          <label className="inline-flex items-center gap-2 pb-1 text-xs text-zinc-300">
+          <label className="inline-flex items-center gap-2 pb-1 text-xs text-fg-2">
             <input
               type="checkbox"
               checked={experiment.holdout !== false}
@@ -690,7 +690,7 @@ function ExperimentAnalysis({
   const experiment: Experiment = definition.experiment ?? {};
   if (configExperiment !== null) {
     return (
-      <p className="text-[11px] text-zinc-500">
+      <p className="text-[11px] text-dim">
         Analysed by experiment <span className="mono">{configExperiment}</span> in config/flags.ts,
         which takes precedence over the metrics picked here.
       </p>
@@ -719,17 +719,15 @@ function ExperimentAnalysis({
   const confidence = experiment.confidence;
   return (
     <div className="space-y-2">
-      <p className="text-[11px] text-zinc-500">
+      <p className="text-[11px] text-dim">
         Analysis — the metrics that decide this experiment and the guardrails that must not regress.
       </p>
       {metrics.length === 0 ? (
-        <p className="text-[11px] text-zinc-500">
-          No metrics yet. Create one on the Metrics screen.
-        </p>
+        <p className="text-[11px] text-dim">No metrics yet. Create one on the Metrics screen.</p>
       ) : (
         <table className="text-xs">
           <thead>
-            <tr className="text-[11px] text-zinc-500">
+            <tr className="text-[11px] text-dim">
               <th className="pr-4 text-left font-normal">Metric</th>
               <th className="pr-4 font-normal">Decides</th>
               <th className="font-normal">Guardrail</th>
@@ -738,10 +736,10 @@ function ExperimentAnalysis({
           <tbody>
             {metrics.map((m) => (
               <tr key={m.name}>
-                <td className="mono pr-4 text-zinc-200">
+                <td className="mono pr-4 text-fg">
                   {m.name}
                   {m.source === 'config' && (
-                    <span className="ml-1 text-[10px] text-zinc-500">config</span>
+                    <span className="ml-1 text-[10px] text-dim">config</span>
                   )}
                 </td>
                 <td className="pr-4 text-center">

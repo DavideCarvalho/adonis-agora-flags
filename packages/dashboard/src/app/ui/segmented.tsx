@@ -1,4 +1,4 @@
-import { cn } from './cn';
+import { cn } from '../../agora-kit/lib/utils';
 
 /**
  * A one-of-N pill selector — the tab bar, the period picker, the status filter.
@@ -40,7 +40,7 @@ export function Segmented<T extends string | undefined>({
       role="tablist"
       aria-label={ariaLabel}
       className={cn(
-        'scroll-x inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-sm border border-line bg-panel p-1 align-top',
+        'scroll-x inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-md border border-border bg-panel-2 p-0.5 align-top',
         className,
       )}
     >
@@ -54,15 +54,15 @@ export function Segmented<T extends string | undefined>({
             aria-selected={selected}
             onClick={() => onChange(option.value)}
             className={cn(
-              'shrink-0 whitespace-nowrap rounded-sm px-2.5 py-1 text-xs transition-colors',
+              'shrink-0 whitespace-nowrap rounded-[6px] px-2.5 py-1 text-[11.5px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40',
               selected
-                ? 'bg-brand/15 text-brand'
-                : 'text-zinc-400 hover:bg-panel-2 hover:text-zinc-200',
+                ? 'bg-brand-soft text-fg shadow-[inset_0_0_0_1px_var(--agora-accent-border)]'
+                : 'text-dim hover:bg-hover hover:text-fg',
             )}
           >
             {option.label}
             {option.hint !== undefined && (
-              <span className="ml-1.5 text-[10px] text-zinc-500">{option.hint}</span>
+              <span className="ml-1.5 mono text-[10px] text-faint">{option.hint}</span>
             )}
           </button>
         );

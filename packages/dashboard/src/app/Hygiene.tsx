@@ -57,7 +57,7 @@ export function Hygiene({ onOpen }: { onOpen: (key: string) => void }) {
               <td className="px-4 py-2">
                 <button
                   type="button"
-                  className="mono text-zinc-100 hover:text-brand"
+                  className="mono text-fg hover:text-brand"
                   onClick={() => onOpen(flag.key)}
                 >
                   {flag.key}
@@ -72,9 +72,9 @@ export function Hygiene({ onOpen }: { onOpen: (key: string) => void }) {
                   ))}
                 </div>
               </td>
-              <td className="mono px-4 py-2 text-zinc-400">{flag.lastEvaluated ?? 'never'}</td>
-              <td className="mono px-4 py-2 text-zinc-400">{flag.expiresAt ?? '—'}</td>
-              <td className="px-4 py-2 text-zinc-400">{flag.owner ?? '—'}</td>
+              <td className="mono px-4 py-2 text-dim">{flag.lastEvaluated ?? 'never'}</td>
+              <td className="mono px-4 py-2 text-dim">{flag.expiresAt ?? '—'}</td>
+              <td className="px-4 py-2 text-dim">{flag.owner ?? '—'}</td>
             </tr>
           ))}
         </Table>

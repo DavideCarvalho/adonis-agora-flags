@@ -78,28 +78,28 @@ export function EvaluateTester({
           Evaluate
         </Button>
       </div>
-      {parseError !== null && <p className="text-xs text-rose-300">{parseError}</p>}
+      {parseError !== null && <p className="text-xs text-bad">{parseError}</p>}
       {run.isError && <ErrorBox error={run.error} />}
       {result && (
-        <dl className="mono grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-sm border border-line-soft p-2 text-[11px]">
-          <dt className="text-zinc-500">value</dt>
-          <dd className="text-zinc-100" data-testid="evaluated-value">
+        <dl className="mono grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-md border border-line-soft p-2 text-[11px]">
+          <dt className="text-dim">value</dt>
+          <dd className="text-fg" data-testid="evaluated-value">
             {formatValue(result.value)}
           </dd>
-          <dt className="text-zinc-500">variant</dt>
+          <dt className="text-dim">variant</dt>
           <dd>{result.variant ?? '—'}</dd>
-          <dt className="text-zinc-500">reason</dt>
+          <dt className="text-dim">reason</dt>
           <dd>{result.reason}</dd>
           {result.flagMetadata.ruleId !== undefined && (
             <>
-              <dt className="text-zinc-500">rule</dt>
+              <dt className="text-dim">rule</dt>
               <dd>{String(result.flagMetadata.ruleId)}</dd>
             </>
           )}
           {result.errorCode && (
             <>
-              <dt className="text-zinc-500">error</dt>
-              <dd className="text-rose-300">
+              <dt className="text-dim">error</dt>
+              <dd className="text-bad">
                 {result.errorCode} {result.errorMessage}
               </dd>
             </>
@@ -166,7 +166,7 @@ export function SchedulesPanel({
   return (
     <div className="space-y-3">
       {schedules.length === 0 ? (
-        <p className="text-[11px] text-zinc-500">Nothing scheduled.</p>
+        <p className="text-[11px] text-dim">Nothing scheduled.</p>
       ) : (
         <Table head={['When', 'Change', 'Status', 'By', '']}>
           {schedules.map((s) => (
@@ -177,9 +177,9 @@ export function SchedulesPanel({
               </td>
               <td className={`px-4 py-1.5 s-${s.status}`}>
                 {s.status}
-                {s.error && <span className="block text-[10px] text-rose-300">{s.error}</span>}
+                {s.error && <span className="block text-[10px] text-bad">{s.error}</span>}
               </td>
-              <td className="px-4 py-1.5 text-zinc-400">{s.createdBy.name ?? s.createdBy.id}</td>
+              <td className="px-4 py-1.5 text-dim">{s.createdBy.name ?? s.createdBy.id}</td>
               <td className="px-4 py-1.5 text-right">
                 {s.status === 'pending' && (
                   <Button variant="ghost" onClick={() => cancel.mutate(s.id)}>
@@ -271,27 +271,25 @@ export function SchedulesPanel({
 /** The flag's audit trail, newest first, with the before/after of each change. */
 export function HistoryPanel({ entries }: { entries: AuditEntry[] }) {
   if (entries.length === 0) {
-    return (
-      <p className="text-[11px] text-zinc-500">No changes recorded in this environment yet.</p>
-    );
+    return <p className="text-[11px] text-dim">No changes recorded in this environment yet.</p>;
   }
   return (
     <ul className="space-y-1">
       {entries.map((entry) => (
-        <li key={entry.id} className="rounded-sm border border-line-soft">
+        <li key={entry.id} className="rounded-md border border-line-soft">
           <details>
             <summary className="flex cursor-pointer flex-wrap items-center gap-2 px-2 py-1.5 text-xs">
-              <span className="mono text-zinc-500">{formatTime(entry.at)}</span>
+              <span className="mono text-dim">{formatTime(entry.at)}</span>
               <Badge>{entry.action}</Badge>
-              <span className="text-zinc-300">{entry.actor.name ?? entry.actor.id}</span>
-              <span className="mono text-[10px] text-zinc-600">v{entry.version}</span>
+              <span className="text-fg-2">{entry.actor.name ?? entry.actor.id}</span>
+              <span className="mono text-[10px] text-faint">v{entry.version}</span>
               {entry.changeRequestId && <Badge variant="type">approved request</Badge>}
             </summary>
             <div className="grid gap-2 border-t border-line-soft p-2 md:grid-cols-2">
-              <pre className="mono overflow-x-auto text-[10px] text-zinc-500">
+              <pre className="mono overflow-x-auto text-[10px] text-dim">
                 {JSON.stringify(entry.before, null, 2)}
               </pre>
-              <pre className="mono overflow-x-auto text-[10px] text-zinc-300">
+              <pre className="mono overflow-x-auto text-[10px] text-fg-2">
                 {JSON.stringify(entry.after, null, 2)}
               </pre>
             </div>

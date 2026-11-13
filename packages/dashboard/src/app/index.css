@@ -1,57 +1,16 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+/* The Agora console kit: tokens (dark + light), shadcn variable mapping, Tailwind theme. */
+@import "../agora-kit/tokens.css";
 
-/* ── Tailwind theme ─────────────────────────────────────────────────────────────────────────────
-   Aviary token → Tailwind colour. Tailwind 4 is CSS-first: this block replaces the
-   `tailwind.config.ts` the console shipped under Tailwind 3 (same mapping, same names — the
-   config was copied verbatim from `@adonis-agora/durable-dashboard`, so keep this block in step
-   with it). `inline` makes a utility resolve straight to the token (`bg-brand` → `var(--accent)`),
-   and Tailwind 4 applies opacity modifiers to any colour through `color-mix`, so `bg-brand/10`
-   behaves exactly like `bg-zinc-900/10` — the `token()` colour-function trick Tailwind 3 needed
-   for that is no longer necessary.
+/* Tailwind 4 scans the package directory by default; pin the sources explicitly. */
+@source "../../index.html";
+@source "./";
+@source "../agora-kit";
 
-   shadcn's semantic names map onto Aviary tokens, so a vendored `bg-background` /
-   `text-muted-foreground` primitive lands on this console's own neutrals with no edit. Three are
-   traps, because the two systems use the same word for different things:
-     · shadcn `accent` is a subtle HOVER SURFACE, not a brand hue → `--panel-2`
-     · shadcn `muted` is a SURFACE → `--panel-2`
-     · Aviary `--muted` is dim TEXT → `muted-foreground`
-   ──────────────────────────────────────────────────────────────────────────────────────────────── */
-@theme inline {
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+/* ── Flags-only styles. Everything shared lives in `agora-kit/tokens.css`. ───────────────────── */
 
-  --color-background: var(--bg);
-  --color-foreground: var(--text);
-  --color-card: var(--panel);
-  --color-card-foreground: var(--text);
-  --color-popover: var(--panel-2);
-  --color-popover-foreground: var(--text);
-  --color-primary: var(--accent);
-  --color-primary-foreground: var(--bg);
-  --color-secondary: var(--panel-2);
-  --color-secondary-foreground: var(--text);
-  --color-muted: var(--panel-2);
-  --color-muted-foreground: var(--muted);
-  --color-accent: var(--panel-2);
-  --color-accent-foreground: var(--text);
-  --color-destructive: var(--bad);
-  --color-destructive-foreground: var(--bg);
-  --color-border: var(--line);
-  --color-input: var(--line);
-  --color-ring: var(--accent);
-
-  /* Aviary's own names, for this console's hand-written classes. */
-  --color-brand: var(--accent);
-  --color-panel: var(--panel);
-  --color-panel-2: var(--panel-2);
-  --color-line: var(--line);
-  --color-line-soft: var(--line-soft);
-  --color-good: var(--good);
-  --color-warn: var(--warn);
-  --color-bad: var(--bad);
-  --color-live: var(--live);
-}
-
-/* Tailwind 4's preflight resets buttons to `cursor: default`; keep the Tailwind 3 behaviour. */
+/* Tailwind 4's preflight resets buttons to `cursor: default`; keep the pointer. */
 @layer base {
   button:not(:disabled),
   [role="button"]:not(:disabled) {
@@ -59,111 +18,32 @@
   }
 }
 
-/* ── Aviary console tokens ──────────────────────────────────────────────────────────────────────
-   Copied from `@adonis-agora/durable-dashboard`'s `src/app/index.css`. The neutrals, the status hues
-   and the spacing are IDENTICAL across every Agora console; `--accent` is the single per-console
-   variable. If you change anything here, change it in every other console in the same session — a
-   token that lands in one console only is invisible until someone puts two screenshots side by side.
-   ──────────────────────────────────────────────────────────────────────────────────────────────── */
-:root {
-  /* Shared. Identical in every console. Do not tune per console. */
-  --bg: #09090b;
-  --panel: #0c0c0f;
-  --panel-2: #101017; /* elevated surface: modal/dialog, drawer, popover, menu */
-  --line: #1c1c22;
-  --line-soft: #16161a;
-  --text: #e7e7ea;
-  --muted: #76767f;
-
-  /* Status. Semantic, never decorative — the `.s-*` hues below are built from these. */
-  --good: #34d399;
-  --warn: #fbbf24;
-  --bad: #f87171;
-  --live: #60a5fa;
-
-  /* Per console. This is the ONLY line that differs between them.
-     Flags takes indigo (234): away from `--good` emerald so "on" never reads as the brand, away
-     from payments' cyan, durable's lime and telescope's magenta. */
-  --accent: #818cf8;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body,
-#root {
-  height: 100%;
-}
-
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
-
-/* Faint blueprint grid + top glow — atmosphere, not noise. */
-.app-bg {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background-image:
-    radial-gradient(
-      900px 400px at 78% -8%,
-      color-mix(in srgb, var(--accent) 8%, transparent),
-      transparent 70%
-    ),
-    linear-gradient(to right, var(--line-soft) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--line-soft) 1px, transparent 1px);
-  background-size:
-    100% 100%,
-    44px 44px,
-    44px 44px;
-  mask-image: linear-gradient(to bottom, black, black 60%, transparent);
-  opacity: 0.5;
-}
-
-.mono {
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-}
-
-.tnum {
-  font-variant-numeric: tabular-nums;
-}
-
-/* ── Status hues ────────────────────────────────────────────────────────────────────────────────
-   Serving and change-request states. Green means "serving to people", never "good news". */
+/* Serving and change-request states. Semantic, never decorative: green means "serving to people",
+   never "good news". Built on the kit's semantic hues, which already have light-mode variants. */
 .s-on,
 .s-applied,
 .s-done,
 .s-better {
-  color: var(--good);
+  color: var(--agora-good);
 }
 .s-off,
 .s-rejected,
 .s-failed,
 .s-worse {
-  color: var(--bad);
+  color: var(--agora-bad);
 }
 .s-pending,
 .s-running {
-  color: var(--warn);
+  color: var(--agora-warn);
 }
 .s-default,
 .s-cancelled,
-.s-inconclusive {
-  color: #71717a;
+.s-inconclusive,
+.s-unknown {
+  color: var(--agora-muted);
 }
 .s-approved {
-  color: var(--live);
-}
-
-.s-unknown {
-  color: var(--muted);
+  color: var(--agora-info);
 }
 
 .dot {
@@ -174,41 +54,14 @@ body {
   box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
 }
 
-@keyframes rise {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-.rise {
-  animation: rise 0.32s cubic-bezier(0.2, 0.7, 0.2, 1) both;
-}
-
-/* A row that scrolls sideways instead of overflowing the page (the tab bar, the status pills).
-   A thin bar rather than none: on a narrow desktop window there is no swipe, and an invisible
-   scrollbar hides that there IS more. */
+/* A row that scrolls sideways instead of overflowing the page (pill rows, wide tables). A thin bar
+   rather than none: on a narrow desktop window there is no swipe, and an invisible scrollbar hides
+   that there IS more. */
 .scroll-x {
   scrollbar-width: thin;
-  scrollbar-color: #26262c transparent;
+  scrollbar-color: var(--agora-line-strong) transparent;
   -webkit-overflow-scrolling: touch;
 }
 .scroll-x::-webkit-scrollbar {
   height: 4px;
-}
-.scroll-x::-webkit-scrollbar-thumb {
-  border: 0;
-}
-
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-::-webkit-scrollbar-thumb {
-  background: #26262c;
-  border: 3px solid var(--bg);
-  border-radius: 999px;
 }

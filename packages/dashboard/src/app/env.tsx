@@ -54,7 +54,7 @@ export function useWrite<TInput>(
 export function Notice({ text }: { text: string | null }) {
   if (text === null) return null;
   return (
-    <p role="status" className="text-[11px] text-zinc-400">
+    <p role="status" className="text-[11px] text-dim">
       {text}
     </p>
   );

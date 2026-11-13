@@ -30,7 +30,7 @@ export function Activity() {
   const next = query.data?.meta.nextCursor ?? null;
   return (
     <Panel
-      title="Activity"
+      title="Audit log"
       subtitle={`Every change to ${environment}, newest first.`}
       actions={
         <Segmented

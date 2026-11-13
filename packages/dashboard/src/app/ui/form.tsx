@@ -1,44 +1,49 @@
 import type {
-  ButtonHTMLAttributes,
   InputHTMLAttributes,
   ReactNode,
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from 'react';
-import { cn } from './cn';
+import { cn } from '../../agora-kit/lib/utils';
+import { Button as KitButton } from '../../agora-kit/ui/button';
 
-/** The console's few form primitives. Plain elements with the shared look — no component library. */
+/**
+ * The console's form primitives. `Button` is the kit's (shadcn on Base UI) under the four names the
+ * screens use; the fields are plain elements with the kit's input look, so native `<select>` and
+ * `<input>` keep working with every browser feature (autofill, keyboard, screen readers).
+ */
 
 type ButtonVariant = 'default' | 'primary' | 'danger' | 'ghost';
 
-const BUTTON: Record<ButtonVariant, string> = {
-  default: 'border-line bg-panel-2 text-zinc-200 enabled:hover:border-zinc-600',
-  primary: 'border-brand/45 bg-brand/15 text-brand enabled:hover:bg-brand/25',
-  danger: 'border-bad/40 bg-bad/10 text-rose-300 enabled:hover:bg-bad/20',
-  ghost: 'border-transparent text-zinc-400 enabled:hover:bg-panel-2 enabled:hover:text-zinc-200',
-};
+const VARIANT = {
+  default: 'outline',
+  primary: 'default',
+  danger: 'destructive',
+  ghost: 'ghost',
+} as const;
 
 export function Button({
   variant = 'default',
   className,
   type = 'button',
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant }) {
+}: Omit<React.ComponentProps<typeof KitButton>, 'variant' | 'size'> & {
+  variant?: ButtonVariant;
+  type?: 'button' | 'submit' | 'reset';
+}) {
   return (
-    <button
+    <KitButton
       type={type}
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-sm border px-2.5 py-1 text-xs transition-colors disabled:opacity-40',
-        BUTTON[variant],
-        className,
-      )}
+      variant={VARIANT[variant]}
+      size="sm"
+      className={cn(variant === 'danger' && 'border-bad/25', className)}
       {...props}
     />
   );
 }
 
 const FIELD =
-  'rounded-sm border border-line bg-background px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-brand/60 focus:outline-none';
+  'h-[30px] rounded-md border border-input bg-panel-2 px-2.5 text-xs text-fg transition-colors placeholder:text-faint hover:border-line-strong focus-visible:border-ring focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 disabled:opacity-50';
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={cn(FIELD, className)} {...props} />;
@@ -57,7 +62,7 @@ export function Select({
 }
 
 export function TextArea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className={cn(FIELD, 'mono w-full', className)} {...props} />;
+  return <textarea className={cn(FIELD, 'mono h-auto w-full py-1.5', className)} {...props} />;
 }
 
 /** A label above a control. */
@@ -74,10 +79,10 @@ export function Field({
 }) {
   return (
     // biome-ignore lint/a11y/noLabelWithoutControl: the control is the child.
-    <label className={cn('flex flex-col gap-1 text-[11px] text-zinc-500', className)}>
+    <label className={cn('flex flex-col gap-1 text-[11px] font-medium text-dim', className)}>
       <span>{label}</span>
       {children}
-      {hint !== undefined && <span className="text-[10px] text-zinc-600">{hint}</span>}
+      {hint !== undefined && <span className="text-[10px] font-normal text-faint">{hint}</span>}
     </label>
   );
 }
@@ -109,14 +114,14 @@ export function Toggle({
       <span
         aria-hidden="true"
         className={cn(
-          'relative h-4 w-7 rounded-full border transition-colors peer-disabled:opacity-40 peer-focus-visible:ring-1 peer-focus-visible:ring-brand',
-          checked ? 'border-good/50 bg-good/30' : 'border-line bg-panel-2',
+          'relative h-[18px] w-8 rounded-full border transition-colors peer-disabled:opacity-40 peer-focus-visible:ring-3 peer-focus-visible:ring-ring/40',
+          checked ? 'border-good/40 bg-good/25' : 'border-border bg-panel-3',
         )}
       >
         <span
           className={cn(
-            'absolute top-0.5 h-2.5 w-2.5 rounded-full transition-all',
-            checked ? 'left-3.5 bg-good' : 'left-0.5 bg-zinc-500',
+            'absolute top-[2px] size-3 rounded-full transition-all',
+            checked ? 'left-[15px] bg-good' : 'left-[2px] bg-faint',
           )}
         />
       </span>

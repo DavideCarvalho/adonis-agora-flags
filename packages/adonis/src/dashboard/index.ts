@@ -33,6 +33,33 @@ export {
   resolveConsoleAuthorize,
 } from './console_authorize.js';
 export type {
+  ConsoleSignOut,
+  ConsoleViewer,
+  SignOutOption,
+  ViewerHook,
+} from './console_shell.js';
+// The console shell's sidebar footer: who is signed in, and how to sign out.
+export { resolveSignOut, resolveViewer, viewerFromUser } from './console_shell.js';
+export type {
+  AgoraConsoleEntry,
+  AgoraConsoleIcon,
+  AgoraConsoleRegistry,
+  AgoraConsoleSearchHit,
+  ConsoleSearchResults,
+  FlagsSearchSource,
+  VisibleConsole,
+  VisibleConsoles,
+} from './console_switcher.js';
+// The cross-console switcher registry (`'agora.consoles'`) and global search.
+export {
+  AGORA_CONSOLES_BINDING,
+  flagsConsoleSearch,
+  listVisibleConsoles,
+  readAgoraConsoles,
+  registerAgoraConsole,
+  searchConsoles,
+} from './console_switcher.js';
+export type {
   AccessDeniedOption,
   AccessDeniedRenderer,
   ActorResolver,
@@ -55,7 +82,7 @@ export { DEV_TOOLS_BINDING, flagsDevTools, registerFlagsDevTools } from './dev_t
 export type { ApiRequest, ApiResponse, DeclaredFlag, Deps, Serving } from './handlers.js';
 export * as handlers from './handlers.js';
 export { errorResponse, HttpError, servingSummary } from './handlers.js';
-export type { InjectedConfig } from './spa.js';
+export type { InjectedConfig, ShellFields, SwitcherConfig } from './spa.js';
 export {
   BASE_PLACEHOLDER,
   CONFIG_ELEMENT_ID,
