@@ -1,5 +1,13 @@
 # @adonis-agora/flags-dashboard
 
+## 0.4.0
+
+### Minor Changes
+
+- [#4](https://github.com/DavideCarvalho/adonis-agora-flags/pull/4) [`f9cda32`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/f9cda323a23c82834d3c90eb5c7b2d46660f7f76) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The console is rebuilt on the Agora console kit: the same shell as every other Agora console (authkit's look, emerald accent, Sora + JetBrains Mono bundled, no Google Fonts), a sidebar grouped into Flags, Experiments, Governance and Config, the environment picker in the top bar, metric cards on Flags and Experiments, skeletons and per-region error states, a light theme, and a drawer sidebar on phones.
+  
+  The flags console now joins the app's `agora.consoles` registry (id `flags`, icon `flags`): other Agora consoles list it in their switcher and search its flags and segments, and it gets the console switcher and ⌘K search itself (`GET <path>/api/consoles`, `GET <path>/api/consoles/search?q=`). The sidebar footer shows who is signed in and offers sign-out: new `viewer(ctx)` and `signOut` options in `config/flags_dashboard.ts`, defaulting to `ctx.auth.user` and the sign-out authkit announces.
+
 ## 0.3.0
 
 ### Minor Changes
