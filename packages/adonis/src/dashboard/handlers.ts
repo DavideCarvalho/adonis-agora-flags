@@ -1,3 +1,4 @@
+import { cursorPage, InvalidColumnFilterError } from '@adonis-agora/filter';
 import {
   type EvaluationContext,
   evaluate,
@@ -23,13 +24,22 @@ import { getRuntime } from '../services/accessor.js';
 import {
   type Actor,
   applyChange,
-  type ChangeRequestStatus,
   type EntityType,
   type FlagsStore,
   type RulesetChange,
-  type ScheduledChange,
 } from '../stores/store.js';
 import type { SinkStatus } from '../transports/transport.js';
+import {
+  AuditFilter,
+  auditCursor,
+  auditPaging,
+  ChangeRequestFilter,
+  filterQuery,
+  firstOnly,
+  fixedSort,
+  ScheduleFilter,
+  unseekablePage,
+} from './list.js';
 import {
   flagDefinitionIssues,
   holdoutIssues,
@@ -69,7 +79,8 @@ export interface Deps {
 /** The subset of an HTTP request the handlers read. */
 export interface ApiRequest {
   params: Record<string, string | undefined>;
-  query: Record<string, string | string[] | undefined>;
+  /** The decoded query string: `filter[status]=x` arrives as `{ filter: { status: 'x' } }`. */
+  query: Record<string, unknown>;
   body?: unknown;
 }
 
@@ -104,6 +115,9 @@ export function errorResponse(error: unknown): ApiResponse {
     return { status: 422, body: { error: 'invalid change', issues: error.issues } };
   }
   if (error instanceof ForbiddenError) return { status: 403, body: { error: error.message } };
+  if (error instanceof InvalidColumnFilterError) {
+    return { status: 400, body: { error: error.message } };
+  }
   if (error instanceof RangeError) return { status: 400, body: { error: error.message } };
   const message = error instanceof Error ? error.message : String(error);
   // `FlagsAdmin` reports these as plain errors; their wording is the contract.
@@ -149,9 +163,9 @@ async function handle(
 
 // ── Request parsing ─────────────────────────────────────────────────────────
 
-function first(value: string | string[] | undefined): string | undefined {
+function first(value: unknown): string | undefined {
   const v = Array.isArray(value) ? value[0] : value;
-  return v === undefined || v === '' ? undefined : v;
+  return typeof v === 'string' && v !== '' ? v : undefined;
 }
 
 function bodyOf(req: ApiRequest): Record<string, unknown> {
@@ -320,7 +334,8 @@ export function meta(deps: Deps, _req: ApiRequest): Promise<ApiResponse> {
 
 // ── Flags ───────────────────────────────────────────────────────────────────
 
-/** `GET /api/flags` — every flag in the ruleset or declared in code, with what it serves. */
+/** `GET /api/flags` — every flag in the ruleset or declared in code, with what it serves, as
+ *  `{ data, environment, version }` (the whole ruleset: not paged). */
 export function listFlags(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) => {
     const environment = environmentOf(req, o.runtime);
@@ -349,7 +364,7 @@ export function listFlags(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
         stale: staleByKey.get(key) ?? [],
       };
     });
-    return ok({ environment, version: ruleset.version, flags });
+    return ok({ environment, version: ruleset.version, data: flags });
   });
 }
 
@@ -698,7 +713,7 @@ export function listSegments(deps: Deps, req: ApiRequest): Promise<ApiResponse> 
     const segments = Object.entries(ruleset.segments ?? {})
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, segment]) => ({ key, segment, usedBy: referencingFlags(ruleset, key) }));
-    return ok({ environment, version: ruleset.version, segments });
+    return ok({ environment, version: ruleset.version, data: segments });
   });
 }
 
@@ -761,7 +776,7 @@ export function listLayers(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
     return ok({
       environment,
       version: ruleset.version,
-      layers,
+      data: layers,
       holdout: ruleset.holdout ?? null,
       experiments,
     });
@@ -869,7 +884,7 @@ export function listMetrics(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
         source: analysis.metricSources[name],
         usedBy: usedBy(name),
       }));
-    return ok({ environment, version: ruleset.version, metrics });
+    return ok({ environment, version: ruleset.version, data: metrics });
   });
 }
 
@@ -972,7 +987,7 @@ export function listExperiments(deps: Deps, req: ApiRequest): Promise<ApiRespons
       });
     }
     rows.sort((a, b) => a.key.localeCompare(b.key));
-    return ok({ environment, analytics: o.runtime.analytics !== undefined, experiments: rows });
+    return ok({ environment, analytics: o.runtime.analytics !== undefined, data: rows });
   });
 }
 
@@ -1018,32 +1033,23 @@ export function recomputeExperiment(deps: Deps, req: ApiRequest): Promise<ApiRes
 
 // ── Change requests ─────────────────────────────────────────────────────────
 
-const REQUEST_STATUSES = new Set<ChangeRequestStatus>([
-  'pending',
-  'approved',
-  'rejected',
-  'applied',
-  'cancelled',
-]);
-
-/** `GET /api/change-requests?status=pending|…|all`. */
+/**
+ * `GET /api/change-requests?filter[status]=pending&first=100` — newest first, every status when no
+ * filter is sent. `{ data, meta, environment, requiresApproval, actor }`. The store cannot seek, so
+ * `meta.hasNext` only says more requests match than `first` (max 500).
+ */
 export function listChangeRequests(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) => {
     const environment = environmentOf(req, o.runtime);
-    const status = first(req.query.status) ?? 'pending';
-    if (status !== 'all' && !REQUEST_STATUSES.has(status as ChangeRequestStatus)) {
-      throw new HttpError(400, `unknown status "${status}"`);
-    }
-    const requests = await o.store.listChangeRequests({
-      environment,
-      ...(status !== 'all' ? { status: status as ChangeRequestStatus } : {}),
-      limit: intQuery(req, 'limit', 100, 500),
-    });
+    const filter = await filterQuery(ChangeRequestFilter, req.query);
+    fixedSort(req.query, '-requestedAt');
+    const size = firstOnly(req.query, { defaultSize: 100, maxSize: 500 });
+    const requests = await o.store.listChangeRequests({ environment, ...filter, limit: size + 1 });
     return ok({
+      ...unseekablePage(requests, size),
       environment,
       requiresApproval: o.admin.requiresApproval(environment),
       actor: deps.actor,
-      requests,
     });
   });
 }
@@ -1071,54 +1077,53 @@ export function cancelChangeRequest(deps: Deps, req: ApiRequest): Promise<ApiRes
 
 // ── Audit ───────────────────────────────────────────────────────────────────
 
-const ENTITIES = new Set<EntityType>(['flag', 'segment', 'layer', 'metric', 'holdout', 'ruleset']);
-
-/** `GET /api/audit?entity&key&before&limit` — newest first; page with `before=<at of last row>`. */
+/**
+ * `GET /api/audit?filter[entity]=flag&filter[key]=checkout&first=50&after=<cursor>` — newest
+ * first, `{ data, meta, environment }`. Pages forward with `after=<meta.nextCursor>`.
+ */
 export function audit(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) => {
     const environment = environmentOf(req, o.runtime);
-    const entity = first(req.query.entity);
-    if (entity !== undefined && !ENTITIES.has(entity as EntityType)) {
-      throw new HttpError(400, `unknown entity "${entity}"`);
-    }
-    const key = first(req.query.key);
-    const beforeRaw = first(req.query.before);
-    const before = beforeRaw !== undefined ? new Date(beforeRaw) : undefined;
-    if (before !== undefined && Number.isNaN(before.getTime())) {
-      throw new HttpError(400, 'before must be an ISO date');
-    }
-    const limit = intQuery(req, 'limit', 50, 200);
-    const entries = await o.store.audit({
+    const filter = await filterQuery(AuditFilter, req.query);
+    fixedSort(req.query, '-at');
+    const { size, from } = auditPaging(req.query, { defaultSize: 50, maxSize: 200 });
+    const skip = from?.seen ?? 0;
+    const rows = await o.store.audit({
       environment,
-      ...(entity !== undefined ? { entity: entity as EntityType } : {}),
-      ...(key !== undefined ? { key } : {}),
-      ...(before !== undefined ? { before } : {}),
-      limit,
+      ...filter,
+      // Rows at or before the cursor's millisecond, minus the ones the last page already showed.
+      ...(from !== undefined ? { before: new Date(from.at + 1) } : {}),
+      limit: skip + size + 1,
     });
-    return ok({ environment, entries, limit });
+    const entries = rows.slice(skip, skip + size);
+    const hasNext = rows.length > skip + size;
+    return ok({
+      ...cursorPage(entries, {
+        nextCursor: hasNext ? auditCursor(entries, from) : null,
+        prevCursor: null,
+        hasNext,
+        hasPrev: false,
+      }),
+      environment,
+    });
   });
 }
 
 // ── Schedules ───────────────────────────────────────────────────────────────
 
-const SCHEDULE_STATUSES = new Set(['pending', 'running', 'done', 'failed', 'cancelled']);
-
-/** `GET /api/schedules?flag&status`. */
+/**
+ * `GET /api/schedules?filter[flag]=checkout&filter[status]=pending&first=100` — soonest first,
+ * `{ data, meta, environment }`. The store cannot seek: `meta.hasNext` only says more schedules
+ * match than `first` (max 500).
+ */
 export function listSchedules(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) => {
     const environment = environmentOf(req, o.runtime);
-    const flag = first(req.query.flag);
-    const status = first(req.query.status);
-    if (status !== undefined && !SCHEDULE_STATUSES.has(status)) {
-      throw new HttpError(400, `unknown status "${status}"`);
-    }
-    const schedules = await o.store.listSchedules({
-      environment,
-      ...(flag !== undefined ? { flag } : {}),
-      ...(status !== undefined ? { status: status as ScheduledChange['status'] } : {}),
-      limit: intQuery(req, 'limit', 100, 500),
-    });
-    return ok({ environment, schedules });
+    const filter = await filterQuery(ScheduleFilter, req.query);
+    fixedSort(req.query, 'runAt');
+    const size = firstOnly(req.query, { defaultSize: 100, maxSize: 500 });
+    const schedules = await o.store.listSchedules({ environment, ...filter, limit: size + 1 });
+    return ok({ ...unseekablePage(schedules, size), environment });
   });
 }
 
@@ -1243,7 +1248,7 @@ export function stale(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
       staticDays,
       ...(deps.now ? { now: deps.now() } : {}),
     });
-    return ok({ environment, unusedDays, staticDays, flags });
+    return ok({ environment, unusedDays, staticDays, data: flags });
   });
 }
 

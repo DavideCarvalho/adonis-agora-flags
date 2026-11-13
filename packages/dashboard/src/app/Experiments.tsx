@@ -13,7 +13,7 @@ export function Experiments({ onOpen }: { onOpen: (key: string) => void }) {
     queryKey: ['experiments', environment],
     queryFn: () => api.experiments(environment),
   });
-  const rows = query.data?.experiments ?? [];
+  const rows = query.data?.data ?? [];
   return (
     <Panel
       title="Experiments"

@@ -16,7 +16,7 @@ export function Hygiene({ onOpen }: { onOpen: (key: string) => void }) {
     queryKey: ['stale', environment, unusedDays, staticDays],
     queryFn: () => api.stale(environment, unusedDays, staticDays),
   });
-  const flags = query.data?.flags ?? [];
+  const flags = query.data?.data ?? [];
   return (
     <Panel
       title="Stale flags"

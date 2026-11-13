@@ -12,10 +12,15 @@ let opsOverride: Record<string, unknown> = {};
 function stubApi() {
   ({ calls } = stubFetch((_method, url) => {
     if (url.includes('/meta')) return META;
-    if (url.includes('/flags')) return { environment: 'production', version: '1', flags: [] };
-    if (url.includes('/segments')) return { segments: [] };
+    if (url.includes('/flags')) return { environment: 'production', version: '1', data: [] };
+    if (url.includes('/segments')) return { data: [] };
     if (url.includes('/change-requests'))
-      return { requiresApproval: true, actor: { id: 'alice' }, requests: [] };
+      return {
+        requiresApproval: true,
+        actor: { id: 'alice' },
+        data: [],
+        meta: { nextCursor: null, prevCursor: null, hasNext: false, hasPrev: false },
+      };
     if (url.includes('/ops')) {
       return {
         app: 'shop',

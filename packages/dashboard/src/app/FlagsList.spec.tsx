@@ -76,7 +76,7 @@ describe('filterFlags', () => {
 
 describe('the flag list', () => {
   it('shows what each flag serves', async () => {
-    stubFetch(() => ({ environment: 'production', version: '7', flags: FLAGS }));
+    stubFetch(() => ({ environment: 'production', version: '7', data: FLAGS }));
     renderScreen(<FlagsList onOpen={() => {}} />);
     expect(await screen.findByText('20% on')).toBeTruthy();
     expect(screen.getByText('a 50% / b 50%')).toBeTruthy();
@@ -88,7 +88,7 @@ describe('the flag list', () => {
     const { calls } = stubFetch((method) =>
       method === 'POST'
         ? { status: 'applied', version: '8' }
-        : { environment: 'staging', version: '7', flags: FLAGS },
+        : { environment: 'staging', version: '7', data: FLAGS },
     );
     renderScreen(<FlagsList onOpen={() => {}} />, { environment: 'staging' });
     fireEvent.click(await screen.findByRole('switch', { name: 'Kill switch for new_player' }));
@@ -103,7 +103,7 @@ describe('the flag list', () => {
     stubFetch((method) =>
       method === 'POST'
         ? { status: 'pending', request: { id: 'cr1' } }
-        : { environment: 'production', version: '1', flags: FLAGS },
+        : { environment: 'production', version: '1', data: FLAGS },
     );
     renderScreen(<FlagsList onOpen={() => {}} />);
     fireEvent.click(await screen.findByRole('switch', { name: 'Kill switch for checkout' }));
@@ -111,7 +111,7 @@ describe('the flag list', () => {
   });
 
   it('opens a flag', async () => {
-    stubFetch(() => ({ environment: 'production', version: '1', flags: FLAGS }));
+    stubFetch(() => ({ environment: 'production', version: '1', data: FLAGS }));
     const onOpen = vi.fn();
     renderScreen(<FlagsList onOpen={onOpen} />);
     fireEvent.click(await screen.findByRole('button', { name: 'checkout' }));

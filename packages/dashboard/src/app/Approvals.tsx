@@ -105,7 +105,7 @@ export function Approvals() {
     queryKey: ['change-requests', environment, status],
     queryFn: () => api.changeRequests(environment, status),
   });
-  const requests = query.data?.requests ?? [];
+  const requests = query.data?.data ?? [];
   const me = query.data?.actor.id ?? meta?.actor.id ?? '';
   return (
     <Panel

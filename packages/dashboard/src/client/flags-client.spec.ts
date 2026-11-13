@@ -46,6 +46,20 @@ describe('requests', () => {
     });
   });
 
+  it('sends list filters and cursors in the filter wire format', async () => {
+    injectConfig({ api: '/f/api' });
+    const { calls } = stubFetch(() => ({ data: [], meta: {} }));
+    await api.audit('staging', { entity: 'flag', key: 'checkout', after: 'abc', first: 20 });
+    await api.changeRequests('production', 'pending');
+    await api.changeRequests('production', 'all');
+    const urls = calls.map((c) => decodeURIComponent(c.url));
+    expect(urls[0]).toBe(
+      '/f/api/audit?environment=staging&filter[entity]=flag&filter[key]=checkout&after=abc&first=20',
+    );
+    expect(urls[1]).toBe('/f/api/change-requests?environment=production&filter[status]=pending');
+    expect(urls[2]).toBe('/f/api/change-requests?environment=production');
+  });
+
   it('echoes the host CSRF cookie on writes, and sends no header without one', async () => {
     const { calls } = stubFetch(() => ({ status: 'applied', version: '1' }));
     await api.setRollout('production', 'a', 10);

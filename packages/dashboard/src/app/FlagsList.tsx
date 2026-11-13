@@ -52,7 +52,7 @@ export function FlagsList({ onOpen }: { onOpen: (key: string) => void }) {
     api.setEnabled(environment, input.key, input.enabled),
   );
 
-  const flags = query.data?.flags ?? [];
+  const flags = query.data?.data ?? [];
   const tags = useMemo(() => [...new Set(flags.flatMap((f) => f.tags))].sort(), [flags]);
   const owners = useMemo(
     () => [...new Set(flags.map((f) => f.owner).filter((o): o is string => o !== null))].sort(),

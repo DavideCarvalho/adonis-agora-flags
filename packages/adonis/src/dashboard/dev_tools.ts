@@ -25,6 +25,7 @@ import {
   setVariant,
   stale,
 } from './handlers.js';
+import { auditCursorAt } from './list.js';
 
 /*
  * The dev-tools registration contract, version 1, declared here STRUCTURALLY: the hub is bound at
@@ -181,8 +182,9 @@ function slice<T>(
 }
 
 /**
- * A console answer whose list sits under `field`, as one page: the other fields kept, the list as
- * `{ items, next }`. Page numbers and `limit`, like `@adonis-agora/filter`'s own dev tools.
+ * A console answer whose list sits under `field` (`data`), as one page: the other fields kept
+ * (minus the HTTP list's `meta`), the list as `{ items, next }`. Page numbers and `limit`, like
+ * `@adonis-agora/filter`'s own dev tools.
  */
 function paged(
   out: Record<string, unknown>,
@@ -190,7 +192,7 @@ function paged(
   input: Record<string, unknown>,
   call: DevToolCall,
 ): Record<string, unknown> {
-  const { [field]: list, ...rest } = out;
+  const { [field]: list, meta: _meta, ...rest } = out;
   return { ...rest, ...slice(Array.isArray(list) ? list : [], paging(input, call)) };
 }
 
@@ -302,7 +304,7 @@ export function flagsDevTools(options: FlagsDevToolsOptions): DevTool[] {
         const out = await run(tc, listFlags, { query: envQuery(input) });
         const search = str(input, 'search')?.toLowerCase();
         const tag = str(input, 'tag');
-        const rows = (out.flags as Array<Record<string, unknown>>).filter(
+        const rows = (out.data as Array<Record<string, unknown>>).filter(
           (f) =>
             (search === undefined || String(f.key).toLowerCase().includes(search)) &&
             (tag === undefined || (f.tags as string[]).includes(tag)) &&
@@ -371,7 +373,7 @@ export function flagsDevTools(options: FlagsDevToolsOptions): DevTool[] {
         'Segments (reusable audiences): explicit includes and excludes, their conditions, and the flags whose rules use each one. Returns { items, next }.',
       input: { type: 'object', properties: { environment: ENVIRONMENT, page: PAGE, limit: LIMIT } },
       run: async (input, tc) =>
-        paged(await run(tc, listSegments, { query: envQuery(input) }), 'segments', input, tc),
+        paged(await run(tc, listSegments, { query: envQuery(input) }), 'data', input, tc),
     },
     {
       name: 'flags_list_metrics',
@@ -380,7 +382,7 @@ export function flagsDevTools(options: FlagsDevToolsOptions): DevTool[] {
         'Metrics experiments are measured with: kind (conversion, count, sum), the tracked event, direction, window and CUPED, whether it is defined in config or in the console, and the experiments using it. Returns { items, next }.',
       input: { type: 'object', properties: { environment: ENVIRONMENT, page: PAGE, limit: LIMIT } },
       run: async (input, tc) =>
-        paged(await run(tc, listMetrics, { query: envQuery(input) }), 'metrics', input, tc),
+        paged(await run(tc, listMetrics, { query: envQuery(input) }), 'data', input, tc),
     },
     {
       name: 'flags_list_experiments',
@@ -389,7 +391,7 @@ export function flagsDevTools(options: FlagsDevToolsOptions): DevTool[] {
         'Experiments: their flag, metrics and guardrails, whether running, exposures, sample-ratio mismatch, guardrail alerts and per-metric verdicts from the last computation. Flags marked as experiments with no metrics are listed with configured: false. Returns { items, next }.',
       input: { type: 'object', properties: { environment: ENVIRONMENT, page: PAGE, limit: LIMIT } },
       run: async (input, tc) =>
-        paged(await run(tc, listExperiments, { query: envQuery(input) }), 'experiments', input, tc),
+        paged(await run(tc, listExperiments, { query: envQuery(input) }), 'data', input, tc),
     },
     {
       name: 'flags_get_experiment',
@@ -429,15 +431,15 @@ export function flagsDevTools(options: FlagsDevToolsOptions): DevTool[] {
       },
       run: async (input, tc) => {
         const at = paging(input, tc);
-        const status = str(input, 'status');
+        const status = str(input, 'status') ?? 'pending';
         const out = await run(tc, listChangeRequests, {
           query: {
             ...envQuery(input),
-            ...(status ? { status } : {}),
-            limit: String(fetchSize(at, CHANGE_REQUEST_CAP)),
+            ...(status !== 'all' ? { filter: { status } } : {}),
+            first: String(fetchSize(at, CHANGE_REQUEST_CAP)),
           },
         });
-        return paged(out, 'requests', input, tc);
+        return paged(out, 'data', input, tc);
       },
     },
     {
@@ -460,16 +462,23 @@ export function flagsDevTools(options: FlagsDevToolsOptions): DevTool[] {
       },
       run: async (input, tc) => {
         const at = paging(input, tc);
-        const query: Record<string, string> = {
-          ...envQuery(input),
-          limit: String(fetchSize(at, AUDIT_CAP)),
-        };
-        for (const field of ['entity', 'key', 'before']) {
+        const filter: Record<string, string> = {};
+        for (const field of ['entity', 'key']) {
           const value = str(input, field);
-          if (value !== undefined) query[field] = value;
+          if (value !== undefined) filter[field] = value;
         }
-        const { limit: _limit, ...out } = await run(tc, audit, { query });
-        return paged(out, 'entries', input, tc);
+        const query: Record<string, unknown> = {
+          ...envQuery(input),
+          first: String(fetchSize(at, AUDIT_CAP)),
+          ...(Object.keys(filter).length > 0 ? { filter } : {}),
+        };
+        const before = str(input, 'before');
+        if (before !== undefined) {
+          const date = new Date(before);
+          if (Number.isNaN(date.getTime())) throw new DevToolError('before must be an ISO date');
+          query.after = auditCursorAt(date);
+        }
+        return paged(await run(tc, audit, { query }), 'data', input, tc);
       },
     },
     {
@@ -492,7 +501,7 @@ export function flagsDevTools(options: FlagsDevToolsOptions): DevTool[] {
         for (const field of ['unusedDays', 'staticDays']) {
           if (typeof input[field] === 'number') query[field] = String(input[field]);
         }
-        return paged(await run(tc, stale, { query }), 'flags', input, tc);
+        return paged(await run(tc, stale, { query }), 'data', input, tc);
       },
     },
     {

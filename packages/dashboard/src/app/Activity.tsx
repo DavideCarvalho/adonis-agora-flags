@@ -14,18 +14,20 @@ export function Activity() {
   const { environment } = useEnv();
   const [entity, setEntity] = useState<Entity>('');
   const [key, setKey] = useState('');
-  const [before, setBefore] = useState<string | undefined>(undefined);
+  // The cursors of the pages walked so far: the last one is the page shown, none is the newest.
+  const [cursors, setCursors] = useState<string[]>([]);
+  const after = cursors[cursors.length - 1];
   const query = useQuery({
-    queryKey: ['audit', environment, entity, key, before],
+    queryKey: ['audit', environment, entity, key, after],
     queryFn: () =>
       api.audit(environment, {
         ...(entity !== '' ? { entity } : {}),
         ...(key !== '' ? { key } : {}),
-        ...(before ? { before } : {}),
+        ...(after ? { after } : {}),
       }),
   });
-  const entries = query.data?.entries ?? [];
-  const last = entries[entries.length - 1];
+  const entries = query.data?.data ?? [];
+  const next = query.data?.meta.nextCursor ?? null;
   return (
     <Panel
       title="Activity"
@@ -36,7 +38,7 @@ export function Activity() {
           value={entity}
           onChange={(value) => {
             setEntity(value);
-            setBefore(undefined);
+            setCursors([]);
           }}
           options={[
             { value: '', label: 'All' },
@@ -58,7 +60,7 @@ export function Activity() {
           value={key}
           onChange={(e) => {
             setKey(e.target.value);
-            setBefore(undefined);
+            setCursors([]);
           }}
         />
       </div>
@@ -68,13 +70,22 @@ export function Activity() {
         </div>
       </QueryState>
       <div className="flex justify-between border-t border-line px-4 py-2">
-        <Button variant="ghost" disabled={!before} onClick={() => setBefore(undefined)}>
-          Newest
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="ghost" disabled={cursors.length === 0} onClick={() => setCursors([])}>
+            Newest
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={cursors.length === 0}
+            onClick={() => setCursors((walked) => walked.slice(0, -1))}
+          >
+            Newer
+          </Button>
+        </div>
         <Button
           variant="ghost"
-          disabled={!last || entries.length < (query.data?.limit ?? 50)}
-          onClick={() => last && setBefore(last.at)}
+          disabled={next === null}
+          onClick={() => next && setCursors((walked) => [...walked, next])}
         >
           Older
         </Button>

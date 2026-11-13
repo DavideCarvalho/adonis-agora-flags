@@ -502,7 +502,7 @@ function cspNonce(ctx: HttpContext): string | undefined {
 function toApiRequest(ctx: HttpContext): ApiRequest {
   return {
     params: ctx.params as Record<string, string | undefined>,
-    query: ctx.request.qs() as Record<string, string | string[] | undefined>,
+    query: ctx.request.qs() as Record<string, unknown>,
     body: ctx.request.body(),
   };
 }
