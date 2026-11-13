@@ -61,6 +61,8 @@ export default defineConfig({
 
 Read tools are always listed: `flags_get_overview`, `flags_list_flags`, `flags_get_flag`, `flags_evaluate` (what a subject gets and why), `flags_list_segments`, `flags_list_metrics`, `flags_list_experiments`, `flags_get_experiment`, `flags_list_change_requests`, `flags_list_audit`, `flags_list_stale` and `flags_get_ops`.
 
+The `flags_list_*` tools page like the other Agora libs' tools: pass `limit` (default 20, at most 100) and `page`, and each returns `{ items, next }`, where `next` is the page to ask for next, or `null` on the last one.
+
 Action tools are listed only when the app allows actions on the dev endpoint (`devTools.actions` in `config/mcp.ts`): `flags_set_enabled`, `flags_set_rollout`, `flags_set_variant`, `flags_set_override`, `flags_save_flag`, `flags_save_segment`, `flags_save_metric`, `flags_recompute_experiment`, `flags_approve_change_request` and `flags_reject_change_request`.
 
 Actions go through the same validation, approvals and history as the console. Where an environment needs approval, a change becomes a change request. The history records the signed-in person, or `mcp:token:<fingerprint>` for a token.

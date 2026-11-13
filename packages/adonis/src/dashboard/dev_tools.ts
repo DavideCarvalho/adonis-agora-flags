@@ -123,6 +123,9 @@ const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 /** History rows a flag's detail carries. */
 const DETAIL_AUDIT_ROWS = 10;
+/** The most rows the console's audit (`limit` ≤ 200) and change-request (≤ 500) lists serve. */
+const AUDIT_CAP = 200;
+const CHANGE_REQUEST_CAP = 500;
 
 /** Thrown from a tool to answer an MCP error result (the agent turns it into `isError`). */
 class DevToolError extends Error {}
@@ -175,6 +178,28 @@ function slice<T>(
     items: rows.slice(start, start + at.size),
     next: start + at.size < rows.length ? at.page + 1 : null,
   };
+}
+
+/**
+ * A console answer whose list sits under `field`, as one page: the other fields kept, the list as
+ * `{ items, next }`. Page numbers and `limit`, like `@adonis-agora/filter`'s own dev tools.
+ */
+function paged(
+  out: Record<string, unknown>,
+  field: string,
+  input: Record<string, unknown>,
+  call: DevToolCall,
+): Record<string, unknown> {
+  const { [field]: list, ...rest } = out;
+  return { ...rest, ...slice(Array.isArray(list) ? list : [], paging(input, call)) };
+}
+
+/**
+ * How many rows to ask a store-backed list for so page `page` can be cut and its `next` known: the
+ * rows up to the end of the page plus one, within what the console serves (`cap`).
+ */
+function fetchSize(at: { page: number; size: number }, cap: number): number {
+  return Math.min(at.page * at.size + 1, cap);
 }
 
 /** The console's answer, or a tool error carrying its message and issues. */
@@ -343,25 +368,28 @@ export function flagsDevTools(options: FlagsDevToolsOptions): DevTool[] {
       name: 'flags_list_segments',
       kind: 'read',
       description:
-        'Segments (reusable audiences): explicit includes and excludes, their conditions, and the flags whose rules use each one.',
-      input: { type: 'object', properties: { environment: ENVIRONMENT } },
-      run: async (input, tc) => run(tc, listSegments, { query: envQuery(input) }),
+        'Segments (reusable audiences): explicit includes and excludes, their conditions, and the flags whose rules use each one. Returns { items, next }.',
+      input: { type: 'object', properties: { environment: ENVIRONMENT, page: PAGE, limit: LIMIT } },
+      run: async (input, tc) =>
+        paged(await run(tc, listSegments, { query: envQuery(input) }), 'segments', input, tc),
     },
     {
       name: 'flags_list_metrics',
       kind: 'read',
       description:
-        'Metrics experiments are measured with: kind (conversion, count, sum), the tracked event, direction, window and CUPED, whether it is defined in config or in the console, and the experiments using it.',
-      input: { type: 'object', properties: { environment: ENVIRONMENT } },
-      run: async (input, tc) => run(tc, listMetrics, { query: envQuery(input) }),
+        'Metrics experiments are measured with: kind (conversion, count, sum), the tracked event, direction, window and CUPED, whether it is defined in config or in the console, and the experiments using it. Returns { items, next }.',
+      input: { type: 'object', properties: { environment: ENVIRONMENT, page: PAGE, limit: LIMIT } },
+      run: async (input, tc) =>
+        paged(await run(tc, listMetrics, { query: envQuery(input) }), 'metrics', input, tc),
     },
     {
       name: 'flags_list_experiments',
       kind: 'read',
       description:
-        'Experiments: their flag, metrics and guardrails, whether running, exposures, sample-ratio mismatch, guardrail alerts and per-metric verdicts from the last computation. Flags marked as experiments with no metrics are listed with configured: false.',
-      input: { type: 'object', properties: { environment: ENVIRONMENT } },
-      run: async (input, tc) => run(tc, listExperiments, { query: envQuery(input) }),
+        'Experiments: their flag, metrics and guardrails, whether running, exposures, sample-ratio mismatch, guardrail alerts and per-metric verdicts from the last computation. Flags marked as experiments with no metrics are listed with configured: false. Returns { items, next }.',
+      input: { type: 'object', properties: { environment: ENVIRONMENT, page: PAGE, limit: LIMIT } },
+      run: async (input, tc) =>
+        paged(await run(tc, listExperiments, { query: envQuery(input) }), 'experiments', input, tc),
     },
     {
       name: 'flags_get_experiment',
@@ -385,8 +413,7 @@ export function flagsDevTools(options: FlagsDevToolsOptions): DevTool[] {
     {
       name: 'flags_list_change_requests',
       kind: 'read',
-      description:
-        'Change requests in an environment that needs approval: the proposed change, who asked and why, and their status. Default: pending ones.',
+      description: `Change requests in an environment that needs approval: the proposed change, who asked and why, and their status, newest first. Default: pending ones. Returns { items, next } (the ${CHANGE_REQUEST_CAP} newest at most).`,
       input: {
         type: 'object',
         properties: {
@@ -396,22 +423,27 @@ export function flagsDevTools(options: FlagsDevToolsOptions): DevTool[] {
             description: 'Default: pending.',
           },
           environment: ENVIRONMENT,
+          page: PAGE,
           limit: LIMIT,
         },
       },
       run: async (input, tc) => {
-        const { size } = paging(input, tc);
+        const at = paging(input, tc);
         const status = str(input, 'status');
-        return run(tc, listChangeRequests, {
-          query: { ...envQuery(input), ...(status ? { status } : {}), limit: String(size) },
+        const out = await run(tc, listChangeRequests, {
+          query: {
+            ...envQuery(input),
+            ...(status ? { status } : {}),
+            limit: String(fetchSize(at, CHANGE_REQUEST_CAP)),
+          },
         });
+        return paged(out, 'requests', input, tc);
       },
     },
     {
       name: 'flags_list_audit',
       kind: 'read',
-      description:
-        'The change history, newest first: who changed what (flag, segment, layer, metric, holdout, ruleset), before and after, and the change request that carried it. Page older with `before` = the `at` of the last row.',
+      description: `The change history, newest first: who changed what (flag, segment, layer, metric, holdout, ruleset), before and after, and the change request that carried it. Returns { items, next }; past the ${AUDIT_CAP} newest rows, pass the \`at\` of the last row as \`before\`.`,
       input: {
         type: 'object',
         properties: {
@@ -422,30 +454,37 @@ export function flagsDevTools(options: FlagsDevToolsOptions): DevTool[] {
           key: { type: 'string', description: 'Only changes to this key.' },
           before: { type: 'string', description: 'Only changes before this ISO date.' },
           environment: ENVIRONMENT,
+          page: PAGE,
           limit: LIMIT,
         },
       },
       run: async (input, tc) => {
-        const { size } = paging(input, tc);
-        const query: Record<string, string> = { ...envQuery(input), limit: String(size) };
+        const at = paging(input, tc);
+        const query: Record<string, string> = {
+          ...envQuery(input),
+          limit: String(fetchSize(at, AUDIT_CAP)),
+        };
         for (const field of ['entity', 'key', 'before']) {
           const value = str(input, field);
           if (value !== undefined) query[field] = value;
         }
-        return run(tc, audit, { query });
+        const { limit: _limit, ...out } = await run(tc, audit, { query });
+        return paged(out, 'entries', input, tc);
       },
     },
     {
       name: 'flags_list_stale',
       kind: 'read',
       description:
-        'Flags that probably should be removed: not evaluated lately (unused), past their expiry (expired), serving one value to everyone (static), or in the ruleset but declared by no app (undeclared).',
+        'Flags that probably should be removed: not evaluated lately (unused), past their expiry (expired), serving one value to everyone (static), or in the ruleset but declared by no app (undeclared). Returns { items, next }.',
       input: {
         type: 'object',
         properties: {
           unusedDays: { type: 'integer', minimum: 1, description: 'Default 30.' },
           staticDays: { type: 'integer', minimum: 1, description: 'Default 30.' },
           environment: ENVIRONMENT,
+          page: PAGE,
+          limit: LIMIT,
         },
       },
       run: async (input, tc) => {
@@ -453,7 +492,7 @@ export function flagsDevTools(options: FlagsDevToolsOptions): DevTool[] {
         for (const field of ['unusedDays', 'staticDays']) {
           if (typeof input[field] === 'number') query[field] = String(input[field]);
         }
-        return run(tc, stale, { query });
+        return paged(await run(tc, stale, { query }), 'flags', input, tc);
       },
     },
     {

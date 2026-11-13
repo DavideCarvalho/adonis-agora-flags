@@ -128,9 +128,11 @@ describe('flags dev tools (MCP)', () => {
     expect(evaluated.result.value).toBe(true);
 
     const history = (await run('flags_list_audit', { key: 'new_player' })) as {
-      entries: Array<{ actor: { id: string } }>;
+      items: Array<{ actor: { id: string } }>;
+      next: unknown;
     };
-    expect(history.entries[0]?.actor.id).toBe('mcp:token:3f9a1c2b7d10');
+    expect(history.items[0]?.actor.id).toBe('mcp:token:3f9a1c2b7d10');
+    expect(history.next).toBeNull();
 
     const detail = (await run('flags_get_flag', { key: 'new_player' })) as Record<string, unknown>;
     expect(detail.flags).toBeUndefined();
@@ -145,9 +147,11 @@ describe('flags dev tools (MCP)', () => {
       windowDays: 7,
     });
     const metrics = (await run('flags_list_metrics')) as {
-      metrics: Array<{ name: string; metric: unknown; source: string }>;
+      items: Array<{ name: string; metric: unknown; source: string }>;
+      next: unknown;
     };
-    expect(metrics.metrics).toEqual([
+    expect(metrics.next).toBeNull();
+    expect(metrics.items).toEqual([
       expect.objectContaining({
         name: 'signup',
         metric: { kind: 'conversion', event: 'signup', windowMs: 7 * 86_400_000 },
@@ -170,6 +174,57 @@ describe('flags dev tools (MCP)', () => {
       }),
     ).rejects.toThrow(/422: .*offVariant/);
     await expect(run('flags_get_flag', { key: 'missing' })).rejects.toThrow(/^404: /);
+  });
+
+  it('pages every list tool with page and limit, like the filter dev tools', async () => {
+    for (const key of ['a_metric', 'b_metric', 'c_metric']) {
+      await run('flags_save_metric', { key, kind: 'count', event: key });
+    }
+    const first = (await run('flags_list_metrics', { limit: 2 })) as {
+      environment: string;
+      items: Array<{ name: string }>;
+      next: unknown;
+    };
+    expect(first.environment).toBe('production');
+    expect(first.items).toHaveLength(2);
+    expect(first.next).toBe(2);
+    const second = (await run('flags_list_metrics', { limit: 2, page: 2 })) as {
+      items: Array<{ name: string }>;
+      next: unknown;
+    };
+    expect(second.items).toHaveLength(2);
+    expect(second.next).toBeNull();
+    expect([...first.items, ...second.items].map((m) => m.name)).toEqual(
+      expect.arrayContaining(['signup', 'a_metric', 'b_metric', 'c_metric']),
+    );
+
+    const audit = (await run('flags_list_audit', { entity: 'metric', limit: 2 })) as {
+      items: unknown[];
+      next: unknown;
+      limit?: unknown;
+    };
+    expect(audit.items).toHaveLength(2);
+    expect(audit.next).toBe(2);
+    expect(audit.limit).toBeUndefined();
+    const older = (await run('flags_list_audit', { entity: 'metric', limit: 2, page: 2 })) as {
+      items: unknown[];
+      next: unknown;
+    };
+    expect(older.items.length).toBeGreaterThanOrEqual(1);
+
+    for (const name of [
+      'flags_list_segments',
+      'flags_list_experiments',
+      'flags_list_change_requests',
+      'flags_list_stale',
+    ]) {
+      const out = (await run(name, { limit: 1 })) as Record<string, unknown>;
+      expect(Array.isArray(out.items), name).toBe(true);
+      expect(out, name).toHaveProperty('next');
+      for (const property of ['page', 'limit']) {
+        expect(tool(lib, name).input.properties, name).toHaveProperty(property);
+      }
+    }
   });
 });
 
