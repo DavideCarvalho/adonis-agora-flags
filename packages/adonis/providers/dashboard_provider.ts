@@ -29,6 +29,7 @@ import {
   type Deps,
   deleteFlag,
   deleteLayer,
+  deleteMetric,
   deleteSegment,
   evaluateContext,
   experimentDetail,
@@ -39,6 +40,7 @@ import {
   listExperiments,
   listFlags,
   listLayers,
+  listMetrics,
   listSchedules,
   listSegments,
   meta,
@@ -50,6 +52,7 @@ import {
   saveFlag,
   saveHoldout,
   saveLayer,
+  saveMetric,
   saveSegment,
   setEnabled,
   setOverride,
@@ -199,6 +202,9 @@ export default class FlagsDashboardProvider {
     router.get(`${api}/layers`, json(listLayers)).as(name('layers'));
     router.put(`${api}/layers/:key`, json(saveLayer)).as(name('layers.save'));
     router.delete(`${api}/layers/:key`, json(deleteLayer)).as(name('layers.delete'));
+    router.get(`${api}/metrics`, json(listMetrics)).as(name('metrics'));
+    router.put(`${api}/metrics/:key`, json(saveMetric)).as(name('metrics.save'));
+    router.delete(`${api}/metrics/:key`, json(deleteMetric)).as(name('metrics.delete'));
     router.put(`${api}/holdout`, json(saveHoldout)).as(name('holdout.save'));
 
     router.get(`${api}/experiments`, json(listExperiments)).as(name('experiments'));

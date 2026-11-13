@@ -313,7 +313,13 @@ function EditorBody({
         </Section>
 
         <Section title="Experiment">
-          <ExperimentEditor definition={draft} layers={detail.layers} onChange={setDraft} />
+          <ExperimentEditor
+            definition={draft}
+            layers={detail.layers}
+            metrics={detail.metrics ?? []}
+            configExperiment={detail.configExperiment ?? null}
+            onChange={setDraft}
+          />
         </Section>
 
         <Section title="Labels">

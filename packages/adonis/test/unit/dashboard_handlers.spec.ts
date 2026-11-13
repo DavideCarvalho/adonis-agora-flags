@@ -436,6 +436,130 @@ describe('dashboard API handlers', () => {
     expect((await h.recomputeExperiment(alice, req({ params: { key: 'nope' } }))).status).toBe(404);
   });
 
+  it('manages console metrics and analyses console experiments with them', async () => {
+    let listed = body(await h.listMetrics(alice, req()));
+    expect(listed.metrics).toEqual([
+      {
+        name: 'purchase',
+        metric: { kind: 'conversion', event: 'purchase' },
+        source: 'config',
+        usedBy: ['checkout'],
+      },
+    ]);
+
+    const configOwned = await h.saveMetric(
+      alice,
+      req({ params: { key: 'purchase' }, body: { metric: { kind: 'count', event: 'x' } } }),
+    );
+    expect(configOwned.status).toBe(409);
+    const badKind = await h.saveMetric(
+      alice,
+      req({ params: { key: 'signup' }, body: { metric: { kind: 'median', event: 'signup' } } }),
+    );
+    expect(badKind.status).toBe(422);
+    const saved = await h.saveMetric(
+      alice,
+      req({
+        params: { key: 'signup' },
+        body: { metric: { kind: 'conversion', event: 'signup', direction: 'increase' } },
+      }),
+    );
+    expect(saved.status).toBe(200);
+
+    const player = {
+      variants: { on: true, off: false },
+      enabled: true,
+      offVariant: 'off',
+      fallthrough: {
+        split: [
+          { variant: 'off', weight: 50 },
+          { variant: 'on', weight: 50 },
+        ],
+      },
+      experiment: { metrics: ['nope'] },
+    };
+    const unknown = await h.saveFlag(
+      alice,
+      req({ params: { key: 'new_player' }, body: { definition: player } }),
+    );
+    expect(unknown.status).toBe(422);
+    expect(body(unknown).issues).toEqual([
+      { path: 'flags.new_player.experiment.metrics[0]', message: 'unknown metric "nope"' },
+    ]);
+    const ok = await h.saveFlag(
+      alice,
+      req({
+        params: { key: 'new_player' },
+        body: {
+          definition: {
+            ...player,
+            experiment: { metrics: ['signup'], guardrails: ['purchase'], control: 'off' },
+          },
+        },
+      }),
+    );
+    expect(ok.status).toBe(200);
+
+    const detail = body(await h.flagDetail(alice, req({ params: { key: 'new_player' } })));
+    expect(detail.metrics).toEqual([
+      { name: 'purchase', source: 'config' },
+      { name: 'signup', source: 'console' },
+    ]);
+    expect(detail.configExperiment).toBeNull();
+    expect(
+      body(await h.flagDetail(alice, req({ params: { key: 'checkout' } }))).configExperiment,
+    ).toBe('checkout');
+    expect(body(await h.meta(alice, req())).experiments).toEqual(['checkout', 'new_player']);
+
+    await runtime.manager.refresh();
+    for (let i = 0; i < 40; i++) {
+      const scope = runtime.manager.for(`p${i}`);
+      if ((await scope.variant('new_player')) === 'on' || i % 5 === 0) await scope.track('signup');
+    }
+    await runtime.buffer!.flush();
+    await runtime.relay!.drain('warehouse', 1000);
+
+    const experiments = body(await h.listExperiments(alice, req())).experiments;
+    expect(experiments.find((e: any) => e.key === 'new_player')).toMatchObject({
+      configured: true,
+      source: 'console',
+      metrics: ['signup'],
+      guardrails: ['purchase'],
+    });
+    expect(experiments.find((e: any) => e.key === 'checkout').source).toBe('config');
+    const recomputed = await h.recomputeExperiment(alice, req({ params: { key: 'new_player' } }));
+    expect(recomputed.status).toBe(200);
+    expect(
+      body(recomputed)
+        .results.metrics.map((m: any) => m.name)
+        .sort(),
+    ).toEqual(['purchase', 'signup']);
+    expect(body(recomputed).results.control).toBe('off');
+
+    listed = body(await h.listMetrics(alice, req()));
+    expect(listed.metrics.find((m: any) => m.name === 'signup')).toMatchObject({
+      source: 'console',
+      usedBy: ['new_player'],
+    });
+    const inUse = await h.deleteMetric(alice, req({ params: { key: 'signup' } }));
+    expect(inUse.status).toBe(422);
+    expect((await h.deleteMetric(alice, req({ params: { key: 'purchase' } }))).status).toBe(409);
+
+    const exported = body(await h.exportRuleset(alice, req()));
+    expect(exported.metrics).toEqual({
+      signup: { kind: 'conversion', event: 'signup', direction: 'increase' },
+    });
+    expect(
+      (await h.importRuleset(alice, req({ body: { environment: 'qa', ruleset: exported } })))
+        .status,
+    ).toBe(200);
+    expect(
+      body(await h.exportRuleset(alice, req({ query: { environment: 'qa' } }))).metrics,
+    ).toEqual(exported.metrics);
+    const audit = body(await h.audit(alice, req({ query: { entity: 'metric' } })));
+    expect(audit.entries).toEqual([expect.objectContaining({ key: 'signup', action: 'create' })]);
+  });
+
   describe('change requests', () => {
     let strict: FlagsRuntime;
 

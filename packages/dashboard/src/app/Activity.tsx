@@ -7,7 +7,7 @@ import { Panel, QueryState } from './shell';
 import { Button, Input } from './ui/form';
 import { Segmented } from './ui/segmented';
 
-type Entity = '' | 'flag' | 'segment' | 'layer' | 'holdout' | 'ruleset';
+type Entity = '' | 'flag' | 'segment' | 'layer' | 'metric' | 'holdout' | 'ruleset';
 
 /** The environment's audit log: every change, who made it, before and after. */
 export function Activity() {
@@ -43,6 +43,7 @@ export function Activity() {
             { value: 'flag', label: 'Flags' },
             { value: 'segment', label: 'Segments' },
             { value: 'layer', label: 'Layers' },
+            { value: 'metric', label: 'Metrics' },
             { value: 'holdout', label: 'Holdout' },
             { value: 'ruleset', label: 'Imports' },
           ]}

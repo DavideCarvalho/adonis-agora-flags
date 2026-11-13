@@ -138,6 +138,8 @@ export class FlagsAdmin {
     private readonly options: {
       environment: string;
       declarations: Record<string, FlagDeclaration>;
+      /** Metric names defined in `config/flags.ts`, which console experiments may use. */
+      metrics?: string[];
       approvals?: ApprovalsConfig;
       authorize?: AdminAuthorizer;
       onApplied?: (environment: string, version: string, applied: AppliedChange) => void;
@@ -177,12 +179,17 @@ export class FlagsAdmin {
   async preview(change: RulesetChange, environment = this.environment): Promise<Ruleset> {
     const current = await this.store.readRuleset(environment);
     const next = applyChange(current, change);
-    const issues = [...validateRuleset(next), ...checkAgainstDeclarations(next, this.declarations)];
+    const validate = { metrics: this.options.metrics ?? [] };
+    const issues = [
+      ...validateRuleset(next, validate),
+      ...checkAgainstDeclarations(next, this.declarations),
+    ];
     // Only issues the change introduces block it; pre-existing ones are reported elsewhere.
     const before = new Set(
-      [...validateRuleset(current), ...checkAgainstDeclarations(current, this.declarations)].map(
-        (i) => `${i.path}\u0000${i.message}`,
-      ),
+      [
+        ...validateRuleset(current, validate),
+        ...checkAgainstDeclarations(current, this.declarations),
+      ].map((i) => `${i.path}\u0000${i.message}`),
     );
     const introduced = issues.filter((i) => !before.has(`${i.path}\u0000${i.message}`));
     if (introduced.length > 0) throw new ValidationError(introduced);
@@ -637,6 +644,7 @@ export class FlagsAdmin {
           flags: ruleset.flags,
           segments: ruleset.segments ?? {},
           layers: ruleset.layers ?? {},
+          ...(ruleset.metrics ? { metrics: ruleset.metrics } : {}),
           ...(ruleset.holdout ? { holdout: ruleset.holdout } : {}),
         },
       },

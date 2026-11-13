@@ -1,5 +1,7 @@
+import type { Ruleset } from '@adonis-agora/flags-core';
 import type { FlagsAdmin } from '../admin.js';
 import type { AnalyticsBackend } from '../analytics/backend.js';
+import { resolveAnalysis } from '../analytics/experiments.js';
 import type { MetricDefinition } from '../analytics/metrics.js';
 import { computeResults, type ExperimentResults } from '../analytics/results.js';
 import type { ExperimentConfig } from '../define_config.js';
@@ -113,16 +115,25 @@ export class FlagsWorker {
     }
   }
 
-  /** Recomputes and caches results for every configured experiment. */
+  /** Recomputes and caches results for every experiment, from the config and from the console. */
   async computeAllResults(): Promise<ExperimentResults[]> {
-    const { analytics, resultsCache, experiments } = this.options;
-    if (!analytics || !resultsCache || !experiments) return [];
+    const { analytics, resultsCache } = this.options;
+    if (!analytics || !resultsCache) return [];
     const out: ExperimentResults[] = [];
     const environments = this.options.resultsEnvironments ?? [this.#environment];
     for (const environment of environments) {
-      for (const key of Object.keys(experiments)) {
+      let ruleset: Ruleset;
+      try {
+        ruleset = await this.#ruleset(environment);
+      } catch (error) {
+        this.options.logger?.error(
+          `[flags] results for ${environment} failed: ${(error as Error).message}`,
+        );
+        continue;
+      }
+      for (const key of Object.keys(this.#analysis(ruleset).experiments)) {
         try {
-          const result = await this.computeResults(key, environment);
+          const result = await this.computeResults(key, environment, ruleset);
           if (result) out.push(result);
         } catch (error) {
           this.options.logger?.error(
@@ -138,19 +149,35 @@ export class FlagsWorker {
     return this.options.environment ?? 'production';
   }
 
+  #ruleset(environment: string): Promise<Ruleset> {
+    return environment === this.#environment || !this.options.admin
+      ? Promise.resolve(this.options.source.current())
+      : this.options.admin.store.readRuleset(environment);
+  }
+
+  #analysis(ruleset: Ruleset) {
+    return resolveAnalysis(
+      {
+        ...(this.options.metrics ? { metrics: this.options.metrics } : {}),
+        ...(this.options.experiments ? { experiments: this.options.experiments } : {}),
+      },
+      ruleset,
+    );
+  }
+
   /** Computes and caches one experiment's results for an environment (default: this process's). */
   async computeResults(
     key: string,
     environment = this.#environment,
+    rulesetOf?: Ruleset,
   ): Promise<ExperimentResults | null> {
-    const { analytics, resultsCache, experiments, metrics = {} } = this.options;
-    const experiment = experiments?.[key];
-    if (!analytics || !resultsCache || !experiment) return null;
+    const { analytics, resultsCache } = this.options;
+    if (!analytics || !resultsCache) return null;
+    const ruleset = rulesetOf ?? (await this.#ruleset(environment));
+    const { metrics, experiments } = this.#analysis(ruleset);
+    const experiment = experiments[key];
+    if (!experiment) return null;
     const flagKey = experiment.flag ?? key;
-    const ruleset =
-      environment === this.#environment || !this.options.admin
-        ? this.options.source.current()
-        : await this.options.admin.store.readRuleset(environment);
     const definitions: Record<string, MetricDefinition> = {};
     for (const name of new Set([...experiment.metrics, ...(experiment.guardrails ?? [])])) {
       const definition = metrics[name];

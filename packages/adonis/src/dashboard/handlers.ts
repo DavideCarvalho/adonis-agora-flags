@@ -5,6 +5,7 @@ import {
   type Holdout,
   type JsonValue,
   type Layer,
+  type MetricDefinition,
   OPERATORS,
   type Ruleset,
   type RulesetIssue,
@@ -12,7 +13,10 @@ import {
   type Serve,
 } from '@adonis-agora/flags-core';
 import { type FlagsAdmin, ForbiddenError, type ProposeResult, ValidationError } from '../admin.js';
+import { resolveAnalysis } from '../analytics/experiments.js';
+import type { MetricDefinition as ConfigMetric } from '../analytics/metrics.js';
 import type { FlagDeclaration } from '../declare.js';
+import type { ExperimentConfig } from '../define_config.js';
 import { knownTenants } from '../http/control_plane.js';
 import type { FlagsRuntime } from '../runtime.js';
 import { getRuntime } from '../services/accessor.js';
@@ -30,6 +34,7 @@ import {
   flagDefinitionIssues,
   holdoutIssues,
   layerIssues,
+  metricIssues,
   rulesetIssues,
   segmentIssues,
 } from './shape.js';
@@ -296,8 +301,9 @@ export function meta(deps: Deps, _req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) => {
     const current = o.runtime.manager.environment;
     const environments = [...new Set([current, ...(await o.store.environments())])].sort();
-    const experiments =
-      o.runtime.config.topology !== 'tenant' ? Object.keys(o.runtime.config.experiments ?? {}) : [];
+    const experiments = Object.keys(
+      analysisOf(o.runtime, await o.store.readRuleset(current)).experiments,
+    ).sort();
     return ok({
       app: o.runtime.manager.app,
       topology: o.runtime.topology,
@@ -379,6 +385,7 @@ export function flagDetail(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
       requiresApproval: o.admin.requiresApproval(environment),
       segments: Object.keys(ruleset.segments ?? {}).sort(),
       layers: Object.keys(ruleset.layers ?? {}).sort(),
+      ...analysisForFlag(o.runtime, ruleset, key),
       flags: Object.fromEntries(
         Object.entries(ruleset.flags)
           .filter(([other]) => other !== key)
@@ -562,14 +569,14 @@ export function setOverride(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
 
 // ── Preview and evaluate ────────────────────────────────────────────────────
 
-const PREVIEW_ENTITIES = new Set<EntityType>(['flag', 'segment', 'layer', 'holdout']);
+const PREVIEW_ENTITIES = new Set<EntityType>(['flag', 'segment', 'layer', 'metric', 'holdout']);
 
 /** Parse `{ entity, key, value }` into a {@link RulesetChange}, shape-checked. */
 function changeOf(raw: unknown): RulesetChange {
   if (typeof raw !== 'object' || raw === null) throw new HttpError(400, 'change is required');
   const { entity, key, value } = raw as { entity?: unknown; key?: unknown; value?: unknown };
   if (typeof entity !== 'string' || !PREVIEW_ENTITIES.has(entity as EntityType)) {
-    throw new HttpError(400, 'change.entity must be flag, segment, layer or holdout');
+    throw new HttpError(400, 'change.entity must be flag, segment, layer, metric or holdout');
   }
   if (entity === 'holdout') {
     const issues = holdoutIssues(value ?? null, 'change.value');
@@ -583,7 +590,9 @@ function changeOf(raw: unknown): RulesetChange {
       ? flagDefinitionIssues(value, 'change.value')
       : entity === 'segment'
         ? segmentIssues(value, 'change.value')
-        : layerIssues(value, 'change.value');
+        : entity === 'metric'
+          ? metricIssues(value, 'change.value')
+          : layerIssues(value, 'change.value');
   if (issues.length > 0) throw invalid(issues);
   return { entity, key, value } as RulesetChange;
 }
@@ -809,18 +818,110 @@ export function saveHoldout(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
   });
 }
 
-// ── Experiments ─────────────────────────────────────────────────────────────
-
-function experimentConfigs(runtime: FlagsRuntime) {
-  return runtime.config.topology === 'tenant' ? {} : (runtime.config.experiments ?? {});
+/** Metrics and experiments for an environment: `config/flags.ts` plus the console's. */
+function analysisOf(runtime: FlagsRuntime, ruleset: Ruleset) {
+  if (runtime.config.topology === 'tenant') return resolveAnalysis({}, undefined);
+  const config = runtime.config as {
+    metrics?: Record<string, ConfigMetric>;
+    experiments?: Record<string, ExperimentConfig>;
+  };
+  return resolveAnalysis(
+    {
+      ...(config.metrics ? { metrics: config.metrics } : {}),
+      ...(config.experiments ? { experiments: config.experiments } : {}),
+    },
+    ruleset,
+  );
 }
+
+/** What the flag editor needs to edit an experiment's analysis. */
+function analysisForFlag(runtime: FlagsRuntime, ruleset: Ruleset, flag: string) {
+  const analysis = analysisOf(runtime, ruleset);
+  const configExperiment = Object.entries(analysis.experiments).find(
+    ([key, e]) => e.source === 'config' && (e.flag ?? key) === flag,
+  );
+  return {
+    metrics: Object.keys(analysis.metrics)
+      .sort()
+      .map((name) => ({ name, source: analysis.metricSources[name]! })),
+    configExperiment: configExperiment ? configExperiment[0] : null,
+  };
+}
+
+// ── Metrics ─────────────────────────────────────────────────────────────────
+
+/** `GET /api/metrics` — config and console metrics, and the experiments that use each. */
+export function listMetrics(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
+  return handle(deps, async (o) => {
+    const environment = environmentOf(req, o.runtime);
+    const ruleset = await o.store.readRuleset(environment);
+    const analysis = analysisOf(o.runtime, ruleset);
+    const usedBy = (name: string) =>
+      Object.entries(analysis.experiments)
+        .filter(([, e]) => e.metrics.includes(name) || (e.guardrails ?? []).includes(name))
+        .map(([key]) => key)
+        .sort();
+    const metrics = Object.entries(analysis.metrics)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, metric]) => ({
+        name,
+        metric,
+        source: analysis.metricSources[name],
+        usedBy: usedBy(name),
+      }));
+    return ok({ environment, version: ruleset.version, metrics });
+  });
+}
+
+/** `PUT /api/metrics/:key` `{ metric, note? }` — refused (409) for a metric defined in config. */
+export function saveMetric(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
+  return handle(deps, async (o) => {
+    const environment = environmentOf(req, o.runtime);
+    const key = keyParam(req);
+    assertConsoleMetric(o.runtime, key);
+    const metric = bodyOf(req).metric;
+    const issues = metricIssues(metric);
+    if (issues.length > 0) throw invalid(issues);
+    return proposed(
+      await o.admin.propose(
+        { entity: 'metric', key, value: metric as MetricDefinition },
+        deps.actor,
+        writeOptions(environment, noteOf(req)),
+      ),
+    );
+  });
+}
+
+/** `DELETE /api/metrics/:key` — refused (422) while an experiment still uses it. */
+export function deleteMetric(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
+  return handle(deps, async (o) => {
+    const environment = environmentOf(req, o.runtime);
+    const key = keyParam(req);
+    assertConsoleMetric(o.runtime, key);
+    return proposed(
+      await o.admin.propose(
+        { entity: 'metric', key, value: null },
+        deps.actor,
+        writeOptions(environment, noteOf(req)),
+      ),
+    );
+  });
+}
+
+function assertConsoleMetric(runtime: FlagsRuntime, key: string) {
+  if (analysisOf(runtime, { flags: {} } as unknown as Ruleset).metricSources[key] === 'config') {
+    throw new HttpError(409, `metric "${key}" is defined in config/flags.ts; change it there`);
+  }
+}
+
+// ── Experiments ─────────────────────────────────────────────────────────────
 
 /** `GET /api/experiments` — configured experiments with a summary of their last results. */
 export function listExperiments(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) => {
     const environment = environmentOf(req, o.runtime);
     const ruleset = await o.store.readRuleset(environment);
-    const configs = experimentConfigs(o.runtime);
+    const configs = analysisOf(o.runtime, ruleset).experiments;
     const rows = [];
     const covered = new Set<string>();
     for (const [key, config] of Object.entries(configs)) {
@@ -831,6 +932,7 @@ export function listExperiments(deps: Deps, req: ApiRequest): Promise<ApiRespons
         key,
         flag,
         configured: true,
+        source: config.source as 'config' | 'console' | null,
         metrics: config.metrics,
         guardrails: config.guardrails ?? [],
         running:
@@ -858,6 +960,7 @@ export function listExperiments(deps: Deps, req: ApiRequest): Promise<ApiRespons
         key: definition.experiment.key ?? flag,
         flag,
         configured: false,
+        source: null,
         metrics: [],
         guardrails: [],
         running: definition.enabled,
@@ -877,15 +980,17 @@ export function listExperiments(deps: Deps, req: ApiRequest): Promise<ApiRespons
 export function experimentDetail(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) => {
     const key = keyParam(req);
-    const config = experimentConfigs(o.runtime)[key];
+    const environment = environmentOf(req, o.runtime);
+    const ruleset = await o.store.readRuleset(environment);
+    const config = analysisOf(o.runtime, ruleset).experiments[key];
     if (!config) throw new HttpError(404, `experiment "${key}" is not configured`);
     return ok({
       key,
       flag: config.flag ?? key,
       config,
       analytics: o.runtime.analytics !== undefined,
-      environment: environmentOf(req, o.runtime),
-      results: await o.runtime.manager.results(key, environmentOf(req, o.runtime)),
+      environment,
+      results: await o.runtime.manager.results(key, environment),
     });
   });
 }
@@ -894,7 +999,9 @@ export function experimentDetail(deps: Deps, req: ApiRequest): Promise<ApiRespon
 export function recomputeExperiment(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) => {
     const key = keyParam(req);
-    if (!experimentConfigs(o.runtime)[key]) {
+    const environment = environmentOf(req, o.runtime);
+    const ruleset = await o.store.readRuleset(environment);
+    if (!analysisOf(o.runtime, ruleset).experiments[key]) {
       throw new HttpError(404, `experiment "${key}" is not configured`);
     }
     if (!o.runtime.worker || !o.runtime.analytics) {
@@ -903,7 +1010,7 @@ export function recomputeExperiment(deps: Deps, req: ApiRequest): Promise<ApiRes
         'No analytics backend is configured, so experiment results cannot be computed here.',
       );
     }
-    const results = await o.runtime.worker.computeResults(key, environmentOf(req, o.runtime));
+    const results = await o.runtime.worker.computeResults(key, environment, ruleset);
     if (!results) throw new HttpError(503, `results for "${key}" could not be computed`);
     return ok({ key, results });
   });
@@ -964,7 +1071,7 @@ export function cancelChangeRequest(deps: Deps, req: ApiRequest): Promise<ApiRes
 
 // ── Audit ───────────────────────────────────────────────────────────────────
 
-const ENTITIES = new Set<EntityType>(['flag', 'segment', 'layer', 'holdout', 'ruleset']);
+const ENTITIES = new Set<EntityType>(['flag', 'segment', 'layer', 'metric', 'holdout', 'ruleset']);
 
 /** `GET /api/audit?entity&key&before&limit` — newest first; page with `before=<at of last row>`. */
 export function audit(deps: Deps, req: ApiRequest): Promise<ApiResponse> {

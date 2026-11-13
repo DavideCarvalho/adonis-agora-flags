@@ -1,24 +1,9 @@
-/** How a metric aggregates a subject's tracked events. */
-export type MetricKind = 'conversion' | 'count' | 'sum';
+import type { MetricDefinition } from '@adonis-agora/flags-core';
 
-export interface MetricOptions {
-  description?: string;
-  /** Count only events within this many ms after the subject's first exposure. Default: no limit. */
-  windowMs?: number;
-  /**
-   * CUPED: use the same metric over this many ms BEFORE exposure as a covariate. Shrinks variance
-   * (decisions with fewer subjects) when behaviour is stable over time. Default: off.
-   */
-  cupedMs?: number;
-  /** Which direction is good. Default `increase`. Shown in the console; guardrails alert on the bad one. */
-  direction?: 'increase' | 'decrease';
-}
+export type { MetricDefinition, MetricKind } from '@adonis-agora/flags-core';
 
-export interface MetricDefinition extends MetricOptions {
-  kind: MetricKind;
-  /** Tracked event name (`flags.track(subject, 'purchase')`). */
-  event: string;
-}
+/** Everything a metric builder takes besides its kind and event. */
+export type MetricOptions = Omit<MetricDefinition, 'kind' | 'event'>;
 
 /** Builders for `metrics` in `config/flags.ts`. */
 export const metric = {

@@ -1,16 +1,24 @@
-import type { FlagDefinition, Holdout, Layer, Ruleset, Segment } from '@adonis-agora/flags-core';
+import type {
+  FlagDefinition,
+  Holdout,
+  Layer,
+  MetricDefinition,
+  Ruleset,
+  Segment,
+} from '@adonis-agora/flags-core';
 import type { FlagDeclaration } from '../declare.js';
 
 /** What a change targets. */
-export type EntityType = 'flag' | 'segment' | 'layer' | 'holdout' | 'ruleset';
+export type EntityType = 'flag' | 'segment' | 'layer' | 'metric' | 'holdout' | 'ruleset';
 
 /** One change to the ruleset of an environment. `value: null` deletes. */
 export type RulesetChange =
   | { entity: 'flag'; key: string; value: FlagDefinition | null }
   | { entity: 'segment'; key: string; value: Segment | null }
   | { entity: 'layer'; key: string; value: Layer | null }
+  | { entity: 'metric'; key: string; value: MetricDefinition | null }
   | { entity: 'holdout'; key?: undefined; value: Holdout | null }
-  /** Replaces every flag, segment, layer and the holdout (import, promote). */
+  /** Replaces every flag, segment, layer, metric and the holdout (import, promote). */
   | { entity: 'ruleset'; key?: undefined; value: Omit<Ruleset, 'version' | 'schemaVersion'> };
 
 /** Who did something: the authkit `sub`, a user id, `cli`, `schedule`… */
@@ -179,6 +187,12 @@ export function applyChange(ruleset: Ruleset, change: RulesetChange): Ruleset {
     case 'layer':
       next.layers = upsert(next.layers, change.key, change.value);
       break;
+    case 'metric': {
+      const metrics = upsert(next.metrics, change.key, change.value);
+      if (Object.keys(metrics).length > 0) next.metrics = metrics;
+      else delete next.metrics;
+      break;
+    }
     case 'holdout':
       if (change.value === null) delete next.holdout;
       else next.holdout = change.value;
@@ -187,6 +201,9 @@ export function applyChange(ruleset: Ruleset, change: RulesetChange): Ruleset {
       next.flags = structuredClone(change.value.flags);
       next.segments = structuredClone(change.value.segments ?? {});
       next.layers = structuredClone(change.value.layers ?? {});
+      if (change.value.metrics && Object.keys(change.value.metrics).length > 0)
+        next.metrics = structuredClone(change.value.metrics);
+      else delete next.metrics;
       if (change.value.holdout) next.holdout = structuredClone(change.value.holdout);
       else delete next.holdout;
       break;
@@ -203,6 +220,8 @@ export function currentValue(ruleset: Ruleset, change: RulesetChange): unknown {
       return ruleset.segments?.[change.key] ?? null;
     case 'layer':
       return ruleset.layers?.[change.key] ?? null;
+    case 'metric':
+      return ruleset.metrics?.[change.key] ?? null;
     case 'holdout':
       return ruleset.holdout ?? null;
     case 'ruleset':
@@ -210,6 +229,7 @@ export function currentValue(ruleset: Ruleset, change: RulesetChange): unknown {
         flags: ruleset.flags,
         segments: ruleset.segments ?? {},
         layers: ruleset.layers ?? {},
+        ...(ruleset.metrics ? { metrics: ruleset.metrics } : {}),
         ...(ruleset.holdout ? { holdout: ruleset.holdout } : {}),
       };
   }

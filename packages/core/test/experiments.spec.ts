@@ -235,3 +235,49 @@ describe('regex safety', () => {
     );
   });
 });
+
+describe('experiment analysis in the ruleset', () => {
+  const analysed = (experiment: NonNullable<FlagDefinition['experiment']>, metrics = {}) =>
+    rs({ flags: { checkout: experimentFlag({ experiment }) }, metrics });
+
+  it('accepts metrics from the ruleset or from the options', () => {
+    const ruleset = analysed(
+      { metrics: ['signup'], guardrails: ['refunds'], control: 'b', confidence: 0.9 },
+      { signup: { kind: 'conversion', event: 'signup' } },
+    );
+    expect(validateRuleset(ruleset, { metrics: ['refunds'] })).toEqual([]);
+  });
+
+  it('rejects unknown metrics, controls and confidences', () => {
+    const ruleset = analysed({ metrics: ['nope'], control: 'zzz', confidence: 1.5 });
+    expect(validateRuleset(ruleset, { metrics: [] })).toEqual([
+      { path: 'flags.checkout.experiment.metrics[0]', message: 'unknown metric "nope"' },
+      { path: 'flags.checkout.experiment.control', message: 'unknown variant "zzz"' },
+      { path: 'flags.checkout.experiment.confidence', message: 'must be between 0 and 1' },
+    ]);
+    // Without a list of external metrics, references are not checked.
+    expect(validateRuleset(analysed({ metrics: ['nope'] }))).toEqual([]);
+  });
+
+  it('checks metric definitions', () => {
+    const ruleset = rs({
+      flags: {},
+      metrics: {
+        bad: {
+          kind: 'median' as never,
+          event: '',
+          windowMs: 0,
+          cupedMs: -1,
+          direction: 'up' as never,
+        },
+      },
+    });
+    expect(validateRuleset(ruleset).map((i) => i.path)).toEqual([
+      'metrics.bad.kind',
+      'metrics.bad.event',
+      'metrics.bad.windowMs',
+      'metrics.bad.cupedMs',
+      'metrics.bad.direction',
+    ]);
+  });
+});

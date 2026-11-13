@@ -8,6 +8,17 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 ## 1. Declare the flag and the metrics
 
+Metrics and experiments can live in `config/flags.ts` or be created in the console. Both kinds work together.
+
+### In the console
+
+1. On **Metrics**, click **New metric**. Name it, pick a kind, and type the event your code sends with `track()`.
+2. In the flag editor, under **Experiment**, mark the flag as an experiment. Tick the metrics that decide it and the ones that act as guardrails. You can also pick the control variant and the confidence there.
+
+Console metrics belong to one environment, like segments and layers. Promote or import carries them to the others. Changes go through approvals and show in the history.
+
+### In config
+
 ```ts title="config/flags.ts"
 import { defineConfig, flag, metric } from '@adonis-agora/flags'
 
@@ -34,9 +45,11 @@ export default defineConfig({
 
 Options: `windowMs` (only count events within this long after exposure), `cupedMs` (see below), `direction` (`increase` is good by default).
 
+When the config and the console define the same metric or experiment, the config wins. The console shows it read-only. A flag's experiment settings can only use metrics that exist, either in the config or on the Metrics screen. A metric an experiment still uses cannot be deleted.
+
 ## 2. Turn it into an experiment
 
-In the console, give the flag a split (for example 50/50) and mark it as an experiment. Split assignments of experiment flags are recorded as **exposures**.
+In the console, give the flag a split (for example 50/50) and mark it as an experiment. If you did not configure it in `config/flags.ts`, pick its metrics there too. Split assignments of experiment flags are recorded as **exposures**.
 
 ## 3. Read the variant and track conversions
 

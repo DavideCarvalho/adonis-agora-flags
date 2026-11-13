@@ -32,8 +32,9 @@ With authkit, `identity: identities.authkit()` in `config/flags.ts` covers both.
 
 ## What it has
 
-- **Flags.** Create flags with **New flag** (type, default, variants, owner, expiry, browser exposure). Search by tag, owner or staleness. Each flag shows its declared type, default and owner, and what it serves. The kill switch is one click from the list. In the editor: variants, the fallthrough (fixed or split), ordered rules, overrides, prerequisites and experiment settings. A context tester shows what any subject would get and why. Below that, the flag's history and its scheduled changes, including gradual rollouts.
+- **Flags.** Create flags with **New flag** (type, default, variants, owner, expiry, browser exposure). Search by tag, owner or staleness. Each flag shows its declared type, default and owner, and what it serves. The kill switch is one click from the list. In the editor: variants, the fallthrough (fixed or split), ordered rules, overrides, prerequisites and experiment settings (layer, holdout, metrics, guardrails, control, confidence). A context tester shows what any subject would get and why. Below that, the flag's history and its scheduled changes, including gradual rollouts.
 - **Segments, layers and the global holdout.**
+- **Metrics.** Create, edit and delete the metrics experiments use, and see which experiments use each one. Metrics from `config/flags.ts` are listed read-only.
 - **Experiments.** Exposures, the sample-ratio check, and per metric the lift, interval, p-value, sequential p-value and verdict. Guardrail alerts, and a button to recompute now.
 - **Approvals.** Approve, reject or cancel pending change requests.
 - **Environments.** Switch environments, export and import JSON, promote from one environment to another.
@@ -54,6 +55,9 @@ Everything the console does goes through JSON endpoints under `<path>/api`, behi
 | `POST /api/flags/:key/enabled` | `{ enabled }` | The kill switch: `false` serves `offVariant` to everyone; `true` lifts it, back to the targeting |
 | `POST /api/flags/:key/rollout` | `{ percent }` | Percentage rollout of an on/off flag |
 | `POST /api/flags/:key/variant` | `{ variant }` | Serve one variant to everyone |
+| `GET /api/metrics` | | Config and console metrics, and the experiments using each |
+| `PUT /api/metrics/:key` | `{ metric, note? }` | Create or replace a console metric (`409` for one defined in config) |
+| `DELETE /api/metrics/:key` | | Delete a console metric (`422` while an experiment uses it) |
 | `GET /api/audit?key=` | | The change history |
 
 `enabled: true` does not turn a flag on: on a flag that was never configured, the targeting created for it still serves the default. Use `variant` (`on`) or a rollout.

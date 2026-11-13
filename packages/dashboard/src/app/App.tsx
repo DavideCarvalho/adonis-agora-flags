@@ -10,6 +10,7 @@ import { FlagEditor } from './FlagEditor';
 import { FlagsList } from './FlagsList';
 import { Hygiene } from './Hygiene';
 import { Layers } from './Layers';
+import { Metrics } from './Metrics';
 import { Ops } from './Ops';
 import { formatRoute, parseRoute, type Route, SCREENS } from './routes';
 import { Segments } from './Segments';
@@ -120,6 +121,7 @@ export function App() {
             ) : (
               <Experiments onOpen={(id) => go({ screen: 'experiments', id })} />
             ))}
+          {route.screen === 'metrics' && <Metrics key={environment} />}
           {route.screen === 'approvals' && <Approvals key={environment} />}
           {route.screen === 'activity' && <Activity key={environment} />}
           {route.screen === 'environments' && (

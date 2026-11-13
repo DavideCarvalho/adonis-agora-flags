@@ -20,6 +20,7 @@ export type Screen =
   | 'segments'
   | 'layers'
   | 'experiments'
+  | 'metrics'
   | 'approvals'
   | 'activity'
   | 'environments'
@@ -31,6 +32,7 @@ export const SCREENS: ReadonlyArray<{ value: Screen; label: string }> = [
   { value: 'segments', label: 'Segments' },
   { value: 'layers', label: 'Layers' },
   { value: 'experiments', label: 'Experiments' },
+  { value: 'metrics', label: 'Metrics' },
   { value: 'approvals', label: 'Approvals' },
   { value: 'activity', label: 'Activity' },
   { value: 'environments', label: 'Environments' },

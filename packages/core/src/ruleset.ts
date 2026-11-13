@@ -161,6 +161,36 @@ export interface ExperimentSettings {
   layer?: string;
   /** `false` opts this experiment out of the global holdout. Default `true`. */
   holdout?: boolean;
+  /** Metrics that decide the experiment (keys of {@link Ruleset.metrics} or of the app's config). */
+  metrics?: string[];
+  /** Metrics that must not regress; the console alerts when one does. */
+  guardrails?: string[];
+  /** Control variant. Default: the flag's `offVariant`. */
+  control?: string;
+  /** Confidence for fixed-horizon tests, between 0 and 1. Default 0.95. */
+  confidence?: number;
+}
+
+/** How a metric aggregates a subject's tracked events. */
+export type MetricKind = 'conversion' | 'count' | 'sum';
+
+export const METRIC_KINDS: readonly MetricKind[] = ['conversion', 'count', 'sum'];
+
+/** What an experiment measures, as data. Not evaluated; the worker that computes results reads it. */
+export interface MetricDefinition {
+  kind: MetricKind;
+  /** Tracked event name (`flags.track(subject, 'purchase')`). */
+  event: string;
+  description?: string;
+  /** Count only events within this many ms after the subject's first exposure. Default: no limit. */
+  windowMs?: number;
+  /**
+   * CUPED: use the same metric over this many ms BEFORE exposure as a covariate. Shrinks variance
+   * (decisions with fewer subjects) when behaviour is stable over time. Default: off.
+   */
+  cupedMs?: number;
+  /** Which direction is good. Default `increase`. Shown in the console; guardrails alert on the bad one. */
+  direction?: 'increase' | 'decrease';
 }
 
 /**
@@ -201,6 +231,8 @@ export interface Ruleset {
   segments?: Record<string, Segment>;
   layers?: Record<string, Layer>;
   holdout?: Holdout;
+  /** Metrics experiments can be analysed with. Metrics in the app's config take precedence. */
+  metrics?: Record<string, MetricDefinition>;
 }
 
 /** An empty ruleset: every evaluation returns the code default with `FLAG_NOT_FOUND`. */

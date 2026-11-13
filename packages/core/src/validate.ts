@@ -4,6 +4,8 @@ import {
   type AttributeCondition,
   type Condition,
   type FlagDeclarationData,
+  METRIC_KINDS,
+  type MetricDefinition,
   OPERATORS,
   RULESET_SCHEMA_VERSION,
   type Ruleset,
@@ -24,7 +26,15 @@ const KNOWN_OPERATORS: ReadonlySet<string> = new Set(OPERATORS);
  * these, so this is about rejecting the edit with a useful message instead of silently serving
  * code defaults. Returns an empty array when the ruleset is valid.
  */
-export function validateRuleset(ruleset: Ruleset): RulesetIssue[] {
+export interface ValidateOptions {
+  /**
+   * Metric names defined outside the ruleset (the app's config). Experiments may reference them
+   * as well as `ruleset.metrics`. When omitted, metric references are not checked.
+   */
+  metrics?: Iterable<string>;
+}
+
+export function validateRuleset(ruleset: Ruleset, options: ValidateOptions = {}): RulesetIssue[] {
   const issues: RulesetIssue[] = [];
   const add = (path: string, message: string) => issues.push({ path, message });
 
@@ -118,6 +128,38 @@ export function validateRuleset(ruleset: Ruleset): RulesetIssue[] {
     }
   }
 
+  for (const [name, definition] of Object.entries(ruleset.metrics ?? {})) {
+    checkMetric(definition, `metrics.${name}`, add);
+  }
+  const knownMetrics = options.metrics
+    ? new Set([...options.metrics, ...Object.keys(ruleset.metrics ?? {})])
+    : undefined;
+  for (const [key, flag] of Object.entries(ruleset.flags)) {
+    const experiment = flag.experiment;
+    if (!experiment) continue;
+    const base = `flags.${key}.experiment`;
+    for (const list of ['metrics', 'guardrails'] as const) {
+      (experiment[list] ?? []).forEach((name, i) => {
+        if (knownMetrics && !knownMetrics.has(name)) {
+          add(`${base}.${list}[${i}]`, `unknown metric "${name}"`);
+        }
+      });
+    }
+    if (experiment.control !== undefined && !Object.hasOwn(flag.variants, experiment.control)) {
+      add(`${base}.control`, `unknown variant "${experiment.control}"`);
+    }
+    if (
+      experiment.confidence !== undefined &&
+      !(
+        Number.isFinite(experiment.confidence) &&
+        experiment.confidence > 0 &&
+        experiment.confidence < 1
+      )
+    ) {
+      add(`${base}.confidence`, 'must be between 0 and 1');
+    }
+  }
+
   for (const [key, flag] of Object.entries(ruleset.flags)) {
     if (flag.declaration) checkDeclaration(flag.declaration, flag.variants, `flags.${key}`, add);
   }
@@ -129,6 +171,30 @@ export function validateRuleset(ruleset: Ruleset): RulesetIssue[] {
 }
 
 type Add = (path: string, message: string) => void;
+
+const KNOWN_METRIC_KINDS: ReadonlySet<string> = new Set(METRIC_KINDS);
+
+function checkMetric(metric: MetricDefinition, path: string, add: Add) {
+  if (!KNOWN_METRIC_KINDS.has(metric.kind)) {
+    add(`${path}.kind`, 'must be conversion, count or sum');
+  }
+  if (typeof metric.event !== 'string' || metric.event.trim() === '') {
+    add(`${path}.event`, 'is required');
+  }
+  if (metric.windowMs !== undefined && !(Number.isFinite(metric.windowMs) && metric.windowMs > 0)) {
+    add(`${path}.windowMs`, 'must be a number of milliseconds > 0');
+  }
+  if (metric.cupedMs !== undefined && !(Number.isFinite(metric.cupedMs) && metric.cupedMs >= 0)) {
+    add(`${path}.cupedMs`, 'must be a number of milliseconds ≥ 0');
+  }
+  if (
+    metric.direction !== undefined &&
+    metric.direction !== 'increase' &&
+    metric.direction !== 'decrease'
+  ) {
+    add(`${path}.direction`, 'must be increase or decrease');
+  }
+}
 
 function checkCondition(
   condition: Condition,

@@ -132,6 +132,14 @@ export function flagDefinitionIssues(value: unknown, path = 'definition'): Rules
         if (e.holdout !== undefined && typeof e.holdout !== 'boolean') {
           add(`${path}.experiment.holdout`, 'must be a boolean');
         }
+        checkStringList(e.metrics, `${path}.experiment.metrics`, add);
+        checkStringList(e.guardrails, `${path}.experiment.guardrails`, add);
+        if (e.control !== undefined && typeof e.control !== 'string') {
+          add(`${path}.experiment.control`, 'must be a string');
+        }
+        if (e.confidence !== undefined && typeof e.confidence !== 'number') {
+          add(`${path}.experiment.confidence`, 'must be a number');
+        }
       }
     }
     checkStringList(value.tags, `${path}.tags`, add);
@@ -167,6 +175,25 @@ export function layerIssues(value: unknown, path = 'layer'): RulesetIssue[] {
       const ok =
         Array.isArray(range) && range.length === 2 && range.every((n) => typeof n === 'number');
       if (!ok) add(`${path}.allocations.${flag}`, 'must be a [start, end] pair of numbers');
+    }
+  });
+}
+
+/** Shape of a `MetricDefinition`. */
+export function metricIssues(value: unknown, path = 'metric'): RulesetIssue[] {
+  return collect((add) => {
+    if (!isObject(value)) return add(path, 'must be an object');
+    if (typeof value.kind !== 'string') add(`${path}.kind`, 'must be a string');
+    if (typeof value.event !== 'string') add(`${path}.event`, 'must be a string');
+    for (const field of ['windowMs', 'cupedMs'] as const) {
+      if (value[field] !== undefined && typeof value[field] !== 'number') {
+        add(`${path}.${field}`, 'must be a number');
+      }
+    }
+    for (const field of ['description', 'direction'] as const) {
+      if (value[field] !== undefined && typeof value[field] !== 'string') {
+        add(`${path}.${field}`, 'must be a string');
+      }
     }
   });
 }
@@ -208,6 +235,16 @@ export function rulesetIssues(value: unknown, path = 'ruleset'): RulesetIssue[] 
       else {
         for (const [key, layer] of Object.entries(value.layers)) {
           for (const issue of layerIssues(layer, `${path}.layers.${key}`)) {
+            add(issue.path, issue.message);
+          }
+        }
+      }
+    }
+    if (value.metrics !== undefined) {
+      if (!isObject(value.metrics)) add(`${path}.metrics`, 'must be an object');
+      else {
+        for (const [key, metric] of Object.entries(value.metrics)) {
+          for (const issue of metricIssues(metric, `${path}.metrics.${key}`)) {
             add(issue.path, issue.message);
           }
         }

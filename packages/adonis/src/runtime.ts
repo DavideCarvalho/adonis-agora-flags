@@ -299,6 +299,7 @@ export async function createRuntime(
   const admin = new FlagsAdmin(store, {
     environment,
     declarations,
+    metrics: Object.keys(owned.metrics ?? {}),
     ...(owned.approvals ? { approvals: owned.approvals } : {}),
     ...(owned.authorize
       ? { authorize: owned.authorize }

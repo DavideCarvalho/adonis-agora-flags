@@ -2,6 +2,7 @@ import type {
   AttributeCondition,
   Condition,
   Declaration,
+  DefinitionSource,
   FlagDefinition,
   Serve,
   TargetingRule,
@@ -584,14 +585,21 @@ export function PrerequisitesEditor({
   );
 }
 
-/** Marks the flag as an experiment: exposures, a mutual-exclusion layer, the holdout opt-out. */
+/**
+ * Marks the flag as an experiment: exposures, a mutual-exclusion layer, the holdout opt-out, and
+ * the analysis (metrics, guardrails, control, confidence) the worker computes results with.
+ */
 export function ExperimentEditor({
   definition,
   layers,
+  metrics = [],
+  configExperiment = null,
   onChange,
 }: {
   definition: FlagDefinition;
   layers: string[];
+  metrics?: Array<{ name: string; source: DefinitionSource }>;
+  configExperiment?: string | null;
   onChange: (next: FlagDefinition) => void;
 }) {
   const experiment = definition.experiment;
@@ -654,6 +662,139 @@ export function ExperimentEditor({
           </label>
         </div>
       )}
+      {experiment !== undefined && (
+        <ExperimentAnalysis
+          definition={definition}
+          metrics={metrics}
+          configExperiment={configExperiment}
+          onChange={onChange}
+        />
+      )}
     </>
+  );
+}
+
+type Experiment = NonNullable<FlagDefinition['experiment']>;
+
+function ExperimentAnalysis({
+  definition,
+  metrics,
+  configExperiment,
+  onChange,
+}: {
+  definition: FlagDefinition;
+  metrics: Array<{ name: string; source: DefinitionSource }>;
+  configExperiment: string | null;
+  onChange: (next: FlagDefinition) => void;
+}) {
+  const experiment: Experiment = definition.experiment ?? {};
+  if (configExperiment !== null) {
+    return (
+      <p className="text-[11px] text-zinc-500">
+        Analysed by experiment <span className="mono">{configExperiment}</span> in config/flags.ts,
+        which takes precedence over the metrics picked here.
+      </p>
+    );
+  }
+  type Patch = { [K in keyof Experiment]?: Experiment[K] | undefined };
+  const set = (patch: Patch) => {
+    const merged: Patch = { ...experiment, ...patch };
+    for (const field of Object.keys(merged) as Array<keyof Experiment>) {
+      if (merged[field] === undefined) delete merged[field];
+    }
+    const next = merged as Experiment;
+    onChange({ ...definition, experiment: next });
+  };
+  const toggle = (list: 'metrics' | 'guardrails', name: string, on: boolean) => {
+    const current = experiment[list] ?? [];
+    const next = on ? [...current, name] : current.filter((n) => n !== name);
+    // A metric either decides the experiment or guards it, not both.
+    const other = list === 'metrics' ? 'guardrails' : 'metrics';
+    const rest = (experiment[other] ?? []).filter((n) => n !== name);
+    set({
+      [list]: next.length > 0 ? next : undefined,
+      ...(on ? { [other]: rest.length > 0 ? rest : undefined } : {}),
+    } as Patch);
+  };
+  const confidence = experiment.confidence;
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] text-zinc-500">
+        Analysis — the metrics that decide this experiment and the guardrails that must not regress.
+      </p>
+      {metrics.length === 0 ? (
+        <p className="text-[11px] text-zinc-500">
+          No metrics yet. Create one on the Metrics screen.
+        </p>
+      ) : (
+        <table className="text-xs">
+          <thead>
+            <tr className="text-[11px] text-zinc-500">
+              <th className="pr-4 text-left font-normal">Metric</th>
+              <th className="pr-4 font-normal">Decides</th>
+              <th className="font-normal">Guardrail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {metrics.map((m) => (
+              <tr key={m.name}>
+                <td className="mono pr-4 text-zinc-200">
+                  {m.name}
+                  {m.source === 'config' && (
+                    <span className="ml-1 text-[10px] text-zinc-500">config</span>
+                  )}
+                </td>
+                <td className="pr-4 text-center">
+                  <input
+                    type="checkbox"
+                    aria-label={`${m.name} decides`}
+                    checked={(experiment.metrics ?? []).includes(m.name)}
+                    onChange={(e) => toggle('metrics', m.name, e.target.checked)}
+                  />
+                </td>
+                <td className="text-center">
+                  <input
+                    type="checkbox"
+                    aria-label={`${m.name} guardrail`}
+                    checked={(experiment.guardrails ?? []).includes(m.name)}
+                    onChange={(e) => toggle('guardrails', m.name, e.target.checked)}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Control variant" hint="Defaults to the off variant">
+          <Select
+            aria-label="Control variant"
+            value={experiment.control ?? ''}
+            onChange={(e) => set({ control: e.target.value || undefined })}
+          >
+            <option value="">Off variant ({definition.offVariant})</option>
+            {Object.keys(definition.variants).map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Confidence (%)" hint="Default 95">
+          <Input
+            aria-label="Confidence"
+            type="number"
+            min={50}
+            max={99.9}
+            step={0.1}
+            className="w-24"
+            value={confidence === undefined ? '' : String(Math.round(confidence * 1000) / 10)}
+            onChange={(e) =>
+              set({ confidence: e.target.value === '' ? undefined : Number(e.target.value) / 100 })
+            }
+          />
+        </Field>
+      </div>
+    </div>
   );
 }

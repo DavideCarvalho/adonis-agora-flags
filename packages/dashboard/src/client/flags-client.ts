@@ -57,7 +57,17 @@ export interface FlagDefinition {
   fallthrough: Serve;
   prerequisites?: Array<{ flag: string; variant: string }>;
   salt?: string;
-  experiment?: { key?: string; layer?: string; holdout?: boolean };
+  experiment?: {
+    key?: string;
+    layer?: string;
+    holdout?: boolean;
+    /** Metrics that decide the experiment. */
+    metrics?: string[];
+    /** Metrics that must not regress. */
+    guardrails?: string[];
+    control?: string;
+    confidence?: number;
+  };
   tags?: string[];
 }
 
@@ -77,6 +87,18 @@ export interface Holdout {
   salt?: string;
 }
 
+export interface MetricDefinition {
+  kind: 'conversion' | 'count' | 'sum';
+  event: string;
+  description?: string;
+  windowMs?: number;
+  cupedMs?: number;
+  direction?: 'increase' | 'decrease';
+}
+
+/** `config`: defined in config/flags.ts (read-only here). `console`: stored in the ruleset. */
+export type DefinitionSource = 'config' | 'console';
+
 export interface Ruleset {
   schemaVersion: number;
   version: string;
@@ -84,6 +106,7 @@ export interface Ruleset {
   segments?: Record<string, Segment>;
   layers?: Record<string, Layer>;
   holdout?: Holdout;
+  metrics?: Record<string, MetricDefinition>;
 }
 
 // ── Wire types ────────────────────────────────────────────────────────────────────────────────
@@ -167,7 +190,7 @@ export interface AuditEntry {
 }
 
 export interface RulesetChange {
-  entity: 'flag' | 'segment' | 'layer' | 'holdout' | 'ruleset';
+  entity: 'flag' | 'segment' | 'layer' | 'metric' | 'holdout' | 'ruleset';
   key?: string;
   value: unknown;
 }
@@ -213,6 +236,10 @@ export interface FlagDetail {
   requiresApproval: boolean;
   segments: string[];
   layers: string[];
+  /** Metrics an experiment on this flag can use (absent on servers before 0.4). */
+  metrics?: Array<{ name: string; source: DefinitionSource }>;
+  /** A config/flags.ts experiment analysing this flag; it wins over the console's settings. */
+  configExperiment?: string | null;
   /** Other flags → their variant names (for prerequisites). */
   flags: Record<string, string[]>;
 }
@@ -275,6 +302,8 @@ export interface ExperimentRow {
   key: string;
   flag: string;
   configured: boolean;
+  /** Where the analysis is defined; `null` when nothing analyses the flag. */
+  source?: DefinitionSource | null;
   metrics: string[];
   guardrails: string[];
   running: boolean;
@@ -545,6 +574,20 @@ export const api = {
     send<WriteResult>('DELETE', `/layers/${seg(key)}`, { environment }),
   saveHoldout: (environment: string, holdout: Holdout | null) =>
     send<WriteResult>('PUT', '/holdout', { environment, holdout }),
+
+  metrics: (environment: string) =>
+    http<{
+      metrics: Array<{
+        name: string;
+        metric: MetricDefinition;
+        source: DefinitionSource;
+        usedBy: string[];
+      }>;
+    }>(`/metrics${buildQuery({ environment })}`),
+  saveMetric: (environment: string, key: string, metric: MetricDefinition) =>
+    send<WriteResult>('PUT', `/metrics/${seg(key)}`, { environment, metric }),
+  deleteMetric: (environment: string, key: string) =>
+    send<WriteResult>('DELETE', `/metrics/${seg(key)}`, { environment }),
 
   experiments: (environment: string) =>
     http<{ analytics: boolean; experiments: ExperimentRow[] }>(

@@ -26,7 +26,7 @@ export function Experiments({ onOpen }: { onOpen: (key: string) => void }) {
       <QueryState
         query={query}
         empty={rows.length === 0}
-        emptyMessage="No experiments. Mark a flag as an experiment and configure its metrics in config/flags.ts."
+        emptyMessage="No experiments. Mark a flag as an experiment and pick its metrics in the flag editor."
       >
         <Table head={['Experiment', 'Flag', 'Exposures', 'Verdicts', 'Computed', '']}>
           {rows.map((row) => (
@@ -45,6 +45,7 @@ export function Experiments({ onOpen }: { onOpen: (key: string) => void }) {
                 )}
                 <div className="mt-1 flex flex-wrap gap-1">
                   {!row.configured && <Badge variant="danger">no metrics configured</Badge>}
+                  {row.source === 'config' && <Badge>config</Badge>}
                   {row.running ? <Badge variant="type">running</Badge> : <Badge>stopped</Badge>}
                   {row.srmMismatch && <Badge variant="danger">SRM</Badge>}
                   {row.alert && <Badge variant="danger">guardrail</Badge>}

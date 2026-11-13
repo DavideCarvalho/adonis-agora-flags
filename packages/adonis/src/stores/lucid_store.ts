@@ -3,6 +3,7 @@ import {
   type FlagDefinition,
   type Holdout,
   type Layer,
+  type MetricDefinition,
   RULESET_SCHEMA_VERSION,
   type Ruleset,
   type Segment,
@@ -136,7 +137,12 @@ export class LucidStore implements FlagsStore {
         else if (row.entity === 'segment')
           ruleset.segments![row.entity_key] = definition as Segment;
         else if (row.entity === 'layer') ruleset.layers![row.entity_key] = definition as Layer;
-        else if (row.entity === 'holdout') ruleset.holdout = definition as Holdout;
+        else if (row.entity === 'metric') {
+          ruleset.metrics = {
+            ...ruleset.metrics,
+            [row.entity_key]: definition as MetricDefinition,
+          };
+        } else if (row.entity === 'holdout') ruleset.holdout = definition as Holdout;
       }
       return ruleset;
     });
@@ -258,6 +264,7 @@ export class LucidStore implements FlagsStore {
       case 'flag':
       case 'segment':
       case 'layer':
+      case 'metric':
         await upsert(change.entity, change.key, change.value);
         return;
       case 'holdout':
@@ -271,6 +278,8 @@ export class LucidStore implements FlagsStore {
           await upsert('segment', key, def);
         for (const [key, def] of Object.entries(value.layers ?? {}))
           await upsert('layer', key, def);
+        for (const [key, def] of Object.entries(value.metrics ?? {}))
+          await upsert('metric', key, def);
         if (value.holdout) await upsert('holdout', HOLDOUT_KEY, value.holdout);
       }
     }

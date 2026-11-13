@@ -155,6 +155,16 @@ export function cleanDefinition(definition: FlagDefinition): FlagDefinition {
     if (definition.experiment.key) e.key = definition.experiment.key;
     if (definition.experiment.layer) e.layer = definition.experiment.layer;
     if (definition.experiment.holdout === false) e.holdout = false;
+    if (definition.experiment.metrics && definition.experiment.metrics.length > 0) {
+      e.metrics = definition.experiment.metrics;
+    }
+    if (definition.experiment.guardrails && definition.experiment.guardrails.length > 0) {
+      e.guardrails = definition.experiment.guardrails;
+    }
+    if (definition.experiment.control) e.control = definition.experiment.control;
+    if (definition.experiment.confidence !== undefined) {
+      e.confidence = definition.experiment.confidence;
+    }
     out.experiment = e;
   }
   if (definition.tags && definition.tags.length > 0) out.tags = definition.tags;

@@ -47,6 +47,13 @@ export default defineConfig({
 
 In the console, give `checkout` a 50/50 split and mark it as an experiment.
 
+Metrics and experiment analysis can also be created with no deploy. Use the
+console's **Metrics** screen, then pick metrics and guardrails per flag
+under **Experiment** in the flag editor (`experiment.metrics`,
+`experiment.guardrails`, `control`, `confidence` in the ruleset). Console
+metrics are stored per environment in the ruleset (`ruleset.metrics`) and
+promote/import with it. On a name clash, the config wins.
+
 ## Core patterns
 
 ### Pattern 1 — assign and convert

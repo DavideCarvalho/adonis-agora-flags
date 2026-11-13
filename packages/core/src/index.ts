@@ -28,6 +28,9 @@ export {
   type Holdout,
   type JsonValue,
   type Layer,
+  METRIC_KINDS,
+  type MetricDefinition,
+  type MetricKind,
   OPERATORS,
   type Operator,
   type Prerequisite,
@@ -66,4 +69,4 @@ export {
   type WelchTestResult,
   welchTest,
 } from './stats.js';
-export { type RulesetIssue, validateRuleset } from './validate.js';
+export { type RulesetIssue, type ValidateOptions, validateRuleset } from './validate.js';
