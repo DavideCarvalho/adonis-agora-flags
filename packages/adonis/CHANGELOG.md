@@ -1,5 +1,11 @@
 # @adonis-agora/flags
 
+## 0.4.1
+
+### Patch Changes
+
+- [`9112596`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/9112596d6ae549142e35a6a3ccf2a65c6bcc5712) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Every `flags_list_*` MCP tool now takes `page` and `limit` and returns `{ items, next }`, the paging `@adonis-agora/filter`'s dev tools use. `flags_list_segments`, `flags_list_metrics`, `flags_list_experiments` and `flags_list_stale` used to return their whole list and refused `limit`. `flags_list_audit` and `flags_list_change_requests` returned `entries` and `requests` with no `next`.
+
 ## 0.4.0
 
 ### Minor Changes
