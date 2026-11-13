@@ -7,5 +7,8 @@ allowBuilds:
   esbuild: true
   '@swc/core': true
 
+minimumReleaseAgeExclude:
+  - '@adonis-agora/filter@1.0.0-rc.5'
+
 overrides:
   '@adonis-agora/flags-core': 'file:.packs/flags-core.tgz'

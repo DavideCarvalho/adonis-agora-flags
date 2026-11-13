@@ -1,5 +1,16 @@
 # @adonis-agora/flags-dashboard
 
+## 0.3.0
+
+### Minor Changes
+
+- [#3](https://github.com/DavideCarvalho/adonis-agora-flags/pull/3) [`1564a54`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/1564a54b54a136986af3cfbf4005069f6495f197) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The console's JSON lists speak the `@adonis-agora/filter` list format.
+  
+  - `GET /api/audit`, `/api/change-requests` and `/api/schedules` take `filter[field]=value` (`filter[entity]`, `filter[key]`; `filter[status]`; `filter[flag]`, `filter[status]`) and `first`, and answer `{ data, meta: { nextCursor, prevCursor, hasNext, hasPrev } }`. The history pages with `after=<meta.nextCursor>`. An unknown filter field or value, or a `sort` other than the list's own order, answers `400`.
+  - `GET /api/change-requests` with no `filter[status]` lists every status.
+  - The catalogs (`/api/flags`, `/api/segments`, `/api/layers`, `/api/metrics`, `/api/experiments`, `/api/stale`) return their rows under `data`.
+  - `limit`, `before`, and the flat `?entity=`, `?key=`, `?status=`, `?flag=` params are gone.
+
 ## 0.2.0
 
 ### Minor Changes
