@@ -43,6 +43,28 @@ With authkit, `identity: identities.authkit()` in `config/flags.ts` covers both.
 
 The console runs on the control-plane in a [central setup](/docs/central-server); tenants have none.
 
+## MCP tools
+
+With `@adonis-agora/agent`'s `mcp_provider` registered, the console's tools join the app's developer MCP endpoint (`/mcp/agora`). Nothing to configure in this lib. Access is the console's `authorize`: whoever can open the console can use the tools, and nobody else sees them. To let an MCP client in with a token while people sign in as usual, combine both checks:
+
+```ts title="config/flags_dashboard.ts"
+import env from '#start/env'
+import { anyAuthorize, authorizeByToken, defineConfig } from '@adonis-agora/flags/dashboard'
+
+export default defineConfig({
+  authorize: anyAuthorize(
+    authorizeByToken({ token: env.get('CONSOLE_TOKEN') }),
+    (ctx) => ctx.auth.user?.isAdmin ?? false,
+  ),
+})
+```
+
+Read tools are always listed: `flags_get_overview`, `flags_list_flags`, `flags_get_flag`, `flags_evaluate` (what a subject gets and why), `flags_list_segments`, `flags_list_metrics`, `flags_list_experiments`, `flags_get_experiment`, `flags_list_change_requests`, `flags_list_audit`, `flags_list_stale` and `flags_get_ops`.
+
+Action tools are listed only when the app allows actions on the dev endpoint (`devTools.actions` in `config/mcp.ts`): `flags_set_enabled`, `flags_set_rollout`, `flags_set_variant`, `flags_set_override`, `flags_save_flag`, `flags_save_segment`, `flags_save_metric`, `flags_recompute_experiment`, `flags_approve_change_request` and `flags_reject_change_request`.
+
+Actions go through the same validation, approvals and history as the console. Where an environment needs approval, a change becomes a change request. The history records the signed-in person, or `mcp:token:<fingerprint>` for a token.
+
 ## The console API
 
 Everything the console does goes through JSON endpoints under `<path>/api`, behind the same `authorize`. Writes carry the `x-xsrf-token` header when `@adonisjs/shield` sets the `XSRF-TOKEN` cookie. Every endpoint takes `?environment=` (or `environment` in the body).

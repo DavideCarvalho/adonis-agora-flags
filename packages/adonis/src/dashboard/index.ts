@@ -27,6 +27,7 @@ export type {
   ConsoleAuthorizerClass,
 } from './console_authorize.js';
 export {
+  anyAuthorize,
   authorizeByToken,
   normalizeConsoleAuthorizeResult,
   resolveConsoleAuthorize,
@@ -40,6 +41,17 @@ export type {
   ResolvedFlagsDashboardConfig,
 } from './define_config.js';
 export { defineConfig, resolveConfig } from './define_config.js';
+export type {
+  DevTool,
+  DevToolCall,
+  DevToolInputSchema,
+  DevToolsCaller,
+  DevToolsDecision,
+  DevToolsHub,
+  DevToolsLib,
+  FlagsDevToolsOptions,
+} from './dev_tools.js';
+export { DEV_TOOLS_BINDING, flagsDevTools, registerFlagsDevTools } from './dev_tools.js';
 export type { ApiRequest, ApiResponse, DeclaredFlag, Deps, Serving } from './handlers.js';
 export * as handlers from './handlers.js';
 export { errorResponse, HttpError, servingSummary } from './handlers.js';

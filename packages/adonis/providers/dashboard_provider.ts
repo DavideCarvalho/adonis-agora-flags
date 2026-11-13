@@ -18,6 +18,11 @@ import {
   resolveConfig,
 } from '../src/dashboard/define_config.js';
 import {
+  type DevToolsCaller,
+  type DevToolsDecision,
+  registerFlagsDevTools,
+} from '../src/dashboard/dev_tools.js';
+import {
   type ApiRequest,
   type ApiResponse,
   approveChangeRequest,
@@ -112,11 +117,15 @@ type Handler = (deps: Deps, req: ApiRequest) => Promise<ApiResponse>;
  * - `POST   /api/preview`, `/api/evaluate`             → validate a draft / test a context
  * - `GET    /api/segments`  `PUT|DELETE /api/segments/:key`
  * - `GET    /api/layers`    `PUT|DELETE /api/layers/:key`  `PUT /api/holdout`
+ * - `GET    /api/metrics`   `PUT|DELETE /api/metrics/:key`
  * - `GET    /api/experiments`, `/api/experiments/:key`  `POST /api/experiments/:key/recompute`
  * - `GET    /api/change-requests`  `POST /api/change-requests/:id/{approve,reject,cancel}`
  * - `GET    /api/audit`, `/api/schedules`  `DELETE /api/schedules/:id`
  * - `GET    /api/export`  `POST /api/import`, `/api/promote`
  * - `GET    /api/stale`, `/api/ops`
+ *
+ * With `@adonis-agora/agent/mcp_provider` in the app, the same handlers are also registered as
+ * `flags_*` tools on its developer MCP endpoint, behind the same `authorize`.
  *
  * On a `tenant` (no store, no admin) nothing is registered and a warning is logged.
  */
@@ -142,6 +151,7 @@ export default class FlagsDashboardProvider {
     }
     this.identity = flagsConfig?.identity;
     this.authorizeGuard = await this.resolveGuard(config);
+    await this.registerDevTools(config);
 
     // The router is committed only after every provider's `boot()`: register in `booted`.
     await this.app.booted(async () => {
@@ -234,6 +244,50 @@ export default class FlagsDashboardProvider {
 
     router.get(`${api}/stale`, json(stale)).as(name('stale'));
     router.get(`${api}/ops`, json(ops)).as(name('ops'));
+  }
+
+  /**
+   * Register the console's tools into the app's dev-tools hub (`/mcp/agora`), when it has one. Same
+   * gate, actor and handlers as the JSON API.
+   */
+  private async registerDevTools(config: ResolvedFlagsDashboardConfig): Promise<void> {
+    const decisions = new WeakMap<HttpContext, Promise<ConsoleAuthorizeDecision>>();
+    const decide = (ctx: HttpContext) => {
+      let decision = decisions.get(ctx);
+      if (!decision) {
+        decision = this.authorizeGuard(ctx);
+        decisions.set(ctx, decision);
+      }
+      return decision;
+    };
+    try {
+      await registerFlagsDevTools(this.app.container as never, {
+        authorize: async (ctx) => devToolsDecisionOf(await decide(ctx)),
+        serve: async (ctx, handler, req, caller) => {
+          // The hub ran `authorize` for this request already; a call without it still gets it.
+          const decision = await decide(ctx);
+          if (!decision.allowed) {
+            const status = decision.status === 403 ? 403 : 401;
+            return { status, body: { error: status === 403 ? 'forbidden' : 'unauthenticated' } };
+          }
+          if (!hasRuntime()) {
+            return { status: 503, body: { error: '@adonis-agora/flags is not booted' } };
+          }
+          const actor = mcpActor(await this.actorOf(config, ctx), caller);
+          return (handler as Handler)({ runtime: getRuntime(), actor }, {
+            params: {},
+            query: {},
+            ...req,
+          } as ApiRequest);
+        },
+      });
+    } catch (error) {
+      await this.warn(
+        `[@adonis-agora/flags] could not register the console's MCP dev tools: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   /**
@@ -404,6 +458,31 @@ export default class FlagsDashboardProvider {
       .header('cache-control', 'no-store, must-revalidate')
       .send(html);
   }
+}
+
+/** The console decision as the dev-tools hub reads it. */
+function devToolsDecisionOf(decision: ConsoleAuthorizeDecision): DevToolsDecision {
+  if (decision.allowed) return { allowed: true };
+  if (decision.status === 302) {
+    return { allowed: false, reason: 'unauthenticated', redirectTo: decision.redirectTo };
+  }
+  if (decision.status === 401) return { allowed: false, reason: 'unauthenticated' };
+  return {
+    allowed: false,
+    reason: 'forbidden',
+    ...(decision.error !== undefined ? { error: decision.error } : {}),
+  };
+}
+
+/**
+ * The actor of an MCP call: the person the console identifies, else `mcp:<caller>` (a token's
+ * fingerprint). A dev-open caller stays anonymous, so approvals refuse it.
+ */
+export function mcpActor(actor: Actor, caller: DevToolsCaller): Actor {
+  if (!actor.anonymous) return actor;
+  return caller.via === 'open'
+    ? { id: `mcp:${caller.id}`, name: 'MCP', anonymous: true }
+    : { id: `mcp:${caller.id}`, name: 'MCP' };
 }
 
 /** Whether something already answered this request (a redirect or a queued body). */

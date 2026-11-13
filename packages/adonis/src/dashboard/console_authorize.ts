@@ -154,3 +154,52 @@ export function authorizeByToken(options: AuthorizeByTokenOptions): ConsoleAutho
     return { allowed: false, reason: 'unauthenticated' };
   };
 }
+
+/**
+ * Allows a request when ANY of the given checks allows it, tried in order. Typical: a token for MCP
+ * clients and scripts, or a signed-in admin for the browser.
+ *
+ * ```ts
+ * authorize: anyAuthorize(
+ *   authorizeByToken({ token: env.get('CONSOLE_TOKEN') }),
+ *   (ctx) => ctx.auth.user?.isAdmin ?? false,
+ * ),
+ * ```
+ *
+ * Refused by all: a redirect when one asked for it, else `401` when one wanted a sign-in, else `403`.
+ */
+export function anyAuthorize(
+  ...authorizers: ConsoleAuthorize[]
+): (ctx: HttpContext) => Promise<ConsoleAuthorizeResult> {
+  if (authorizers.length === 0) {
+    throw new Error('[@adonis-agora/flags] anyAuthorize: pass at least one authorize');
+  }
+  const resolved = authorizers.map((authorize) => resolveConsoleAuthorize(authorize));
+  return async (ctx: HttpContext): Promise<ConsoleAuthorizeResult> => {
+    let unauthenticated = false;
+    let redirectTo: string | undefined;
+    let error: unknown;
+    let threw = false;
+    for (const authorize of resolved) {
+      const decision = await authorize(ctx);
+      if (decision.allowed) return { allowed: true };
+      if (decision.status === 302) {
+        redirectTo ??= decision.redirectTo;
+        continue;
+      }
+      if (decision.status === 401) {
+        unauthenticated = true;
+        continue;
+      }
+      if (decision.error !== undefined && !threw) {
+        threw = true;
+        error = decision.error;
+      }
+    }
+    if (redirectTo !== undefined) return { redirectTo };
+    if (unauthenticated) return { allowed: false, reason: 'unauthenticated' };
+    // Rethrow an inner check's error so the console still logs it (a throw is a 403).
+    if (threw) throw error;
+    return { allowed: false, reason: 'forbidden' };
+  };
+}
