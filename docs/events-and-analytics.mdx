@@ -96,7 +96,7 @@ node ace flags:forget <subject-id>
 await flags.forget(user)
 ```
 
-Deletes the subject's events and exposures from the log and from every sink that supports it (lucid, ClickHouse, local Parquet files). PostHog erasure goes through PostHog itself.
+Deletes the subject's events and exposures from the log and from every sink that supports it (lucid, ClickHouse, local Parquet files). PostHog erasure goes through PostHog itself. With `transports.queue()`, batches still waiting in the queue are not touched: run `forget` again once they are delivered.
 
 ## Observability
 
