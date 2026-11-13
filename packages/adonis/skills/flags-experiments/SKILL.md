@@ -5,7 +5,7 @@ description: >-
   sum with windowMs and cupedMs, experiments config with metrics and
   guardrails, marking a flag as an experiment with a split, exposures
   recorded by ctx.flags.variant(), flags.track(name, { value, client: trx })
-  inside business transactions, flags:results, SRM, sequential p-values,
+  inside business transactions, flags:experiments:show / recompute, SRM, sequential p-values,
   CUPED, sticky assignment, layers and the global holdout, environments that
   never mix data, and the analytics backends (lucid, duckdb + parquet sink,
   clickhouse). Use for "A/B test this page", "measure conversion", "why does
@@ -70,7 +70,7 @@ await db.transaction(async (trx) => {
 ### Pattern 2 — read results
 
 ```sh
-node ace flags:results checkout --fresh
+node ace flags:experiments:recompute checkout   # or :show for the cached results
 ```
 
 Trust nothing while SRM is flagged. Peek freely with the sequential p-value;

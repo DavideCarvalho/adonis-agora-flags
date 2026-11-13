@@ -1,6 +1,10 @@
 import { readFile, writeFile } from 'node:fs/promises';
+import type { Ruleset } from '@adonis-agora/flags-core';
 import { args, flags } from '@adonisjs/core/ace';
-import { cliActor, FlagsCommand } from './shared.js';
+import { ValidationError } from '../src/admin.js';
+import { importRuleset, promote, stale } from '../src/dashboard/handlers.js';
+import { rulesetIssues } from '../src/dashboard/shape.js';
+import { FlagsCommand, FlagsConsoleCommand } from './shared.js';
 
 export class FlagsExport extends FlagsCommand {
   static override commandName = 'flags:export';
@@ -25,36 +29,78 @@ export class FlagsExport extends FlagsCommand {
   }
 }
 
-export class FlagsImport extends FlagsCommand {
+/** `--note`, `--force` and `--dry-run` for the commands that replace a whole ruleset. */
+abstract class ReplaceRulesetCommand extends FlagsConsoleCommand {
+  @flags.string({ description: 'Why (kept on the change request / audit)' })
+  declare note?: string;
+
+  @flags.boolean({ description: 'Do not ask for confirmation' })
+  declare force?: boolean;
+
+  @flags.boolean({ description: 'Validate against the target environment, change nothing' })
+  declare dryRun?: boolean;
+
+  /** Validates `ruleset` as the replacement for `environment` without writing; prints the verdict. */
+  protected async dryRunReplace(ruleset: Ruleset, environment: string): Promise<void> {
+    const runtime = await this.runtime();
+    const issues = rulesetIssues(ruleset);
+    if (issues.length > 0) throw new ValidationError(issues);
+    await runtime.admin!.preview(
+      {
+        entity: 'ruleset',
+        value: {
+          flags: ruleset.flags,
+          segments: ruleset.segments ?? {},
+          layers: ruleset.layers ?? {},
+          ...(ruleset.metrics ? { metrics: ruleset.metrics } : {}),
+          ...(ruleset.holdout ? { holdout: ruleset.holdout } : {}),
+        },
+      },
+      environment,
+    );
+    const summary = {
+      dryRun: true,
+      environment,
+      valid: true,
+      flags: Object.keys(ruleset.flags).length,
+      segments: Object.keys(ruleset.segments ?? {}).length,
+      layers: Object.keys(ruleset.layers ?? {}).length,
+      requiresApproval: runtime.admin!.requiresApproval(environment),
+    };
+    if (this.json) return this.printJson(summary);
+    this.logger.success(
+      `dry run: valid for ${environment} (${summary.flags} flags, ${summary.segments} segments, ${summary.layers} layers)${
+        summary.requiresApproval ? '; applying would file a change request' : ''
+      }`,
+    );
+  }
+}
+
+export class FlagsImport extends ReplaceRulesetCommand {
   static override commandName = 'flags:import';
   static override description =
-    'Replace an environment ruleset with a JSON export (validated; approvals apply)';
+    'Replace an environment ruleset with a JSON export (validated; approvals apply; asks unless --force)';
 
   @args.string({ description: 'JSON file' })
   declare file: string;
 
-  @flags.string({ description: 'Environment (default: the configured one)' })
-  declare env?: string;
-
-  @flags.string({ description: 'Why' })
-  declare note?: string;
-
   override async run() {
-    const runtime = await this.runtime();
-    const ruleset = JSON.parse(await readFile(this.file, 'utf8'));
-    const result = await runtime.admin!.importRuleset(ruleset, cliActor(), {
-      ...(this.env ? { environment: this.env } : {}),
-      ...(this.note ? { note: this.note } : {}),
+    const ruleset = JSON.parse(await readFile(this.file, 'utf8')) as Ruleset;
+    const environment = this.env ?? (await this.runtime()).manager.environment;
+    if (this.dryRun) return this.dryRunReplace(ruleset, environment);
+    const question = `Replace every flag, segment and layer in ${environment} with ${this.file}?`;
+    if (!(await this.confirmed(this.force, question))) return;
+    const out = await this.call(importRuleset, {
+      body: { ruleset, ...(this.note ? { note: this.note } : {}) },
     });
-    if (result.status === 'applied')
-      this.logger.success(`imported (ruleset version ${result.version})`);
-    else this.logger.warning(`approval required: change request ${result.request.id}`);
+    this.reportWrite(out, `imported into ${environment}`);
   }
 }
 
-export class FlagsPromote extends FlagsCommand {
+export class FlagsPromote extends ReplaceRulesetCommand {
   static override commandName = 'flags:promote';
-  static override description = 'Copy one environment ruleset over another (staging → production)';
+  static override description =
+    'Copy one environment ruleset over another (staging → production); asks unless --force';
 
   @args.string({ description: 'Source environment' })
   declare from: string;
@@ -62,19 +108,21 @@ export class FlagsPromote extends FlagsCommand {
   @args.string({ description: 'Target environment' })
   declare to: string;
 
-  @flags.string({ description: 'Why' })
-  declare note?: string;
-
   override async run() {
-    const runtime = await this.runtime();
-    const result = await runtime.admin!.promote(this.from, this.to, cliActor(), this.note);
-    if (result.status === 'applied')
-      this.logger.success(`${this.from} → ${this.to} (version ${result.version})`);
-    else this.logger.warning(`approval required: change request ${result.request.id}`);
+    if (this.dryRun) {
+      const source = await (await this.runtime()).admin!.exportRuleset(this.from);
+      return this.dryRunReplace(source, this.to);
+    }
+    const question = `Replace every flag, segment and layer in ${this.to} with ${this.from}'s?`;
+    if (!(await this.confirmed(this.force, question))) return;
+    const out = await this.call(promote, {
+      body: { from: this.from, to: this.to, ...(this.note ? { note: this.note } : {}) },
+    });
+    this.reportWrite(out, `${this.from} → ${this.to}`);
   }
 }
 
-export class FlagsStale extends FlagsCommand {
+export class FlagsStale extends FlagsConsoleCommand {
   static override commandName = 'flags:stale';
   static override description =
     'Flags that are probably safe to remove (unused, expired, static, undeclared)';
@@ -86,67 +134,28 @@ export class FlagsStale extends FlagsCommand {
   declare staticDays?: number;
 
   override async run() {
-    const runtime = await this.runtime();
-    const stale = await runtime.admin!.stale({
-      ...(this.unusedDays ? { unusedDays: this.unusedDays } : {}),
-      ...(this.staticDays ? { staticDays: this.staticDays } : {}),
+    const out = await this.call(stale, {
+      query: {
+        ...(this.unusedDays !== undefined ? { unusedDays: String(this.unusedDays) } : {}),
+        ...(this.staticDays !== undefined ? { staticDays: String(this.staticDays) } : {}),
+      },
     });
-    if (stale.length === 0) {
+    if (this.json) return this.printJson(out);
+    const rows = out.data as Array<{
+      key: string;
+      reasons: string[];
+      lastEvaluated?: string | null;
+      owner?: string | null;
+    }>;
+    if (rows.length === 0) {
       this.logger.success('no stale flags');
       return;
     }
     const table = this.ui.table();
     table.head(['Flag', 'Why', 'Last evaluated', 'Owner']);
-    for (const s of stale)
+    for (const s of rows)
       table.row([s.key, s.reasons.join(', '), s.lastEvaluated ?? 'never', s.owner ?? '']);
     table.render();
-  }
-}
-
-export class FlagsResults extends FlagsCommand {
-  static override commandName = 'flags:results';
-  static override description = 'Show experiment results (recompute with --fresh)';
-
-  @args.string({ description: 'Experiment key' })
-  declare experiment: string;
-
-  @flags.boolean({ description: 'Recompute now instead of reading the cache' })
-  declare fresh?: boolean;
-
-  override async run() {
-    const runtime = await this.runtime();
-    const results = this.fresh
-      ? await runtime.worker!.computeResults(this.experiment)
-      : await runtime.manager.results(this.experiment);
-    if (!results) {
-      this.logger.warning(
-        'no results yet (is the experiment configured in config/flags.ts experiments?)',
-      );
-      return;
-    }
-    this.logger.info(
-      `${results.experiment}: exposures ${JSON.stringify(results.exposures)} (computed ${results.computedAt})`,
-    );
-    if (results.srm?.mismatch)
-      this.logger.error(
-        `sample ratio mismatch (p=${results.srm.pValue.toExponential(2)}): fix assignment before trusting results`,
-      );
-    const table = this.ui.table();
-    table.head(['Metric', 'Variant', 'Lift', 'p', 'p (sequential)', 'Verdict']);
-    for (const metric of results.metrics) {
-      for (const c of metric.comparisons) {
-        table.row([
-          `${metric.name}${metric.guardrail ? ' (guardrail)' : ''}`,
-          c.variant,
-          Number.isFinite(c.relativeLift) ? `${(c.relativeLift * 100).toFixed(2)}%` : '-',
-          c.pValue.toPrecision(3),
-          c.sequential.pValue.toPrecision(3),
-          c.verdict,
-        ]);
-      }
-    }
-    table.render();
-    for (const warning of results.warnings) this.logger.warning(warning);
   }
 }
 
@@ -158,8 +167,24 @@ export class FlagsForget extends FlagsCommand {
   @args.string({ description: 'Subject id' })
   declare subject: string;
 
+  @flags.boolean({ description: 'Do not ask for confirmation' })
+  declare force?: boolean;
+
   override async run() {
     const runtime = await this.runtime();
+    if (!this.force) {
+      if (process.stdin.isTTY !== true) {
+        throw new Error(`forgetting ${this.subject} cannot be undone: pass --force`);
+      }
+      const ok = await this.prompt.confirm(
+        `Delete everything stored about ${this.subject}? This cannot be undone.`,
+      );
+      if (!ok) {
+        this.logger.warning('cancelled');
+        this.exitCode = 1;
+        return;
+      }
+    }
     await runtime.manager.forget(this.subject);
     this.logger.success(`forgot ${this.subject}`);
   }
@@ -182,63 +207,5 @@ export class FlagsReplay extends FlagsCommand {
     }
     await runtime.transport.rewind(this.sink);
     this.logger.success(`${this.sink} will receive the retained log again`);
-  }
-}
-
-export class FlagsRequests extends FlagsCommand {
-  static override commandName = 'flags:requests';
-  static override description = 'List change requests, or approve/reject one';
-
-  @args.string({ description: 'list | approve | reject | cancel', required: false })
-  declare action?: string;
-
-  @args.string({ description: 'Change request id', required: false })
-  declare id?: string;
-
-  @flags.string({ description: 'Review note' })
-  declare note?: string;
-
-  @flags.string({ description: 'Act as this actor id instead of cli:<user>' })
-  declare as?: string;
-
-  override async run() {
-    const runtime = await this.runtime();
-    const admin = runtime.admin!;
-    const actor = cliActor(this.as);
-    const action = this.action ?? 'list';
-    if (action === 'list') {
-      const requests = await runtime.store!.listChangeRequests({ status: 'pending' });
-      const table = this.ui.table();
-      table.head(['Id', 'Environment', 'Change', 'Requested by', 'Note']);
-      for (const r of requests) {
-        table.row([
-          r.id,
-          r.environment,
-          `${r.change.entity} ${r.change.key ?? ''}`,
-          r.requestedBy.id,
-          r.note ?? '',
-        ]);
-      }
-      table.render();
-      return;
-    }
-    if (!this.id) {
-      this.logger.error('give the change request id');
-      this.exitCode = 1;
-      return;
-    }
-    if (action === 'approve') {
-      const { version } = await admin.approve(this.id, actor, this.note);
-      this.logger.success(`applied (ruleset version ${version})`);
-    } else if (action === 'reject') {
-      await admin.reject(this.id, actor, this.note);
-      this.logger.success('rejected');
-    } else if (action === 'cancel') {
-      await admin.cancel(this.id, actor);
-      this.logger.success('cancelled');
-    } else {
-      this.logger.error(`unknown action "${action}"`);
-      this.exitCode = 1;
-    }
   }
 }

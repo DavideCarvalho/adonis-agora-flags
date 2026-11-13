@@ -1,23 +1,114 @@
 ---
-title: Commands
-description: Every flags:* ace command.
+title: CLI
+description: Every flags:* ace command — everything the console does, from the terminal.
 icon: Terminal
 ---
 
+Everything you can do in the console you can do with `node ace`. The commands run the console's own handlers, so the same validation, permissions, approvals and audit trail apply.
+
+## Conventions
+
+- `--env=<name>` picks the environment (default: the one this app evaluates).
+- `--json` prints JSON instead of a table, on every list and show.
+- Writes act as `cli:<your OS user>` in the audit; `--as=<id>` acts as someone else.
+- `--note="…"` is kept on the change request and in the audit.
+- In an environment with approvals, a write files a change request instead of applying: the command says so and prints its id.
+- Deleting, replacing a ruleset and forgetting a subject ask for confirmation. Pass `--force` to skip the question; without a terminal (CI, a pipe) `--force` is required.
+- JSON inputs (`--definition`, `--segment`, …) take inline JSON or `@path/to/file.json`.
+- A refused change prints one error line and exits with code 1.
+
+## Flags
+
 | Command | What it does |
 |---|---|
-| `flags:list [--env] [--json]` | Every flag: declared type and default, what it serves, owner |
-| `flags:set <flag> <value> [--env] [--note] [--as]` | `on`, `off`, `kill`, `unkill`, `25%`, a variant name, or a value (`flags:set max_uploads 25`, JSON for JSON flags) |
-| `flags:types [--env] [--out] [--no-strict]` | Generate TypeScript types for the flags created in the console |
-| `flags:work [--once] [--sink]` | Run background work: relay, schedules, results, maintenance |
-| `flags:results <experiment> [--fresh]` | Experiment results |
-| `flags:requests [list\|approve\|reject\|cancel] [id] [--note]` | Change requests |
-| `flags:export [--env] [--out]` | The ruleset as JSON |
-| `flags:import <file> [--env] [--note]` | Replace a ruleset (validated; approvals apply) |
-| `flags:promote <from> <to>` | Copy one environment's ruleset over another |
+| `flags:list` | Every flag: declared type and default, what it serves, owner |
+| `flags:flag:show <flag>` | Declaration, targeting, what it serves, pending requests, schedules, last changes |
+| `flags:set <flag> <value>` | Shortcut: `on`, `off`, `kill`, `unkill`, `25%`, a variant name, or a value (`flags:set max_uploads 25`) |
+| `flags:flag:enable <flag>` / `flags:flag:disable <flag>` | The kill switch |
+| `flags:flag:rollout <flag> <percent>` | Serve `on` to a share of subjects (on/off flags) |
+| `flags:flag:variant <flag> <variant>` | Serve one variant to everyone |
+| `flags:flag:override <flag> <subject> <variant>` | Force a variant for one subject; `--clear` removes it |
+| `flags:flag:save <flag> --definition=<json>` | Save the whole definition (variants, rules, overrides, fallthrough, experiment) |
+| `flags:flag:create <flag> --declaration=<json>` | Create a flag without code (`{ "type": "boolean", "default": false }`) |
+| `flags:flag:update <flag> --declaration=<json>` | Edit a console-created flag's description, owner, tags, expiry |
+| `flags:flag:delete <flag> [--force]` | Remove a flag from the ruleset; the code default takes over |
+| `flags:flag:evaluate [flag] [--subject] [--context=<json>]` | What a subject would get. Records no exposure |
+| `flags:types [--out] [--no-strict]` | Generate TypeScript types for the flags created in the console |
+
+```sh
+node ace flags:flag:rollout new_player 25 --note "ramp"
+node ace flags:flag:override checkout qa-team one_page
+node ace flags:flag:evaluate checkout --context='{"targetingKey":"u1","country":"BR"}'
+```
+
+## Segments, layers, holdout, metrics
+
+| Command | What it does |
+|---|---|
+| `flags:segments:list` | Segments and the flags whose rules use each one |
+| `flags:segments:save <key> --segment=<json>` | Create or replace a segment |
+| `flags:segments:delete <key> [--force]` | Delete a segment (refused while a rule uses it) |
+| `flags:layers:list` | Layers, their allocations, the global holdout and every experiment |
+| `flags:layers:save <key> --layer=<json>` | Create or replace a layer |
+| `flags:layers:delete <key> [--force]` | Delete a layer |
+| `flags:holdout:save --holdout=<json>` | Set the global holdout (`{ "percent": 5 }`); `--clear [--force]` removes it |
+| `flags:metrics:list` | Metrics from `config/flags.ts` and the console, and who uses them |
+| `flags:metrics:save <name> --metric=<json>` | Create or replace a console metric |
+| `flags:metrics:delete <name> [--force]` | Delete a console metric (refused while an experiment uses it) |
+
+```sh
+node ace flags:segments:save staff --segment='{"conditions":[{"attribute":"email","op":"endsWith","values":["@acme.com"]}]}'
+node ace flags:metrics:save purchases --metric='{"kind":"conversion","event":"purchase"}'
+```
+
+## Experiments
+
+| Command | What it does |
+|---|---|
+| `flags:experiments:list` | Every experiment: running, exposures, SRM, verdicts of the last results |
+| `flags:experiments:show <experiment>` | The last computed results |
+| `flags:experiments:recompute <experiment>` | Compute the results now instead of at the worker's next tick |
+
+## Approvals, schedules, audit
+
+| Command | What it does |
+|---|---|
+| `flags:requests:list [--status] [--first]` | Change requests, newest first. `--status` is `pending` (default), `approved`, `rejected`, `applied`, `cancelled` or `all` |
+| `flags:requests:approve <id> [--note]` | Approve and apply. The requester cannot approve their own |
+| `flags:requests:reject <id> [--note]` | Reject |
+| `flags:requests:cancel <id>` | Withdraw your own request |
+| `flags:schedules:list [--flag] [--status] [--first]` | Scheduled changes, soonest first |
+| `flags:schedules:create <flag> --kind=<enable\|disable\|rollout> --at=<date> [--percent]` | Schedule one change |
+| `flags:schedules:create <flag> --steps=<json>` | A gradual rollout: `[{ "at": "…", "percent": 10 }, …]` |
+| `flags:schedules:cancel <id>` | Cancel a pending schedule |
+| `flags:audit:list [--entity] [--key] [--first] [--after]` | Who changed what, newest first. The last line prints the `--after` for the next page |
+
+```sh
+node ace flags:requests:list --env=production
+node ace flags:requests:approve 01JC… --env=production --note "checked with support"
+node ace flags:audit:list --key=checkout --first=20
+```
+
+## Environments
+
+| Command | What it does |
+|---|---|
+| `flags:environments:list` | Environments, and which ones need approvals |
+| `flags:export [--out]` | The ruleset as JSON |
+| `flags:import <file> [--dry-run] [--force]` | Replace a ruleset (validated; approvals apply) |
+| `flags:promote <from> <to> [--dry-run] [--force]` | Copy one environment's ruleset over another |
+
+`--dry-run` validates the replacement against the target environment and changes nothing.
+
+## Hygiene and operations
+
+| Command | What it does |
+|---|---|
 | `flags:stale [--unused-days] [--static-days]` | Flags that are probably safe to remove |
 | `flags:refs [--flag]` | Where each flag is used in the code |
+| `flags:ops:status` | Ruleset source, buffer, transport, sinks and tenants |
+| `flags:work [--once] [--sink]` | Run the background work: relay, schedules, results, maintenance |
 | `flags:replay <sink>` | Deliver the retained event log to a sink again |
-| `flags:forget <subject>` | Delete everything stored about a subject |
+| `flags:forget <subject> [--force]` | Delete everything stored about a subject |
 
-Commands act as `cli:<your OS user>` in the audit; `--as` overrides it.
+On a tenant app the commands refuse: run them on the control-plane.

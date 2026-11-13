@@ -28,14 +28,14 @@ Changes to `production` become change requests. Someone else approves them — t
 Approvals need to know who is acting. Where approvals are on, an anonymous actor (the console with nobody signed in and no `actor` configured) is refused.
 
 ```sh
-node ace flags:requests                 # pending
-node ace flags:requests approve <id>
-node ace flags:requests reject <id> --note "not before Black Friday"
+node ace flags:requests:list --env=production   # pending
+node ace flags:requests:approve <id>
+node ace flags:requests:reject <id> --note "not before Black Friday"
 ```
 
 ## Audit
 
-Every change is recorded with who made it, the value before and after, the change request that carried it and the ruleset version it produced. See it per flag in the console.
+Every change is recorded with who made it, the value before and after, the change request that carried it and the ruleset version it produced. See it per flag in the console, or with `node ace flags:audit:list --key=<flag>`.
 
 ## Environments
 
@@ -43,9 +43,10 @@ One store can hold several environments. Each process reads one (`environment`, 
 
 ```sh
 node ace flags:set new_player on --env=staging
-node ace flags:promote staging production
+node ace flags:promote staging production --dry-run
+node ace flags:promote staging production --force
 node ace flags:export --env=production --out=flags.json
-node ace flags:import flags.json --env=staging
+node ace flags:import flags.json --env=staging --force
 ```
 
 ## Scheduled changes and gradual rollouts
@@ -61,6 +62,12 @@ await flags.admin.scheduleRollout('new_player', [
 ```
 
 Or schedule `enable`/`disable` (the kill switch) for a date. The worker applies each step once.
+
+```sh
+node ace flags:schedules:create new_player --steps='[{"at":"2026-12-01T09:00:00Z","percent":10},{"at":"2026-12-03T09:00:00Z","percent":50}]'
+node ace flags:schedules:create new_player --kind=disable --at=2026-12-24T00:00:00Z
+node ace flags:schedules:list --flag=new_player
+```
 
 ## Cleaning up
 

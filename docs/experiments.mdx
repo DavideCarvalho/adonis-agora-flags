@@ -77,8 +77,8 @@ An exposure is recorded when the code **uses** the variant, not when a page mere
 ## 4. Read the results
 
 ```sh
-node ace flags:results checkout
-node ace flags:results checkout --fresh   # recompute now
+node ace flags:experiments:show checkout
+node ace flags:experiments:recompute checkout   # recompute now
 ```
 
 The worker recomputes results every 10 minutes (`resultsIntervalMs`); the console shows the latest. For each metric and variant you get the lift, a confidence interval, a p-value and a verdict.
