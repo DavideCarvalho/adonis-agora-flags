@@ -36,24 +36,24 @@ function RequestRow({ request, me }: { request: ChangeRequest; me: string }) {
       aria-label={`Change request ${request.id}`}
     >
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-zinc-100">{describeChange(request)}</span>
+        <span className="text-fg">{describeChange(request)}</span>
         <span className={`s-${request.status}`}>{request.status}</span>
-        <span className="text-zinc-500">
+        <span className="text-dim">
           by {request.requestedBy.name ?? request.requestedBy.id} ·{' '}
           {formatTime(request.requestedAt)} · base v{request.baseVersion}
         </span>
         {mine && <Badge>yours</Badge>}
       </div>
-      {request.note && <p className="text-xs text-zinc-300">“{request.note}”</p>}
+      {request.note && <p className="text-xs text-fg-2">“{request.note}”</p>}
       {request.reviewedBy && (
-        <p className="text-[11px] text-zinc-500">
+        <p className="text-[11px] text-dim">
           reviewed by {request.reviewedBy.name ?? request.reviewedBy.id}
           {request.reviewNote ? `: “${request.reviewNote}”` : ''}
         </p>
       )}
       <details>
-        <summary className="cursor-pointer text-[11px] text-zinc-500">Proposed value</summary>
-        <pre className="mono mt-1 max-h-64 overflow-auto text-[10px] text-zinc-300">
+        <summary className="cursor-pointer text-[11px] text-dim">Proposed value</summary>
+        <pre className="mono mt-1 max-h-64 overflow-auto text-[10px] text-fg-2">
           {JSON.stringify(request.change.value, null, 2)}
         </pre>
       </details>
@@ -68,7 +68,7 @@ function RequestRow({ request, me }: { request: ChangeRequest; me: string }) {
           />
           {mine ? (
             <>
-              <span className="text-[11px] text-zinc-500">
+              <span className="text-[11px] text-dim">
                 Someone else has to approve your request.
               </span>
               <Button variant="danger" disabled={busy} onClick={() => cancel.mutate()}>
@@ -109,7 +109,7 @@ export function Approvals() {
   const me = query.data?.actor.id ?? meta?.actor.id ?? '';
   return (
     <Panel
-      title="Approvals"
+      title="Change requests"
       subtitle={
         query.data?.requiresApproval
           ? `Changes to ${environment} need a second person.`

@@ -1,41 +1,29 @@
-import { cva, type VariantProps } from 'class-variance-authority';
-import { forwardRef } from 'react';
-import { cn } from './cn';
+import type { ComponentProps } from 'react';
+import { cn } from '../../agora-kit/lib/utils';
+import { Badge as KitBadge } from '../../agora-kit/ui/badge';
 
 /**
- * A non-interactive label chip: the provider, the event type, a gateway id.
+ * A non-interactive label chip, on the kit's badge (authkit's 18px mono pill). The variant names
+ * are the ones the screens already use:
  *
- * The `status` variant is colourless on purpose — a status badge takes its hue from the
- * `s-<status>` class in `index.css`, which is the single place status colour is defined.
- * Copied in shape from `@adonis-agora/durable-dashboard`'s `ui/badge.tsx`.
+ * - `outline` — a neutral tag (a flag tag, an owner);
+ * - `provider` / `type` — provenance and kind (`experiment`, `console`);
+ * - `danger` — something that needs acting on (a stale reason);
+ * - `status` — colourless on purpose: the hue comes from the caller's `s-<status>` class in
+ *   `index.css`, the single place status colour is defined.
  */
-export const badgeVariants = cva(
-  'inline-flex items-center gap-1.5 rounded-sm border px-1.5 text-[10px] leading-relaxed',
-  {
-    variants: {
-      variant: {
-        outline: 'border-line bg-zinc-800/40 text-zinc-400',
-        /** The gateway that produced the row (stripe/asaas/woovi/abacate). */
-        provider: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
-        /** The webhook event type (`payment.succeeded`, ...). */
-        type: 'border-indigo-500/30 bg-indigo-500/10 text-indigo-300',
-        /** Something that needs acting on. */
-        danger: 'border-rose-500/40 bg-rose-500/10 text-rose-300',
-        /** Status — colour comes from the caller's `s-<status>` class. */
-        status: 'border-transparent px-0 uppercase tracking-wider',
-      },
-    },
-    defaultVariants: { variant: 'outline' },
-  },
-);
+const VARIANT = {
+  outline: 'neutral',
+  provider: 'info',
+  type: 'violet',
+  danger: 'destructive',
+  status: 'bare',
+} as const;
 
-export interface BadgeProps
-  extends React.HTMLAttributes<HTMLSpanElement>,
-    VariantProps<typeof badgeVariants> {}
-
-export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
-  ({ className, variant, ...props }, ref) => (
-    <span ref={ref} className={cn(badgeVariants({ variant }), className)} {...props} />
-  ),
-);
-Badge.displayName = 'Badge';
+export function Badge({
+  variant = 'outline',
+  className,
+  ...props
+}: Omit<ComponentProps<'span'>, 'ref'> & { variant?: keyof typeof VARIANT | null | undefined }) {
+  return <KitBadge variant={VARIANT[variant ?? 'outline']} className={cn(className)} {...props} />;
+}

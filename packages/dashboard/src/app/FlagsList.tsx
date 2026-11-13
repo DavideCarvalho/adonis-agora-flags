@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
+import { MetricCard, MetricGrid, MetricGridSkeleton } from '../agora-kit/blocks/metric-card';
 import { api, type FlagRow } from '../client/flags-client';
 import { Notice, useEnv, useWrite } from './env';
 import { NewFlag } from './NewFlag';
 import { describeServing, formatValue, STALE_LABELS, servingTone } from './serving';
-import { ErrorBox, Panel, QueryState, Table } from './shell';
+import { ErrorBox, Panel, QueryState, Table, TableSkeleton } from './shell';
 import { Badge } from './ui/badge';
 import { Button, Input, Select, Toggle } from './ui/form';
 import { Segmented } from './ui/segmented';
@@ -61,154 +62,223 @@ export function FlagsList({ onOpen }: { onOpen: (key: string) => void }) {
   const visible = filterFlags(flags, { search, tag, owner, show });
 
   return (
-    <Panel
-      title="Flags"
-      subtitle={`${flags.length} flags in ${environment}${query.data ? ` · ruleset v${query.data.version}` : ''}`}
-      actions={
-        <div className="flex items-center gap-2">
-          <Button variant="primary" onClick={() => setCreating((open) => !open)}>
-            New flag
-          </Button>
-          <Segmented
-            aria-label="Show"
-            value={show}
-            onChange={setShow}
-            options={[
-              { value: 'all', label: 'All' },
-              {
-                value: 'stale',
-                label: 'Stale',
-                hint: String(flags.filter((f) => f.stale.length > 0).length),
-              },
-              { value: 'experiments', label: 'Experiments' },
-            ]}
-          />
-        </div>
-      }
-    >
-      {creating && (
-        <NewFlag
-          onCancel={() => setCreating(false)}
-          onCreated={(key) => {
-            setCreating(false);
-            onOpen(key);
-          }}
-        />
-      )}
-      <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2">
-        <Input
-          aria-label="Search flags"
-          placeholder="Search key, description, owner"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="min-w-0 flex-1"
-        />
-        <Select aria-label="Tag" value={tag} onChange={(e) => setTag(e.target.value)}>
-          <option value="">All tags</option>
-          {tags.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </Select>
-        <Select aria-label="Owner" value={owner} onChange={(e) => setOwner(e.target.value)}>
-          <option value="">All owners</option>
-          {owners.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </Select>
-      </div>
-      {kill.isError && <ErrorBox error={kill.error} />}
-      {kill.notice !== null && (
-        <div className="border-b border-line px-4 py-2">
-          <Notice text={kill.notice} />
-        </div>
-      )}
-      <QueryState
-        query={query}
-        empty={visible.length === 0}
-        emptyMessage={
-          flags.length === 0
-            ? 'No flags yet. Create one with “New flag”, or declare it in config/flags.ts.'
-            : 'No flag matches these filters.'
+    <div className="flex flex-col gap-4">
+      {query.data ? (
+        <FlagMetrics flags={flags} version={query.data.version} />
+      ) : query.isPending ? (
+        <MetricGridSkeleton count={5} />
+      ) : null}
+      <Panel
+        title="All flags"
+        subtitle={`${visible.length} of ${flags.length} flags in ${environment}`}
+        actions={
+          <div className="flex items-center gap-2">
+            <Button variant="primary" onClick={() => setCreating((open) => !open)}>
+              New flag
+            </Button>
+            <Segmented
+              aria-label="Show"
+              value={show}
+              onChange={setShow}
+              options={[
+                { value: 'all', label: 'All' },
+                {
+                  value: 'stale',
+                  label: 'Stale',
+                  hint: String(flags.filter((f) => f.stale.length > 0).length),
+                },
+                { value: 'experiments', label: 'Experiments' },
+              ]}
+            />
+          </div>
         }
       >
-        <Table head={['On', 'Flag', 'Type', 'Serving', 'Owner', 'Expires', '']}>
-          {visible.map((flag) => (
-            <tr key={flag.key} className="hover:bg-panel-2/60">
-              <td className="px-4 py-2">
-                <Toggle
-                  label={`Kill switch for ${flag.key}`}
-                  checked={flag.enabled ?? true}
-                  disabled={kill.isPending}
-                  onChange={(enabled) => kill.mutate({ key: flag.key, enabled })}
-                />
-              </td>
-              <td className="px-4 py-2">
-                <button
-                  type="button"
-                  className="mono text-left text-zinc-100 hover:text-brand"
-                  onClick={() => onOpen(flag.key)}
-                >
-                  {flag.key}
-                </button>
-                {flag.declaration?.description && (
-                  <p className="text-[11px] text-zinc-500">{flag.declaration.description}</p>
+        {creating && (
+          <NewFlag
+            onCancel={() => setCreating(false)}
+            onCreated={(key) => {
+              setCreating(false);
+              onOpen(key);
+            }}
+          />
+        )}
+        <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2">
+          <Input
+            aria-label="Search flags"
+            placeholder="Search key, description, owner"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="min-w-0 flex-1"
+          />
+          <Select aria-label="Tag" value={tag} onChange={(e) => setTag(e.target.value)}>
+            <option value="">All tags</option>
+            {tags.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </Select>
+          <Select aria-label="Owner" value={owner} onChange={(e) => setOwner(e.target.value)}>
+            <option value="">All owners</option>
+            {owners.map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </Select>
+        </div>
+        {kill.isError && <ErrorBox error={kill.error} />}
+        {kill.notice !== null && (
+          <div className="border-b border-line px-4 py-2">
+            <Notice text={kill.notice} />
+          </div>
+        )}
+        <QueryState
+          query={query}
+          skeleton={<TableSkeleton columns={6} />}
+          emptyTitle={flags.length === 0 ? 'No flags yet' : 'No match'}
+          empty={visible.length === 0}
+          emptyMessage={
+            flags.length === 0
+              ? 'No flags yet. Create one with “New flag”, or declare it in config/flags.ts.'
+              : 'No flag matches these filters.'
+          }
+        >
+          <FlagsTable
+            flags={visible}
+            onOpen={onOpen}
+            toggling={kill.isPending}
+            onToggle={(key, enabled) => kill.mutate({ key, enabled })}
+          />
+        </QueryState>
+      </Panel>
+    </div>
+  );
+}
+
+/** The metric row over the list: how many flags, how many serve, how many are killed or stale. */
+export function FlagMetrics({ flags, version }: { flags: FlagRow[]; version: string }) {
+  const killed = flags.filter((f) => f.enabled === false).length;
+  const stale = flags.filter((f) => f.stale.length > 0).length;
+  const experiments = flags.filter((f) => f.experiment).length;
+  const undeclared = flags.filter((f) => f.declaration === null).length;
+  return (
+    <MetricGrid>
+      <MetricCard label="Flags" value={flags.length} caption={`ruleset v${version}`} />
+      <MetricCard
+        label="Serving"
+        value={flags.length - killed}
+        tone="brand"
+        caption={`${flags.filter((f) => f.inRuleset).length} stored · ${flags.filter((f) => !f.inRuleset).length} code default`}
+      />
+      <MetricCard
+        label="Killed"
+        value={killed}
+        tone={killed > 0 ? 'bad' : 'default'}
+        caption="kill switch off"
+      />
+      <MetricCard
+        label="Stale"
+        value={stale}
+        tone={stale > 0 ? 'warn' : 'default'}
+        caption={undeclared > 0 ? `${undeclared} undeclared in code` : 'due for removal'}
+      />
+      <MetricCard
+        label="Experiments"
+        value={experiments}
+        tone="violet"
+        caption="flags with variants"
+      />
+    </MetricGrid>
+  );
+}
+
+/** The flag rows: kill switch, key + description + tags, type, serving, owner, expiry. Pure. */
+export function FlagsTable({
+  flags,
+  onOpen,
+  onToggle,
+  toggling,
+}: {
+  flags: FlagRow[];
+  onOpen: (key: string) => void;
+  onToggle: (key: string, enabled: boolean) => void;
+  toggling: boolean;
+}) {
+  const visible = flags;
+  return (
+    <Table head={['On', 'Flag', 'Type', 'Serving', 'Owner', 'Expires', '']}>
+      {visible.map((flag) => (
+        <tr key={flag.key} className="hover:bg-hover">
+          <td className="px-4 py-2">
+            <Toggle
+              label={`Kill switch for ${flag.key}`}
+              checked={flag.enabled ?? true}
+              disabled={toggling}
+              onChange={(enabled) => onToggle(flag.key, enabled)}
+            />
+          </td>
+          <td className="px-4 py-2">
+            <button
+              type="button"
+              className="mono text-left text-fg hover:text-brand"
+              onClick={() => onOpen(flag.key)}
+            >
+              {flag.key}
+            </button>
+            {flag.declaration?.description && (
+              <p className="text-[11px] text-dim">{flag.declaration.description}</p>
+            )}
+            <div className="mt-1 flex flex-wrap gap-1">
+              {flag.experiment && <Badge variant="type">experiment</Badge>}
+              {flag.tags.map((t) => (
+                <Badge key={t}>{t}</Badge>
+              ))}
+              {flag.stale.map((reason) => (
+                <Badge key={reason} variant="danger" title={STALE_LABELS[reason]}>
+                  {reason}
+                </Badge>
+              ))}
+            </div>
+          </td>
+          <td className="px-4 py-2 text-dim">
+            {flag.declaration ? (
+              <>
+                {flag.declaration.type}
+                {flag.declaration.source === 'console' && (
+                  <Badge className="ml-1" title="Created in the console">
+                    console
+                  </Badge>
                 )}
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {flag.experiment && <Badge variant="type">experiment</Badge>}
-                  {flag.tags.map((t) => (
-                    <Badge key={t}>{t}</Badge>
-                  ))}
-                  {flag.stale.map((reason) => (
-                    <Badge key={reason} variant="danger" title={STALE_LABELS[reason]}>
-                      {reason}
-                    </Badge>
-                  ))}
-                </div>
-              </td>
-              <td className="px-4 py-2 text-zinc-400">
-                {flag.declaration ? (
-                  <>
-                    {flag.declaration.type}
-                    {flag.declaration.source === 'console' && (
-                      <Badge className="ml-1" title="Created in the console">
-                        console
-                      </Badge>
-                    )}
-                    <span className="block text-[10px] text-zinc-600">
-                      default {formatValue(flag.declaration.default)}
-                    </span>
-                  </>
-                ) : (
-                  <span className="text-amber-300">undeclared</span>
-                )}
-              </td>
-              <td className={`px-4 py-2 s-${servingTone(flag.serving)}`}>
-                {describeServing(flag.serving)}
-                {(flag.rules > 0 || flag.overrides > 0) && (
-                  <span className="block text-[10px] text-zinc-500">
-                    {flag.rules} rules · {flag.overrides} overrides
-                  </span>
-                )}
-              </td>
-              <td className="px-4 py-2 text-zinc-400">{flag.owner ?? '—'}</td>
-              <td className="px-4 py-2 text-zinc-400">{flag.expiresAt ?? '—'}</td>
-              <td className="px-4 py-2 text-right">
-                <button
-                  type="button"
-                  className="text-brand hover:underline"
-                  onClick={() => onOpen(flag.key)}
-                >
-                  Edit
-                </button>
-              </td>
-            </tr>
-          ))}
-        </Table>
-      </QueryState>
-    </Panel>
+                <span className="block text-[10px] text-faint">
+                  default {formatValue(flag.declaration.default)}
+                </span>
+              </>
+            ) : (
+              <span className="text-warn">undeclared</span>
+            )}
+          </td>
+          <td className={`px-4 py-2 s-${servingTone(flag.serving)}`}>
+            {describeServing(flag.serving)}
+            {(flag.rules > 0 || flag.overrides > 0) && (
+              <span className="block text-[10px] text-dim">
+                {flag.rules} rules · {flag.overrides} overrides
+              </span>
+            )}
+          </td>
+          <td className="px-4 py-2 text-dim">{flag.owner ?? '—'}</td>
+          <td className="px-4 py-2 text-dim">{flag.expiresAt ?? '—'}</td>
+          <td className="px-4 py-2 text-right">
+            <button
+              type="button"
+              className="text-brand hover:underline"
+              onClick={() => onOpen(flag.key)}
+            >
+              Edit
+            </button>
+          </td>
+        </tr>
+      ))}
+    </Table>
   );
 }

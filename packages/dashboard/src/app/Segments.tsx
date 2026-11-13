@@ -61,10 +61,10 @@ function SegmentForm({
             onChange={(e) => setKey(e.target.value)}
           />
         ) : (
-          <span className="mono text-sm text-zinc-100">{segmentKey}</span>
+          <span className="mono text-sm text-fg">{segmentKey}</span>
         )}
         {usedBy.length > 0 && (
-          <span className="text-[11px] text-zinc-500">
+          <span className="text-[11px] text-dim">
             used by{' '}
             {usedBy.map((flag) => (
               <Badge key={flag}>{flag}</Badge>
@@ -90,12 +90,12 @@ function SegmentForm({
           />
         </Field>
       </div>
-      <p className="text-[11px] text-zinc-500">Otherwise, members match all of:</p>
+      <p className="text-[11px] text-dim">Otherwise, members match all of:</p>
       {conditions.map((condition, i) => (
         <div
           // biome-ignore lint/suspicious/noArrayIndexKey: positional rows with editable names; a name key would remount the input being typed into.
           key={i}
-          className="flex flex-wrap items-center gap-2 rounded-sm border border-line-soft p-2"
+          className="flex flex-wrap items-center gap-2 rounded-md border border-line-soft p-2"
         >
           <AttributeFields
             label={`${segmentKey || 'new'} condition ${i + 1}`}
@@ -150,7 +150,7 @@ export function Segments() {
   const segments = query.data?.data ?? [];
   return (
     <Panel
-      title="Segments"
+      title="All segments"
       subtitle="Explicit includes and excludes first, then conditions (all must match)."
       actions={<Button onClick={() => setAdding(true)}>New segment</Button>}
     >

@@ -12,6 +12,15 @@ import {
   type ConsoleAuthorizeDecision,
   resolveConsoleAuthorize,
 } from '../src/dashboard/console_authorize.js';
+import { resolveSignOut, resolveViewer } from '../src/dashboard/console_shell.js';
+import {
+  flagsConsoleSearch,
+  listVisibleConsoles,
+  otherConsoles,
+  readAgoraConsoles,
+  registerAgoraConsole,
+  searchConsoles,
+} from '../src/dashboard/console_switcher.js';
 import {
   type FlagsDashboardConfig,
   type ResolvedFlagsDashboardConfig,
@@ -66,7 +75,7 @@ import {
   stale,
   updateDeclaration,
 } from '../src/dashboard/handlers.js';
-import { contentTypeFor, renderIndexHtml } from '../src/dashboard/spa.js';
+import { contentTypeFor, renderIndexHtml, type ShellFields } from '../src/dashboard/spa.js';
 import type { FlagsConfig } from '../src/define_config.js';
 import { authkitIdentity } from '../src/http/subject_resolver.js';
 import type { FlagsIdentityProvider } from '../src/identity.js';
@@ -97,6 +106,9 @@ export const TENANT_WARNING =
 
 type Handler = (deps: Deps, req: ApiRequest) => Promise<ApiResponse>;
 
+/** This console's id in the app's `'agora.consoles'` registry. */
+export const CONSOLE_ID = 'flags';
+
 /**
  * Mounts the flags console into an AdonisJS app: the `@adonis-agora/flags-dashboard` React SPA plus
  * a JSON API over the booted flags runtime (`getRuntime()`), under a configurable path (default
@@ -123,6 +135,10 @@ type Handler = (deps: Deps, req: ApiRequest) => Promise<ApiResponse>;
  * - `GET    /api/audit`, `/api/schedules`  `DELETE /api/schedules/:id`
  * - `GET    /api/export`  `POST /api/import`, `/api/promote`
  * - `GET    /api/stale`, `/api/ops`
+ * - `GET    /api/consoles`, `/api/consoles/search`     → the console switcher and ⌘K search
+ *
+ * The console joins the app's `'agora.consoles'` registry (id `flags`), so the other Agora
+ * consoles list it in their switcher and search its flags and segments.
  *
  * With `@adonis-agora/agent/mcp_provider` in the app, the same handlers are also registered as
  * `flags_*` tools on its developer MCP endpoint, behind the same `authorize`.
@@ -152,6 +168,9 @@ export default class FlagsDashboardProvider {
     this.identity = flagsConfig?.identity;
     this.authorizeGuard = await this.resolveGuard(config);
     await this.registerDevTools(config);
+    // The console switcher: this console joins the app's `'agora.consoles'` registry so the other
+    // Agora consoles can link to it (and search it), and it can link to them.
+    await this.registerConsole(config);
 
     // The router is committed only after every provider's `boot()`: register in `booted`.
     await this.app.booted(async () => {
@@ -244,6 +263,114 @@ export default class FlagsDashboardProvider {
 
     router.get(`${api}/stale`, json(stale)).as(name('stale'));
     router.get(`${api}/ops`, json(ops)).as(name('ops'));
+
+    // The console switcher: the other Agora consoles this viewer may open, and a search across them.
+    router
+      .get(`${api}/consoles`, async (ctx: HttpContext) => {
+        if (!(await this.enforce(config, ctx, 'api')).allowed) return;
+        const registry = await readAgoraConsoles(this.app.container);
+        ctx.response.header('cache-control', 'private, no-store');
+        return ctx.response.status(200).json(await listVisibleConsoles(registry, CONSOLE_ID, ctx));
+      })
+      .as(name('consoles'));
+    router
+      .get(`${api}/consoles/search`, async (ctx: HttpContext) => {
+        if (!(await this.enforce(config, ctx, 'api')).allowed) return;
+        const registry = await readAgoraConsoles(this.app.container);
+        const q = ctx.request.qs().q;
+        ctx.response.header('cache-control', 'private, no-store');
+        return ctx.response
+          .status(200)
+          .json(await searchConsoles(registry, CONSOLE_ID, ctx, typeof q === 'string' ? q : ''));
+      })
+      .as(name('consoles.search'));
+  }
+
+  /**
+   * Join the app's `'agora.consoles'` registry: the entry carries this console's own gate (the one
+   * its routes run) and a search over the flags and segments of the app's environment.
+   */
+  private async registerConsole(config: ResolvedFlagsDashboardConfig): Promise<void> {
+    let logger: { warn(message: string): void } | undefined;
+    try {
+      logger = await this.app.container.make('logger');
+    } catch {
+      logger = undefined;
+    }
+    const guard = (ctx: HttpContext) => this.authorizeGuard(ctx);
+    const read = async (handler: Handler): Promise<unknown[]> => {
+      if (!hasRuntime()) return [];
+      const result = await handler(
+        { runtime: getRuntime(), actor: FALLBACK_ACTOR },
+        { params: {}, query: {} },
+      );
+      const body = result.body as { data?: unknown } | undefined;
+      return result.status === 200 && Array.isArray(body?.data) ? body.data : [];
+    };
+    await registerAgoraConsole(
+      this.app.container,
+      {
+        id: CONSOLE_ID,
+        title: 'Flags',
+        package: '@adonis-agora/flags',
+        icon: 'flags',
+        path: config.path === '' ? '/' : config.path,
+        order: 60,
+        authorize: async (ctx) => {
+          const decision = await guard(ctx);
+          if (decision.allowed) return { allowed: true };
+          return decision.status === 302
+            ? { allowed: false, reason: 'unauthenticated', redirectTo: decision.redirectTo }
+            : {
+                allowed: false,
+                reason: decision.status === 401 ? 'unauthenticated' : 'forbidden',
+              };
+        },
+        search: flagsConsoleSearch(
+          async () => ({
+            flags: async () =>
+              (
+                (await read(listFlags)) as Array<{
+                  key: string;
+                  declaration: { description?: string } | null;
+                  enabled: boolean | null;
+                  experiment: boolean;
+                }>
+              ).map((flag) => ({
+                key: flag.key,
+                description: flag.declaration?.description ?? null,
+                enabled: flag.enabled,
+                experiment: flag.experiment,
+              })),
+            segments: async () =>
+              (await read(listSegments)) as Array<{ key: string; usedBy: string[] }>,
+          }),
+          config.path,
+        ),
+      },
+      logger,
+    );
+  }
+
+  /**
+   * The console-shell fields of the page's data block: the switcher, ⌘K search (whenever a console
+   * registry exists — this console registers its own search), the signed-in viewer and the
+   * sign-out (the host's option, else the one an account console announced on the registry).
+   */
+  private async shellFields(
+    config: ResolvedFlagsDashboardConfig,
+    ctx: HttpContext,
+    api: string,
+  ): Promise<ShellFields> {
+    const registry = await readAgoraConsoles(this.app.container);
+    const viewer = await resolveViewer(ctx, config.viewer);
+    const signOut = resolveSignOut(ctx, config.signOut, registry);
+    return {
+      switcher: { endpoint: `${api}/consoles`, others: otherConsoles(registry, CONSOLE_ID) },
+      ...(registry ? { search: { endpoint: `${api}/consoles/search` } } : {}),
+      ...(viewer ? { viewer } : {}),
+      ...(signOut ? { signOut } : {}),
+    };
   }
 
   /**
@@ -342,7 +469,15 @@ export default class FlagsDashboardProvider {
         return ctx.response
           .header('content-type', 'text/html; charset=utf-8')
           .header('cache-control', 'no-store, must-revalidate')
-          .send(renderIndexHtml(html, config.path, api, environment));
+          .send(
+            renderIndexHtml(
+              html,
+              config.path,
+              api,
+              environment,
+              await this.shellFields(config, ctx, api),
+            ),
+          );
       })
       .as('flags_dashboard.index');
 

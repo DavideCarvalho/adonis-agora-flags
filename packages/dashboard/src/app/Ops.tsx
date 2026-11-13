@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
+import { Skeleton } from '../agora-kit/ui/skeleton';
 import { api } from '../client/flags-client';
 import { formatTime, Panel, QueryState, Table } from './shell';
 import { Badge } from './ui/badge';
 
+/** One figure of the ops screen: CAPS label, mono value (the kit's metric-card look, compact). */
 function Stat({
   label,
   value,
@@ -13,10 +15,10 @@ function Stat({
   tone?: 'bad' | 'warn';
 }) {
   return (
-    <div className="rounded-sm border border-line px-3 py-2">
-      <p className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</p>
+    <div className="rounded-lg border border-border bg-sunken/20 px-3.5 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-faint">{label}</p>
       <p
-        className={`mono mt-1 text-sm ${tone === 'bad' ? 'text-rose-300' : tone === 'warn' ? 'text-amber-300' : 'text-zinc-100'}`}
+        className={`mono mt-1.5 truncate text-[15px] font-semibold tnum ${tone === 'bad' ? 'text-bad' : tone === 'warn' ? 'text-warn' : 'text-fg'}`}
       >
         {value}
       </p>
@@ -29,7 +31,7 @@ export function Ops() {
   const query = useQuery({ queryKey: ['ops'], queryFn: api.ops });
   const ops = query.data;
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       <Panel
         title="Ruleset source"
         subtitle={
@@ -38,7 +40,7 @@ export function Ops() {
             : undefined
         }
       >
-        <QueryState query={query} empty={false}>
+        <QueryState query={query} empty={false} skeleton={<StatsSkeleton />}>
           {ops && (
             <div className="grid gap-2 p-4 sm:grid-cols-4">
               <Stat label="Version" value={ops.source.version} />
@@ -54,10 +56,7 @@ export function Ops() {
             </div>
           )}
           {ops?.source.stale && (
-            <p
-              role="alert"
-              className="border-t border-bad/40 bg-bad/10 px-4 py-2 text-xs text-rose-300"
-            >
+            <p role="alert" className="border-t border-bad/25 bg-bad/5 px-4 py-2 text-xs text-bad">
               Serving the last ruleset that loaded: reloading is failing, so edits made since will
               not reach this process.
             </p>
@@ -69,7 +68,7 @@ export function Ops() {
         title="Events"
         subtitle="Exposures and tracked events: buffered in process, published to the transport, relayed to each sink."
       >
-        <QueryState query={query} empty={false}>
+        <QueryState query={query} empty={false} skeleton={<StatsSkeleton />}>
           {ops && (
             <>
               <div className="grid gap-2 p-4 sm:grid-cols-4">
@@ -106,33 +105,31 @@ export function Ops() {
                 </Badge>
               </div>
               {ops.delivery === 'transport' && (
-                <p className="px-4 pb-2 text-xs text-zinc-500">
+                <p className="px-4 pb-2 text-xs text-dim">
                   This transport keeps no per-sink log: pending, retried and failed batches are in
                   your queue.
                 </p>
               )}
               {ops.sinkError && (
-                <p className="px-4 pb-2 text-xs text-rose-300">
+                <p className="px-4 pb-2 text-xs text-bad">
                   Sink status unavailable: {ops.sinkError}
                 </p>
               )}
               {ops.sinks.length === 0 ? (
-                <p className="border-t border-line p-4 text-sm text-zinc-500">
-                  No sinks configured.
-                </p>
+                <p className="border-t border-line p-4 text-sm text-dim">No sinks configured.</p>
               ) : (
                 <Table head={['Sink', 'Lag', 'Delivered', 'Leased by', 'Last error']}>
                   {ops.sinks.map((sink) => (
                     <tr key={sink.sink}>
                       <td className="mono px-4 py-2">{sink.sink}</td>
                       <td
-                        className={`mono px-4 py-2 tnum ${(sink.lag ?? 0) > 0 ? 'text-amber-300' : ''}`}
+                        className={`mono px-4 py-2 tnum ${(sink.lag ?? 0) > 0 ? 'text-warn' : ''}`}
                       >
                         {sink.lag ?? '—'}
                       </td>
                       <td className="mono px-4 py-2 tnum">{sink.delivered ?? '—'}</td>
-                      <td className="mono px-4 py-2 text-zinc-400">{sink.leasedBy ?? '—'}</td>
-                      <td className="px-4 py-2 text-rose-300">{sink.lastError ?? ''}</td>
+                      <td className="mono px-4 py-2 text-dim">{sink.leasedBy ?? '—'}</td>
+                      <td className="px-4 py-2 text-bad">{sink.lastError ?? ''}</td>
                     </tr>
                   ))}
                 </Table>
@@ -148,7 +145,7 @@ export function Ops() {
           subtitle="Apps that evaluate this control-plane's ruleset. Version and capabilities are what this replica saw; the rest comes from the declarations every tenant publishes."
         >
           {ops.tenants.length === 0 ? (
-            <p className="p-4 text-sm text-zinc-500">No tenant has called in yet.</p>
+            <p className="p-4 text-sm text-dim">No tenant has called in yet.</p>
           ) : (
             <Table
               head={['Partition', 'Environment', 'Ruleset version', 'Last seen', 'Capabilities']}
@@ -161,13 +158,26 @@ export function Ops() {
                   <td className="mono px-4 py-2">
                     {t.lastSeenAt ? formatTime(t.lastSeenAt) : '—'}
                   </td>
-                  <td className="px-4 py-2 text-zinc-400">{t.capabilities.join(', ') || '—'}</td>
+                  <td className="px-4 py-2 text-dim">{t.capabilities.join(', ') || '—'}</td>
                 </tr>
               ))}
             </Table>
           )}
         </Panel>
       )}
+    </div>
+  );
+}
+
+function StatsSkeleton() {
+  return (
+    <div className="grid gap-2 p-4 sm:grid-cols-4" aria-hidden>
+      {['a', 'b', 'c', 'd'].map((key) => (
+        <div key={key} className="rounded-lg border border-border px-3.5 py-3">
+          <Skeleton className="h-2.5 w-16" />
+          <Skeleton className="mt-2 h-4 w-20" />
+        </div>
+      ))}
     </div>
   );
 }

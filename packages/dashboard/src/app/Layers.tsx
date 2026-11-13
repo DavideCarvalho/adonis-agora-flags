@@ -11,7 +11,7 @@ const BUCKETS = 10_000;
 export function AllocationBar({ allocations }: { allocations: Layer['allocations'] }) {
   return (
     <div
-      className="relative h-3 w-full overflow-hidden rounded-sm border border-line bg-panel-2"
+      className="relative h-3 w-full overflow-hidden rounded-md border border-line bg-panel-2"
       aria-hidden="true"
     >
       {Object.entries(allocations).map(([flag, [start, end]], i) => (
@@ -72,12 +72,12 @@ function LayerForm({
           onChange={(e) => setKey(e.target.value)}
         />
       ) : (
-        <span className="mono text-sm text-zinc-100">{layerKey}</span>
+        <span className="mono text-sm text-fg">{layerKey}</span>
       )}
       <AllocationBar allocations={allocations} />
       {rows.map((row, i) => (
         <div key={row.flag} className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="mono w-40 text-zinc-300">{row.flag}</span>
+          <span className="mono w-40 text-fg-2">{row.flag}</span>
           <Input
             aria-label={`${row.flag} start`}
             type="number"
@@ -89,7 +89,7 @@ function LayerForm({
               setRows(rows.map((r, j) => (j === i ? { ...r, start: Number(e.target.value) } : r)))
             }
           />
-          <span className="text-zinc-600">to</span>
+          <span className="text-faint">to</span>
           <Input
             aria-label={`${row.flag} end`}
             type="number"
@@ -101,7 +101,7 @@ function LayerForm({
               setRows(rows.map((r, j) => (j === i ? { ...r, end: Number(e.target.value) } : r)))
             }
           />
-          <span className="mono text-[11px] text-zinc-500">
+          <span className="mono text-[11px] text-dim">
             {((row.end - row.start) / 100).toFixed(2)}%
           </span>
           <Button variant="ghost" onClick={() => setRows(rows.filter((_, j) => j !== i))}>
@@ -210,7 +210,7 @@ export function Layers() {
   return (
     <div className="space-y-4">
       <Panel
-        title="Layers"
+        title="All layers"
         subtitle="Experiments in one layer never share a subject: each owns a range of the layer's 10,000 buckets. Set an experiment's layer in its flag editor first."
         actions={<Button onClick={() => setAdding(true)}>New layer</Button>}
       >
@@ -245,10 +245,10 @@ export function Layers() {
             key={String(data?.holdout?.percent ?? 'none')}
             percent={data?.holdout?.percent ?? null}
           />
-          <ul className="border-t border-line px-4 py-2 text-[11px] text-zinc-500">
+          <ul className="border-t border-line px-4 py-2 text-[11px] text-dim">
             {(data?.experiments ?? []).map((e) => (
               <li key={e.flag}>
-                <span className="mono text-zinc-300">{e.flag}</span>{' '}
+                <span className="mono text-fg-2">{e.flag}</span>{' '}
                 {e.holdout ? 'honours the holdout' : 'opted out of the holdout'}
                 {e.layer ? ` · layer ${e.layer}` : ''}
               </li>

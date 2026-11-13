@@ -47,7 +47,7 @@ export function NewFlag({
   return (
     <form
       aria-label="New flag"
-      className="grid gap-3 border-b border-line bg-panel-2/40 px-4 py-3 sm:grid-cols-3"
+      className="grid gap-3 border-b border-line bg-sunken/20 px-4 py-3 sm:grid-cols-3"
       onSubmit={(event) => {
         event.preventDefault();
         submit();
@@ -142,7 +142,7 @@ export function NewFlag({
           Cancel
         </Button>
         {error !== null && (
-          <p role="alert" className="text-[11px] text-rose-300">
+          <p role="alert" className="text-[11px] text-bad">
             {error}
           </p>
         )}

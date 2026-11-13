@@ -62,9 +62,38 @@ describe('console over HTTP', () => {
     const html = await response.text();
     expect(html).toContain('type="application/json"');
     expect(html).not.toMatch(/<script>(?!\s*<\/script>)[^<]+<\/script>/);
+    // The console registered itself in `agora.consoles`: ⌘K search is on; no other console, no switcher.
+    const block = JSON.parse(
+      /id="flags-dashboard-config">(.*?)<\/script>/.exec(html)?.[1] ?? '{}',
+    ) as Record<string, unknown>;
+    expect(block.search).toEqual({ endpoint: '/flags/api/consoles/search' });
+    expect(block.switcher).toBeUndefined();
     const asset = /src="([^"]+\.js)"/.exec(html)?.[1];
     expect(asset).toBeDefined();
     expect((await fetch(new URL(asset!, `${base}/flags/`))).status).toBe(200);
+  });
+
+  it('answers ⌘K search with the flags whose key matches', async () => {
+    const res = await fetch(`${base}/flags/api/consoles/search?q=player`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      version: 1,
+      q: 'player',
+      results: [
+        {
+          id: 'flags',
+          title: 'Flags',
+          icon: 'flags',
+          hits: [
+            {
+              title: 'new_player',
+              subtitle: 'flag · code default',
+              href: '/flags#/flags/new_player',
+            },
+          ],
+        },
+      ],
+    });
   });
 
   it('lists declared flags and applies a change through the API', async () => {

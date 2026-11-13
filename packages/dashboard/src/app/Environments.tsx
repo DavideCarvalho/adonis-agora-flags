@@ -99,7 +99,7 @@ export function Environments() {
               Import into {environment}
             </Button>
           </div>
-          {parseError !== null && <p className="text-xs text-rose-300">{parseError}</p>}
+          {parseError !== null && <p className="text-xs text-bad">{parseError}</p>}
           {importIt.isError && <ErrorBox error={importIt.error} />}
           <Notice text={importIt.notice} />
         </div>

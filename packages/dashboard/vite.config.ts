@@ -11,6 +11,12 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   base: '/__FLAGS_DASHBOARD__/',
   plugins: [react(), tailwindcss()],
+  // Files a STYLESHEET references (the bundled Sora / JetBrains Mono fonts) resolve relative to
+  // that stylesheet: the provider rewrites the placeholder base in `index.html` only, so an
+  // absolute `/__FLAGS_DASHBOARD__/assets/…` inside the CSS would 404 at any mount path.
+  experimental: {
+    renderBuiltUrl: (_file, { hostType }) => (hostType === 'css' ? { relative: true } : undefined),
+  },
   build: {
     outDir: 'dist/spa',
     emptyOutDir: true,

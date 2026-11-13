@@ -156,52 +156,52 @@ function EditorBody({
           </div>
         }
       >
-        <div className="flex flex-wrap gap-x-6 gap-y-1 border-b border-line px-4 py-2 text-[11px] text-zinc-500">
+        <div className="flex flex-wrap gap-x-6 gap-y-1 border-b border-line px-4 py-2 text-[11px] text-dim">
           <span>
-            environment <span className="text-zinc-300">{environment}</span>
+            environment <span className="text-fg-2">{environment}</span>
           </span>
           {declaration ? (
             <>
               <span>
-                type <span className="text-zinc-300">{declaration.type}</span>
+                type <span className="text-fg-2">{declaration.type}</span>
               </span>
               <span>
                 {declaration.source === 'code' ? 'code default' : 'default'}{' '}
-                <span className="mono text-zinc-300">{formatValue(declaration.default)}</span>
+                <span className="mono text-fg-2">{formatValue(declaration.default)}</span>
               </span>
               {declaration.owner && (
                 <span>
-                  owner <span className="text-zinc-300">{declaration.owner}</span>
+                  owner <span className="text-fg-2">{declaration.owner}</span>
                 </span>
               )}
               {declaration.expiresAt && (
                 <span>
-                  expires <span className="text-zinc-300">{declaration.expiresAt}</span>
+                  expires <span className="text-fg-2">{declaration.expiresAt}</span>
                 </span>
               )}
               {declaration.source === 'console' ? (
                 <Badge>created in the console</Badge>
               ) : (
                 <span>
-                  declared in <span className="text-zinc-300">{declaration.apps.join(', ')}</span>
+                  declared in <span className="text-fg-2">{declaration.apps.join(', ')}</span>
                 </span>
               )}
             </>
           ) : (
-            <span className="text-amber-300">
+            <span className="text-warn">
               Nothing declares this flag (no code, no console declaration); evaluations get no
               default.
             </span>
           )}
           <span>
-            serving now <span className="text-zinc-300">{describeServing(detail.serving)}</span>
+            serving now <span className="text-fg-2">{describeServing(detail.serving)}</span>
           </span>
           {!detail.stored && (
             <Badge variant="type">not in the ruleset yet — saving creates it</Badge>
           )}
         </div>
         {detail.requiresApproval && (
-          <p className="border-b border-line px-4 py-2 text-[11px] text-amber-300">
+          <p className="border-b border-line px-4 py-2 text-[11px] text-warn">
             {environment} needs a second person: saving files a change request instead of applying
             it.
             {detail.pendingRequests.length > 0 &&
@@ -217,15 +217,15 @@ function EditorBody({
 
         <div aria-live="polite" className="border-b border-line px-4 py-2 text-[11px]">
           {preview === null ? (
-            <span className="text-zinc-500">Checking…</span>
+            <span className="text-dim">Checking…</span>
           ) : preview.valid ? (
-            <span className="text-emerald-300">
+            <span className="text-good">
               Valid.
               {preview.serving ? ` Everyone else gets: ${describeServing(preview.serving)}.` : ''}
             </span>
           ) : (
             <div>
-              <span className="text-rose-300">This draft would be refused:</span>
+              <span className="text-bad">This draft would be refused:</span>
               <IssueList issues={preview.issues} />
             </div>
           )}
@@ -241,13 +241,13 @@ function EditorBody({
               checked={draft.enabled}
               onChange={(enabled) => setDraft({ ...draft, enabled })}
             />
-            <span className="text-xs text-zinc-400">
+            <span className="text-xs text-dim">
               {draft.enabled ? 'Targeting is live' : 'Killed'}
             </span>
             <Field label="Off variant" className="flex-row items-center gap-2">
               <select
                 aria-label="Off variant"
-                className="rounded-sm border border-line bg-background px-2 py-1 text-xs"
+                className="h-[30px] rounded-md border border-input bg-panel-2 px-2.5 text-xs text-fg"
                 value={draft.offVariant}
                 onChange={(e) => setDraft({ ...draft, offVariant: e.target.value })}
               >

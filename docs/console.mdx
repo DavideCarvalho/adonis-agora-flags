@@ -41,7 +41,29 @@ With authkit, `identity: identities.authkit()` in `config/flags.ts` covers both.
 - **Hygiene.** The stale-flag report.
 - **Ops.** The ruleset version and how it is kept fresh, the event transport, every sink's lag and last error, and the in-process buffer.
 
+The sidebar groups them: **Flags** (Flags, Segments, Layers), **Experiments** (Experiments, Metrics), **Governance** (Approvals, Activity) and **Config** (Environments, Hygiene, Ops). The environment picker sits in the top bar; it turns amber when you are not looking at the app's own environment. Light and dark themes are a click in the sidebar footer.
+
 The console runs on the control-plane in a [central setup](/docs/central-server); tenants have none.
+
+## Other consoles, search and sign-out
+
+The console joins the app's Agora console registry. With other Agora consoles installed (durable, telescope, payments, …), the brand menu in the sidebar switches between them, showing only the ones the signed-in person may open. **⌘K** (or **Ctrl K**) searches every one of them; here it finds flags by key or description and segments by key.
+
+The sidebar footer shows who is signed in and a sign-out button. Both work without configuration: the person comes from `ctx.auth.user` (`fullName`, `name` or `email`, and the first of `role` / `roles`), and sign-out is the one authkit announces. Set them yourself when your app differs:
+
+```ts title="config/flags_dashboard.ts"
+import { defineConfig } from '@adonis-agora/flags/dashboard'
+
+export default defineConfig({
+  // Who the footer shows. Return null for no user row.
+  viewer: (ctx) => {
+    const user = ctx.auth.user
+    return user ? { label: user.fullName ?? user.email, email: user.email, role: user.role } : null
+  },
+  // A POST route (the form carries the CSRF token), { href: '/logout' } for a link, or false for none.
+  signOut: '/logout',
+})
+```
 
 ## MCP tools
 
@@ -85,6 +107,8 @@ Everything the console does goes through JSON endpoints under `<path>/api`, behi
 | `GET /api/audit` | | The change history, newest first (paged, see below) |
 | `GET /api/change-requests` | | Change requests, newest first (paged) |
 | `GET /api/schedules` | | Scheduled changes, soonest first (paged) |
+| `GET /api/consoles` | | The other Agora consoles the signed-in person may open |
+| `GET /api/consoles/search?q=` | | Search across those consoles and this one |
 
 The catalogs (`/api/flags`, `/api/segments`, `/api/layers`, `/api/metrics`, `/api/experiments`, `/api/stale`) return the whole environment as `{ data, … }`.
 
