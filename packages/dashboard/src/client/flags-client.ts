@@ -326,6 +326,8 @@ export interface Ops {
   sinks: SinkStatus[];
   sinkError: string | null;
   relay: boolean;
+  /** `transport`: the transport delivers to the sinks itself (queue jobs), there is no relay. */
+  delivery?: 'relay' | 'transport' | null;
   worker: boolean;
   analytics: boolean;
   tenants: Array<{

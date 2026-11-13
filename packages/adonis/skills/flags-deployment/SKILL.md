@@ -2,7 +2,7 @@
 name: flags-deployment
 description: >-
   Deploy @adonis-agora/flags: role (all | api | worker), dispatcher (auto |
-  durable | in-process), node ace flags:work [--once], transports (db, redis)
+  durable | in-process), node ace flags:work [--once], transports (db, redis, queue)
   and sinks, retentionDays and partitionEvents, approvals and authorize with
   authz, the console (config/flags_dashboard.ts, authorize, actor), and the
   central topology: topology 'control-plane' with verifyTenant

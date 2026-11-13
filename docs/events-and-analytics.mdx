@@ -25,9 +25,38 @@ export default defineConfig({
 |---|---|
 | `transports.db()` | A table in your database. The only one that writes inside your transaction (`track(…, { client: trx })`). Default |
 | `transports.redis({ connection })` | Redis Streams, one consumer group per sink. Needs `@adonisjs/redis` |
+| `transports.queue({ queue, adapter })` | Jobs on `@adonisjs/queue`, run by `node ace queue:work`. No relay, no replay. Needs `@adonisjs/queue` |
 | `transports.memory()` | Tests and development |
 
 Delivery is at-least-once; every sink ignores duplicates. Events older than `retentionDays` (default 30) are pruned once every sink has them. On Postgres, `partitionEvents: true` partitions the log by month so pruning drops partitions — decide before the first boot.
+
+### The queue transport
+
+Pick it when your app already runs `@adonisjs/queue` workers and you don't want to run anything else for flags. Each batch becomes one job per sink, so a sink that is down retries on its own while the others keep receiving events.
+
+```ts title="config/flags.ts"
+import { exponentialBackoff } from '@adonisjs/queue'
+
+transport: transports.queue({
+  queue: 'flags',          // default: the `default` queue
+  adapter: 'redis',        // default: the queue's default adapter
+  maxRetries: 10,          // default 10
+  backoff: exponentialBackoff({ baseDelay: '1s', maxDelay: '5m' }), // the default
+}),
+```
+
+```sh
+node ace queue:work --queue=default,flags
+```
+
+What you give up compared to `db` and `redis`:
+
+- **No replay.** A job is gone once it ran, so `node ace flags:replay` is not available, and a sink you add later only receives new events.
+- **Not transactional.** `track(…, { client: trx })` sends the event after the commit, and it is lost if the process dies in between.
+- **No per-sink lag in the console.** Pending, retried and failed batches are in your queue; batches that run out of attempts stay in its storage (`keepFailed: false` removes them) and are logged.
+- **Durable as your queue adapter is.** Redis or database: yes. `sync`: events are delivered inline, in the request.
+
+Don't run `node ace flags:work --sink`: there is no relay. `flags:work` still runs scheduled changes and experiment results.
 
 ## Sinks
 

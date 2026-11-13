@@ -254,6 +254,7 @@ export async function createRuntime(
     await sink.setup?.();
     sinkMap.set(name, sink);
   }
+  transport.attachSinks?.(sinkMap);
 
   const lucidSink = [...sinkMap.values()].find(
     (sink): sink is LucidSink => sink instanceof LucidSink,

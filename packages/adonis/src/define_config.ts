@@ -26,6 +26,7 @@ import type { TokenSource } from './topology/token.js';
 import type { TenantVerifier, UserVerifier } from './topology/verify.js';
 import { DbTransport, type DbTransportOptions } from './transports/db_transport.js';
 import { MemoryTransport } from './transports/memory_transport.js';
+import { QueueTransport, type QueueTransportOptions } from './transports/queue_transport.js';
 import {
   type RedisStreamClient,
   RedisTransport,
@@ -75,6 +76,27 @@ export const transports = {
   /** Redis Streams through `@adonisjs/redis`. */
   redis(options: RedisTransportOptions & { connection?: string } = {}): Factory<Transport> {
     return async (ctx) => new RedisTransport(await ctx.redis(options.connection), options);
+  },
+  /**
+   * Jobs on `@adonisjs/queue`: one job per batch per sink, run by your queue workers with the
+   * queue's retries. No replay, not transactional.
+   */
+  queue(options: QueueTransportOptions = {}): Factory<Transport> {
+    return async (ctx) => {
+      const container = ctx.app?.container;
+      if (container) {
+        if (!container.hasBinding('queue.manager'))
+          throw new Error(
+            'the "queue" transport needs @adonisjs/queue configured (node ace add @adonisjs/queue)',
+          );
+        // Initializes the queue manager (adapters from config/queue.ts) before the first dispatch.
+        await container.make('queue.manager' as never);
+      }
+      const logger = container?.hasBinding('logger')
+        ? ((await container.make('logger')) as { warn(m: string): void; error(m: string): void })
+        : undefined;
+      return new QueueTransport(options, logger);
+    };
   },
   /** In process memory: tests and local development. */
   memory(): Factory<Transport> {

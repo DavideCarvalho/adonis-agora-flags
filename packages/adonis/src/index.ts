@@ -116,6 +116,11 @@ export {
 } from './topology/verify.js';
 export { DbTransport } from './transports/db_transport.js';
 export { MemoryTransport } from './transports/memory_transport.js';
+export {
+  type DeliveryPayload,
+  QueueTransport,
+  type QueueTransportOptions,
+} from './transports/queue_transport.js';
 export { RedisTransport } from './transports/redis_transport.js';
 export type { Transport } from './transports/transport.js';
 export type { BooleanFlagKey, FlagKey, FlagsList, FlagValue } from './types.js';

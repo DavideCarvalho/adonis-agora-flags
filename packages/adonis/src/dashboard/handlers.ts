@@ -1191,6 +1191,12 @@ export function ops(deps: Deps, _req: ApiRequest): Promise<ApiResponse> {
       sinks,
       sinkError,
       relay: o.runtime.relay !== undefined,
+      // Who moves events to the sinks: the relay, the transport itself (queue jobs), or nobody.
+      delivery: o.runtime.relay
+        ? 'relay'
+        : o.runtime.transport?.attachSinks && names.length > 0
+          ? 'transport'
+          : null,
       worker: o.runtime.worker !== undefined,
       analytics: o.runtime.analytics !== undefined,
       tenants: o.runtime.topology === 'control-plane' ? await tenantsOf(o.store) : [],
