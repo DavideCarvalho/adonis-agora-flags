@@ -4,8 +4,9 @@ import { join } from 'node:path';
 import { IgnitorFactory } from '@adonisjs/core/factories';
 import type { ApplicationService } from '@adonisjs/core/types';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { FlagsRequestsApprove } from '../../commands/flags_activity.js';
 import FlagsList from '../../commands/flags_list.js';
-import { FlagsExport, FlagsImport, FlagsRequests, FlagsStale } from '../../commands/flags_ops.js';
+import { FlagsExport, FlagsImport, FlagsStale } from '../../commands/flags_ops.js';
 import FlagsSet from '../../commands/flags_set.js';
 import FlagsWork from '../../commands/flags_work.js';
 import { flag } from '../../src/declare.js';
@@ -87,14 +88,14 @@ describe('commands', () => {
     );
   });
 
-  it('flags:set in an approval environment files a request; flags:requests approves it', async () => {
+  it('flags:set in an approval environment files a request; flags:requests:approve approves it', async () => {
     const set = await run(FlagsSet as never, ['new_player', 'on', '--env=locked', '--as=alice']);
     expect(logs(set)).toMatch(/approval required/);
     const pending = await (await runtime()).store!.listChangeRequests({ status: 'pending' });
     expect(pending).toHaveLength(1);
-    const own = await run(FlagsRequests as never, ['approve', pending[0]!.id, '--as=alice']);
+    const own = await run(FlagsRequestsApprove as never, [pending[0]!.id, '--as=alice']);
     expect(own.exitCode).toBe(1);
-    (await run(FlagsRequests as never, ['approve', pending[0]!.id, '--as=bob'])).assertSucceeded();
+    (await run(FlagsRequestsApprove as never, [pending[0]!.id, '--as=bob'])).assertSucceeded();
     const ruleset = await (await runtime()).store!.readRuleset('locked');
     expect(ruleset.flags.new_player?.fallthrough).toEqual({ variant: 'on' });
   });
@@ -104,7 +105,7 @@ describe('commands', () => {
     const file = join(dir, 'flags.json');
     (await run(FlagsExport as never, [`--out=${file}`])).assertSucceeded();
     expect(JSON.parse(readFileSync(file, 'utf8')).flags.new_player).toBeDefined();
-    (await run(FlagsImport as never, [file, '--env=staging'])).assertSucceeded();
+    (await run(FlagsImport as never, [file, '--env=staging', '--force'])).assertSucceeded();
     const staging = await (await runtime()).store!.readRuleset('staging');
     expect(staging.flags.new_player?.fallthrough).toEqual({ variant: 'on' });
   });
@@ -120,7 +121,7 @@ describe('commands', () => {
 
   it('flags:stale lists a flag nobody evaluates', async () => {
     await run(FlagsSet as never, ['new_player', 'on']);
-    const stale = await run(FlagsStale as never, ['--unused-days=0']);
+    const stale = await run(FlagsStale as never, ['--unused-days=1']);
     expect(logs(stale)).toMatch(/new_player/);
   });
 });

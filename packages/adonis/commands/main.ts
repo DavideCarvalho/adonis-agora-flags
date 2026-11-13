@@ -1,4 +1,32 @@
 import { ListLoader } from '@adonisjs/core/ace';
+import {
+  FlagsAuditList,
+  FlagsEnvironmentsList,
+  FlagsExperimentsList,
+  FlagsExperimentsRecompute,
+  FlagsExperimentsShow,
+  FlagsOpsStatus,
+  FlagsRequestsApprove,
+  FlagsRequestsCancel,
+  FlagsRequestsList,
+  FlagsRequestsReject,
+  FlagsSchedulesCancel,
+  FlagsSchedulesCreate,
+  FlagsSchedulesList,
+} from './flags_activity.js';
+import {
+  FlagsFlagCreate,
+  FlagsFlagDelete,
+  FlagsFlagDisable,
+  FlagsFlagEnable,
+  FlagsFlagEvaluate,
+  FlagsFlagOverride,
+  FlagsFlagRollout,
+  FlagsFlagSave,
+  FlagsFlagShow,
+  FlagsFlagUpdate,
+  FlagsFlagVariant,
+} from './flags_flag.js';
 import FlagsList from './flags_list.js';
 import {
   FlagsExport,
@@ -6,11 +34,21 @@ import {
   FlagsImport,
   FlagsPromote,
   FlagsReplay,
-  FlagsRequests,
-  FlagsResults,
   FlagsStale,
 } from './flags_ops.js';
 import FlagsRefs from './flags_refs.js';
+import {
+  FlagsHoldoutSave,
+  FlagsLayersDelete,
+  FlagsLayersList,
+  FlagsLayersSave,
+  FlagsMetricsDelete,
+  FlagsMetricsList,
+  FlagsMetricsSave,
+  FlagsSegmentsDelete,
+  FlagsSegmentsList,
+  FlagsSegmentsSave,
+} from './flags_ruleset.js';
 import FlagsSet from './flags_set.js';
 import FlagsTypes from './flags_types.js';
 import FlagsWork from './flags_work.js';
@@ -27,12 +65,44 @@ const loader = new ListLoader([
   FlagsImport,
   FlagsPromote,
   FlagsStale,
-  FlagsResults,
   FlagsRefs,
   FlagsForget,
   FlagsReplay,
-  FlagsRequests,
   FlagsTypes,
+  FlagsFlagShow,
+  FlagsFlagEnable,
+  FlagsFlagDisable,
+  FlagsFlagRollout,
+  FlagsFlagVariant,
+  FlagsFlagOverride,
+  FlagsFlagSave,
+  FlagsFlagCreate,
+  FlagsFlagUpdate,
+  FlagsFlagDelete,
+  FlagsFlagEvaluate,
+  FlagsSegmentsList,
+  FlagsSegmentsSave,
+  FlagsSegmentsDelete,
+  FlagsLayersList,
+  FlagsLayersSave,
+  FlagsLayersDelete,
+  FlagsHoldoutSave,
+  FlagsMetricsList,
+  FlagsMetricsSave,
+  FlagsMetricsDelete,
+  FlagsExperimentsList,
+  FlagsExperimentsShow,
+  FlagsExperimentsRecompute,
+  FlagsRequestsList,
+  FlagsRequestsApprove,
+  FlagsRequestsReject,
+  FlagsRequestsCancel,
+  FlagsSchedulesList,
+  FlagsSchedulesCreate,
+  FlagsSchedulesCancel,
+  FlagsAuditList,
+  FlagsEnvironmentsList,
+  FlagsOpsStatus,
 ]);
 
 export const getMetaData = loader.getMetaData.bind(loader);
