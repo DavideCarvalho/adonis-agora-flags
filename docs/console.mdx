@@ -73,16 +73,43 @@ Everything the console does goes through JSON endpoints under `<path>/api`, behi
 
 | Request | Body | Does |
 |---|---|---|
-| `GET /api/flags` | | Flags, declarations and what each serves |
+| `GET /api/flags` | | `{ data }`: flags, declarations and what each serves |
 | `POST /api/flags` | `{ key, declaration }` | Create a flag |
 | `PUT /api/flags/:key` | `{ definition, note? }` | Replace a flag's targeting |
 | `POST /api/flags/:key/enabled` | `{ enabled }` | The kill switch: `false` serves `offVariant` to everyone; `true` lifts it, back to the targeting |
 | `POST /api/flags/:key/rollout` | `{ percent }` | Percentage rollout of an on/off flag |
 | `POST /api/flags/:key/variant` | `{ variant }` | Serve one variant to everyone |
-| `GET /api/metrics` | | Config and console metrics, and the experiments using each |
+| `GET /api/metrics` | | `{ data }`: config and console metrics, and the experiments using each |
 | `PUT /api/metrics/:key` | `{ metric, note? }` | Create or replace a console metric (`409` for one defined in config) |
 | `DELETE /api/metrics/:key` | | Delete a console metric (`422` while an experiment uses it) |
-| `GET /api/audit?key=` | | The change history |
+| `GET /api/audit` | | The change history, newest first (paged, see below) |
+| `GET /api/change-requests` | | Change requests, newest first (paged) |
+| `GET /api/schedules` | | Scheduled changes, soonest first (paged) |
+
+The catalogs (`/api/flags`, `/api/segments`, `/api/layers`, `/api/metrics`, `/api/experiments`, `/api/stale`) return the whole environment as `{ data, … }`.
+
+The history, change requests and schedules speak the [filter](/docs/filter) list format: `filter[field]=value` to narrow, `first` for the page size, and `{ data, meta: { nextCursor, prevCursor, hasNext, hasPrev } }` back. An unknown filter field, a value it does not accept, or a `sort` other than the list's own order answers `400`.
+
+| List | Filters | Order | `first` |
+|---|---|---|---|
+| `GET /api/audit` | `entity` (`flag`, `segment`, `layer`, `metric`, `holdout`, `ruleset`), `key` | `-at` | default 50, at most 200 |
+| `GET /api/change-requests` | `status` (`pending`, `approved`, `rejected`, `applied`, `cancelled`); none: every status | `-requestedAt` | default 100, at most 500 |
+| `GET /api/schedules` | `flag`, `status` (`pending`, `running`, `done`, `failed`, `cancelled`) | `runAt` | default 100, at most 500 |
+
+The history pages forward: send `meta.nextCursor` back as `after` for older changes.
+
+```ts title="app/services/flag_history.ts"
+import { filterQuery, type CursorPageResponse } from '@adonis-agora/filter-client'
+
+const query = filterQuery().where('entity', 'flag').where('key', 'new_checkout').first(50)
+const page: CursorPageResponse<AuditEntry> = await fetch(
+  `/flags/api/audit?${query.toQueryString()}`,
+).then((r) => r.json())
+
+if (page.meta.nextCursor) query.after(page.meta.nextCursor) // the next, older page
+```
+
+Change requests and schedules answer one page: `meta.hasNext` says more match than `first`, so narrow the filter or raise `first`.
 
 `enabled: true` does not turn a flag on: on a flag that was never configured, the targeting created for it still serves the default. Use `variant` (`on`) or a rollout.
 

@@ -91,9 +91,9 @@ test.group('the console, behind @adonisjs/auth and Bouncer', () => {
     assert.equal((await visitor.request('/beta')).status, 200)
     assert.include(await (await visitor.request('/checkout/page')).text(), 'new checkout')
 
-    const { body: log } = await admin.json('/flags/api/audit?key=new_checkout')
-    assert.equal(log.entries[0].actor.id, String((await db.from('users').where('email', 'admin@shop.test').first()).id))
-    assert.equal(log.entries[0].actor.name, 'admin')
+    const { body: log } = await admin.json('/flags/api/audit?filter[key]=new_checkout')
+    assert.equal(log.data[0].actor.id, String((await db.from('users').where('email', 'admin@shop.test').first()).id))
+    assert.equal(log.data[0].actor.name, 'admin')
   })
 
   test('targeting reads attributes from the app’s own data (plan)', async ({ assert }) => {

@@ -70,8 +70,8 @@ describe('console over HTTP', () => {
   it('lists declared flags and applies a change through the API', async () => {
     const list = await fetch(`${base}/flags/api/flags`);
     expect(list.status).toBe(200);
-    const body = (await list.json()) as { flags: Array<{ key: string }> };
-    expect(body.flags.map((f) => f.key)).toContain('new_player');
+    const body = (await list.json()) as { data: Array<{ key: string }> };
+    expect(body.data.map((f) => f.key)).toContain('new_player');
 
     const change = await fetch(`${base}/flags/api/flags/new_player/rollout`, {
       method: 'POST',
@@ -100,9 +100,9 @@ describe('console over HTTP', () => {
     });
     expect(created.status).toBe(201);
     const list = (await (await fetch(`${base}/flags/api/flags`)).json()) as {
-      flags: Array<{ key: string; declaration: { source: string } | null }>;
+      data: Array<{ key: string; declaration: { source: string } | null }>;
     };
-    expect(list.flags.find((f) => f.key === 'promo_banner')?.declaration?.source).toBe('console');
+    expect(list.data.find((f) => f.key === 'promo_banner')?.declaration?.source).toBe('console');
     const runtime = (await app.container.make('flags.runtime')) as {
       manager: { refresh(): Promise<boolean>; for(id: string): { all(): Promise<unknown> } };
     };

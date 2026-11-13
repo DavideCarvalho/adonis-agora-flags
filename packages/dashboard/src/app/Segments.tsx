@@ -147,7 +147,7 @@ export function Segments() {
     queryFn: () => api.segments(environment),
   });
   const [adding, setAdding] = useState(false);
-  const segments = query.data?.segments ?? [];
+  const segments = query.data?.data ?? [];
   return (
     <Panel
       title="Segments"

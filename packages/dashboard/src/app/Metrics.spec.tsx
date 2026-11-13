@@ -16,7 +16,7 @@ afterEach(() => {
 const listing = {
   environment: 'production',
   version: '3',
-  metrics: [
+  data: [
     {
       name: 'purchase',
       metric: { kind: 'conversion', event: 'purchase' },

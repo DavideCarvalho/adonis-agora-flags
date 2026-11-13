@@ -206,6 +206,7 @@ describe('flags dev tools (MCP)', () => {
     expect(audit.items).toHaveLength(2);
     expect(audit.next).toBe(2);
     expect(audit.limit).toBeUndefined();
+    expect(audit.meta).toBeUndefined();
     const older = (await run('flags_list_audit', { entity: 'metric', limit: 2, page: 2 })) as {
       items: unknown[];
       next: unknown;

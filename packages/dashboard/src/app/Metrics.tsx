@@ -225,7 +225,7 @@ export function Metrics() {
     queryFn: () => api.metrics(environment),
   });
   const [adding, setAdding] = useState(false);
-  const metrics = query.data?.metrics ?? [];
+  const metrics = query.data?.data ?? [];
   const bySource = (source: DefinitionSource) => metrics.filter((m) => m.source === source);
   return (
     <Panel

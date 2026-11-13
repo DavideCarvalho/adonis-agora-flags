@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as h from '../../src/dashboard/handlers.js';
 import { flag } from '../../src/declare.js';
 import { defineConfig, metric, sinks } from '../../src/index.js';
@@ -22,7 +22,7 @@ const alice = { actor: { id: 'alice' } };
 const bob = { actor: { id: 'bob' } };
 
 function req(
-  parts: { params?: Record<string, string>; query?: Record<string, string>; body?: unknown } = {},
+  parts: { params?: Record<string, string>; query?: Record<string, unknown>; body?: unknown } = {},
 ): h.ApiRequest {
   return { params: parts.params ?? {}, query: parts.query ?? {}, body: parts.body };
 }
@@ -88,7 +88,7 @@ describe('dashboard API handlers', () => {
     await runtime.admin!.setRollout('new_player', 25, alice.actor);
     const res = await h.listFlags(alice, req());
     expect(res.status).toBe(200);
-    const flags = body(res).flags as Array<Record<string, any>>;
+    const flags = body(res).data as Array<Record<string, any>>;
     expect(flags.map((f) => f.key)).toEqual(['checkout', 'max_items', 'new_player']);
     const player = flags.find((f) => f.key === 'new_player')!;
     expect(player).toMatchObject({
@@ -106,7 +106,7 @@ describe('dashboard API handlers', () => {
 
   it('reports the kill switch and splits in the serving summary', async () => {
     await runtime.admin!.saveFlag('checkout', checkoutExperiment, alice.actor);
-    let flags = body(await h.listFlags(alice, req())).flags as Array<Record<string, any>>;
+    let flags = body(await h.listFlags(alice, req())).data as Array<Record<string, any>>;
     expect(flags.find((f) => f.key === 'checkout')!.serving).toEqual({
       kind: 'split',
       arms: [
@@ -119,7 +119,7 @@ describe('dashboard API handlers', () => {
       req({ params: { key: 'checkout' }, body: { enabled: false } }),
     );
     expect(off.status).toBe(200);
-    flags = body(await h.listFlags(alice, req())).flags as Array<Record<string, any>>;
+    flags = body(await h.listFlags(alice, req())).data as Array<Record<string, any>>;
     expect(flags.find((f) => f.key === 'checkout')!.serving).toEqual({
       kind: 'off',
       variant: 'control',
@@ -207,7 +207,7 @@ describe('dashboard API handlers', () => {
     );
     expect(bad.valid).toBe(false);
     expect(bad.issues[0].message).toMatch(/unknown variant "missing"/);
-    expect(body(await h.listFlags(alice, req())).flags[0].inRuleset).toBe(false);
+    expect(body(await h.listFlags(alice, req())).data[0].inRuleset).toBe(false);
   });
 
   it('evaluates a context against the stored ruleset or a draft, without recording exposures', async () => {
@@ -305,8 +305,8 @@ describe('dashboard API handlers', () => {
     );
     const staging = body(await h.listFlags(alice, req({ query: { environment: 'staging' } })));
     const production = body(await h.listFlags(alice, req()));
-    expect(staging.flags.find((f: { key: string }) => f.key === 'new_player').inRuleset).toBe(true);
-    expect(production.flags.find((f: { key: string }) => f.key === 'new_player').inRuleset).toBe(
+    expect(staging.data.find((f: { key: string }) => f.key === 'new_player').inRuleset).toBe(true);
+    expect(production.data.find((f: { key: string }) => f.key === 'new_player').inRuleset).toBe(
       false,
     );
     expect((await h.listFlags(alice, req({ query: { environment: 'bad env!' } }))).status).toBe(
@@ -340,9 +340,7 @@ describe('dashboard API handlers', () => {
       alice.actor,
     );
     const list = body(await h.listSegments(alice, req()));
-    expect(list.segments).toEqual([
-      expect.objectContaining({ key: 'staff', usedBy: ['new_player'] }),
-    ]);
+    expect(list.data).toEqual([expect.objectContaining({ key: 'staff', usedBy: ['new_player'] })]);
     const refused = await h.deleteSegment(alice, req({ params: { key: 'staff' } }));
     expect(refused.status).toBe(422);
     const bad = await h.saveSegment(
@@ -393,7 +391,7 @@ describe('dashboard API handlers', () => {
       422,
     );
     const listed = body(await h.listLayers(alice, req()));
-    expect(listed.layers).toEqual([
+    expect(listed.data).toEqual([
       expect.objectContaining({ key: 'checkout_layer', allocatedPercent: 50 }),
     ]);
     expect(listed.holdout).toEqual({ percent: 5 });
@@ -416,7 +414,7 @@ describe('dashboard API handlers', () => {
     await runtime.relay!.drain('warehouse', 1000);
 
     let list = body(await h.listExperiments(alice, req()));
-    expect(list.experiments).toEqual([
+    expect(list.data).toEqual([
       expect.objectContaining({
         key: 'checkout',
         configured: true,
@@ -429,7 +427,7 @@ describe('dashboard API handlers', () => {
     expect(body(recomputed).results.metrics[0].name).toBe('purchase');
 
     list = body(await h.listExperiments(alice, req()));
-    expect(list.experiments[0].exposures).toBe(60);
+    expect(list.data[0].exposures).toBe(60);
     const detail = body(await h.experimentDetail(alice, req({ params: { key: 'checkout' } })));
     expect(detail.results.experiment).toBe('checkout');
     expect((await h.experimentDetail(alice, req({ params: { key: 'nope' } }))).status).toBe(404);
@@ -438,7 +436,7 @@ describe('dashboard API handlers', () => {
 
   it('manages console metrics and analyses console experiments with them', async () => {
     let listed = body(await h.listMetrics(alice, req()));
-    expect(listed.metrics).toEqual([
+    expect(listed.data).toEqual([
       {
         name: 'purchase',
         metric: { kind: 'conversion', event: 'purchase' },
@@ -519,7 +517,7 @@ describe('dashboard API handlers', () => {
     await runtime.buffer!.flush();
     await runtime.relay!.drain('warehouse', 1000);
 
-    const experiments = body(await h.listExperiments(alice, req())).experiments;
+    const experiments = body(await h.listExperiments(alice, req())).data;
     expect(experiments.find((e: any) => e.key === 'new_player')).toMatchObject({
       configured: true,
       source: 'console',
@@ -537,7 +535,7 @@ describe('dashboard API handlers', () => {
     expect(body(recomputed).results.control).toBe('off');
 
     listed = body(await h.listMetrics(alice, req()));
-    expect(listed.metrics.find((m: any) => m.name === 'signup')).toMatchObject({
+    expect(listed.data.find((m: any) => m.name === 'signup')).toMatchObject({
       source: 'console',
       usedBy: ['new_player'],
     });
@@ -556,8 +554,8 @@ describe('dashboard API handlers', () => {
     expect(
       body(await h.exportRuleset(alice, req({ query: { environment: 'qa' } }))).metrics,
     ).toEqual(exported.metrics);
-    const audit = body(await h.audit(alice, req({ query: { entity: 'metric' } })));
-    expect(audit.entries).toEqual([expect.objectContaining({ key: 'signup', action: 'create' })]);
+    const audit = body(await h.audit(alice, req({ query: { filter: { entity: 'metric' } } })));
+    expect(audit.data).toEqual([expect.objectContaining({ key: 'signup', action: 'create' })]);
   });
 
   describe('change requests', () => {
@@ -584,9 +582,11 @@ describe('dashboard API handlers', () => {
       expect(filed.status).toBe(202);
       const id = body(filed).request.id as string;
 
-      const pending = body(await h.listChangeRequests(alice, req()));
+      const pending = body(
+        await h.listChangeRequests(alice, req({ query: { filter: { status: 'pending' } } })),
+      );
       expect(pending.requiresApproval).toBe(true);
-      expect(pending.requests).toEqual([expect.objectContaining({ id, note: 'ship it' })]);
+      expect(pending.data).toEqual([expect.objectContaining({ id, note: 'ship it' })]);
 
       const self = await h.approveChangeRequest(alice, req({ params: { id } }));
       expect(self.status).toBe(403);
@@ -603,8 +603,14 @@ describe('dashboard API handlers', () => {
       expect((await h.approveChangeRequest(bob, req({ params: { id: 'missing' } }))).status).toBe(
         404,
       );
-      const all = body(await h.listChangeRequests(alice, req({ query: { status: 'all' } })));
-      expect(all.requests).toHaveLength(1);
+      const all = body(await h.listChangeRequests(alice, req()));
+      expect(all.data).toHaveLength(1);
+      expect(all.meta).toEqual({
+        nextCursor: null,
+        prevCursor: null,
+        hasNext: false,
+        hasPrev: false,
+      });
     });
 
     it('rejects, and lets only the requester cancel', async () => {
@@ -624,9 +630,9 @@ describe('dashboard API handlers', () => {
       );
       const cancelled = await h.cancelChangeRequest(alice, req({ params: { id: b.request.id } }));
       expect(body(cancelled).request.status).toBe('cancelled');
-      expect((await h.listChangeRequests(alice, req({ query: { status: 'bogus' } }))).status).toBe(
-        400,
-      );
+      expect(
+        (await h.listChangeRequests(alice, req({ query: { filter: { status: 'bogus' } } }))).status,
+      ).toBe(400);
     });
   });
 
@@ -700,8 +706,38 @@ describe('dashboard API handlers', () => {
       ).status,
     ).toBe(404);
 
-    const listed = body(await h.listSchedules(alice, req({ query: { flag: 'new_player' } })));
-    expect(listed.schedules).toHaveLength(3);
+    const listed = body(
+      await h.listSchedules(alice, req({ query: { filter: { flag: 'new_player' } } })),
+    );
+    expect(listed.data).toHaveLength(3);
+    expect(listed.meta.hasNext).toBe(false);
+    const firstTwo = body(
+      await h.listSchedules(alice, req({ query: { filter: { flag: 'new_player' }, first: '2' } })),
+    );
+    expect(firstTwo.data).toHaveLength(2);
+    expect(firstTwo.meta).toEqual({
+      nextCursor: null,
+      prevCursor: null,
+      hasNext: true,
+      hasPrev: false,
+    });
+    const pendingOnly = body(
+      await h.listSchedules(alice, req({ query: { filter: { status: ['pending'] } } })),
+    );
+    expect(pendingOnly.data).toHaveLength(3);
+    for (const query of [
+      { filter: { status: 'later' } },
+      { filter: { owner: 'x' } },
+      { filter: { flag: { contains: 'new' } } },
+      { sort: 'flag' },
+      { sort: '-runAt' },
+      { after: 'abc' },
+    ]) {
+      expect((await h.listSchedules(alice, req({ query }))).status, JSON.stringify(query)).toBe(
+        400,
+      );
+    }
+    expect((await h.listSchedules(alice, req({ query: { sort: 'runAt' } }))).status).toBe(200);
     const id = body(one).schedules[0].id as string;
     const cancelled = await h.cancelSchedule(alice, req({ params: { id } }));
     expect(body(cancelled).schedule.status).toBe('cancelled');
@@ -710,22 +746,61 @@ describe('dashboard API handlers', () => {
   });
 
   it('reads the audit trail with filters', async () => {
+    // Every change in the same millisecond: the cursor must still walk them all.
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
     await runtime.admin!.turnOn('new_player', alice.actor);
     await runtime.admin!.turnOff('new_player', bob.actor);
     await h.saveSegment(
       alice,
       req({ params: { key: 's' }, body: { segment: { included: ['x'] } } }),
     );
+    now.mockRestore();
     const flagOnly = body(
-      await h.audit(alice, req({ query: { entity: 'flag', key: 'new_player' } })),
+      await h.audit(alice, req({ query: { filter: { entity: 'flag', key: 'new_player' } } })),
     );
-    expect(flagOnly.entries.map((e: { actor: { id: string } }) => e.actor.id)).toEqual([
+    expect(flagOnly.data.map((e: { actor: { id: string } }) => e.actor.id)).toEqual([
       'bob',
       'alice',
     ]);
-    const limited = body(await h.audit(alice, req({ query: { limit: '1' } })));
-    expect(limited.entries).toHaveLength(1);
-    expect((await h.audit(alice, req({ query: { entity: 'nope' } }))).status).toBe(400);
+    expect(flagOnly.meta).toEqual({
+      nextCursor: null,
+      prevCursor: null,
+      hasNext: false,
+      hasPrev: false,
+    });
+
+    // A cursor walk, one row at a time, sees every change once, newest first — changes made in
+    // the same millisecond included.
+    const everything = body(await h.audit(alice, req())).data as Array<{ id: string }>;
+    expect(everything).toHaveLength(3);
+    const walked: string[] = [];
+    let after: string | undefined;
+    for (let page = 0; page < 5; page++) {
+      const res = body(
+        await h.audit(alice, req({ query: { first: '1', ...(after ? { after } : {}) } })),
+      );
+      walked.push(...res.data.map((e: { id: string }) => e.id));
+      expect(res.meta.hasPrev).toBe(false);
+      if (!res.meta.hasNext) {
+        expect(res.meta.nextCursor).toBeNull();
+        break;
+      }
+      after = res.meta.nextCursor;
+    }
+    expect(walked).toEqual(everything.map((e) => e.id));
+
+    for (const query of [
+      { filter: { entity: 'nope' } },
+      { filter: { actor: 'alice' } },
+      { filter: { key: { startsWith: 'new' } } },
+      { sort: 'key' },
+      { sort: 'at' },
+      { after: 'not-a-cursor' },
+      { before: 'x', last: '1' },
+    ]) {
+      expect((await h.audit(alice, req({ query }))).status, JSON.stringify(query)).toBe(400);
+    }
+    expect((await h.audit(alice, req({ query: { sort: '-at' } }))).status).toBe(200);
   });
 
   it('exports, imports and promotes', async () => {
@@ -760,7 +835,7 @@ describe('dashboard API handlers', () => {
     const later = { ...alice, now: () => new Date(Date.now() + 40 * 86_400_000) };
     const res = body(await h.stale(later, req({ query: { unusedDays: '7' } })));
     expect(res.unusedDays).toBe(7);
-    const entry = res.flags.find((f: { key: string }) => f.key === 'new_player');
+    const entry = res.data.find((f: { key: string }) => f.key === 'new_player');
     expect(entry.reasons).toEqual(expect.arrayContaining(['unused', 'static']));
     expect((await h.stale(alice, req({ query: { unusedDays: '-1' } }))).status).toBe(400);
   });

@@ -106,6 +106,7 @@
     "copy:spa": "mkdir -p dist/assets && rm -rf dist/assets/spa && cp -r ../dashboard/dist/spa dist/assets/spa"
   },
   "dependencies": {
+    "@adonis-agora/filter": "^1.0.0-rc.5",
     "@adonis-agora/flags-core": "workspace:^"
   },
   "peerDependencies": {

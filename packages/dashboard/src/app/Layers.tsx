@@ -225,10 +225,10 @@ export function Layers() {
         )}
         <QueryState
           query={query}
-          empty={(data?.layers.length ?? 0) === 0 && !adding}
+          empty={(data?.data.length ?? 0) === 0 && !adding}
           emptyMessage="No layers in this environment."
         >
-          {data?.layers.map((l) => (
+          {data?.data.map((l) => (
             <LayerForm
               key={`${l.key}:${JSON.stringify(l.layer)}`}
               layerKey={l.key}

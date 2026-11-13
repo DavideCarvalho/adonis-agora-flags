@@ -9,6 +9,12 @@
  * answers `202` with the change request it filed instead of applying it — {@link WriteResult}.
  */
 
+import {
+  type CursorPageResponse,
+  type FilterQueryBuilder,
+  filterQuery,
+} from '@adonis-agora/filter-client';
+
 // ── Ruleset (mirrors `@adonis-agora/flags-core`'s `ruleset.ts`; plain JSON) ─────────────────────
 
 export type JsonValue =
@@ -502,15 +508,27 @@ export function buildQuery(params: Record<string, string | number | undefined>):
 
 const seg = encodeURIComponent;
 
+/** `?environment=…&<list query>`: the environment plus a `filterQuery()`'s filters and paging. */
+function listQuery(environment: string, query: FilterQueryBuilder): string {
+  const qs = query.toQueryString();
+  return `${buildQuery({ environment })}${qs === '' ? '' : `&${qs}`}`;
+}
+
+/** A catalog the console returns whole (the environment's ruleset is small): `{ data, … }`. */
+type Catalog<T, Extra = Record<never, never>> = { environment: string; data: T[] } & Extra;
+
+/** A paged list: `{ data, meta: { nextCursor, prevCursor, hasNext, hasPrev } }`. */
+type Paged<T, Extra = Record<never, never>> = CursorPageResponse<T> & {
+  environment: string;
+} & Extra;
+
 // ── Calls ─────────────────────────────────────────────────────────────────────────────────────
 
 export const api = {
   meta: () => http<Meta>('/meta'),
 
   flags: (environment: string) =>
-    http<{ environment: string; version: string; flags: FlagRow[] }>(
-      `/flags${buildQuery({ environment })}`,
-    ),
+    http<Catalog<FlagRow, { version: string }>>(`/flags${buildQuery({ environment })}`),
   flag: (environment: string, key: string) =>
     http<FlagDetail>(`/flags/${seg(key)}${buildQuery({ environment })}`),
   createFlag: (environment: string, key: string, declaration: DeclarationInput, note?: string) =>
@@ -549,7 +567,7 @@ export const api = {
     ),
 
   segments: (environment: string) =>
-    http<{ segments: Array<{ key: string; segment: Segment; usedBy: string[] }> }>(
+    http<Catalog<{ key: string; segment: Segment; usedBy: string[] }>>(
       `/segments${buildQuery({ environment })}`,
     ),
   saveSegment: (environment: string, key: string, segment: Segment) =>
@@ -558,16 +576,20 @@ export const api = {
     send<WriteResult>('DELETE', `/segments/${seg(key)}`, { environment }),
 
   layers: (environment: string) =>
-    http<{
-      layers: Array<{ key: string; layer: Layer; allocatedPercent: number }>;
-      holdout: Holdout | null;
-      experiments: Array<{
-        flag: string;
-        experiment: string;
-        layer: string | null;
-        holdout: boolean;
-      }>;
-    }>(`/layers${buildQuery({ environment })}`),
+    http<
+      Catalog<
+        { key: string; layer: Layer; allocatedPercent: number },
+        {
+          holdout: Holdout | null;
+          experiments: Array<{
+            flag: string;
+            experiment: string;
+            layer: string | null;
+            holdout: boolean;
+          }>;
+        }
+      >
+    >(`/layers${buildQuery({ environment })}`),
   saveLayer: (environment: string, key: string, layer: Layer) =>
     send<WriteResult>('PUT', `/layers/${seg(key)}`, { environment, layer }),
   deleteLayer: (environment: string, key: string) =>
@@ -576,21 +598,21 @@ export const api = {
     send<WriteResult>('PUT', '/holdout', { environment, holdout }),
 
   metrics: (environment: string) =>
-    http<{
-      metrics: Array<{
+    http<
+      Catalog<{
         name: string;
         metric: MetricDefinition;
         source: DefinitionSource;
         usedBy: string[];
-      }>;
-    }>(`/metrics${buildQuery({ environment })}`),
+      }>
+    >(`/metrics${buildQuery({ environment })}`),
   saveMetric: (environment: string, key: string, metric: MetricDefinition) =>
     send<WriteResult>('PUT', `/metrics/${seg(key)}`, { environment, metric }),
   deleteMetric: (environment: string, key: string) =>
     send<WriteResult>('DELETE', `/metrics/${seg(key)}`, { environment }),
 
   experiments: (environment: string) =>
-    http<{ analytics: boolean; experiments: ExperimentRow[] }>(
+    http<Catalog<ExperimentRow, { analytics: boolean }>>(
       `/experiments${buildQuery({ environment })}`,
     ),
   experiment: (key: string, environment: string) =>
@@ -602,9 +624,13 @@ export const api = {
       { environment },
     ),
 
+  /** `status: 'all'` sends no status filter. */
   changeRequests: (environment: string, status: string) =>
-    http<{ requiresApproval: boolean; actor: Actor; requests: ChangeRequest[] }>(
-      `/change-requests${buildQuery({ environment, status })}`,
+    http<Paged<ChangeRequest, { requiresApproval: boolean; actor: Actor }>>(
+      `/change-requests${listQuery(
+        environment,
+        status === 'all' ? filterQuery() : filterQuery().where('status', status),
+      )}`,
     ),
   approve: (id: string, note?: string) =>
     send<{ version: string; request: ChangeRequest }>(
@@ -619,10 +645,18 @@ export const api = {
   cancel: (id: string) =>
     send<{ request: ChangeRequest }>('POST', `/change-requests/${seg(id)}/cancel`),
 
-  audit: (environment: string, filters: { entity?: string; key?: string; before?: string }) =>
-    http<{ entries: AuditEntry[]; limit: number }>(
-      `/audit${buildQuery({ environment, ...filters })}`,
-    ),
+  /** Newest first; pass the previous page's `meta.nextCursor` as `after` for older changes. */
+  audit: (
+    environment: string,
+    filters: { entity?: string; key?: string; after?: string; first?: number },
+  ) => {
+    const query = filterQuery();
+    if (filters.entity) query.where('entity', filters.entity);
+    if (filters.key) query.where('key', filters.key);
+    if (filters.after) query.after(filters.after);
+    if (filters.first) query.first(filters.first);
+    return http<Paged<AuditEntry>>(`/audit${listQuery(environment, query)}`);
+  },
 
   schedule: (
     environment: string,
@@ -645,7 +679,7 @@ export const api = {
     send<WriteResult>('POST', '/promote', { from, to, note }),
 
   stale: (environment: string, unusedDays: number, staticDays: number) =>
-    http<{ flags: StaleFlag[]; unusedDays: number; staticDays: number }>(
+    http<Catalog<StaleFlag, { unusedDays: number; staticDays: number }>>(
       `/stale${buildQuery({ environment, unusedDays, staticDays })}`,
     ),
   ops: () => http<Ops>('/ops'),

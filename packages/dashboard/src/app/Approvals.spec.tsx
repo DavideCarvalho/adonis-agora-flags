@@ -31,7 +31,8 @@ describe('approvals', () => {
     stubFetch(() => ({
       requiresApproval: true,
       actor: { id: 'alice' },
-      requests: [request('mine', 'alice'), request('theirs', 'bob')],
+      data: [request('mine', 'alice'), request('theirs', 'bob')],
+      meta: { nextCursor: null, prevCursor: null, hasNext: false, hasPrev: false },
     }));
     renderScreen(<Approvals />, { meta: META });
     const mine = await screen.findByRole('listitem', { name: 'Change request mine' });
@@ -46,7 +47,12 @@ describe('approvals', () => {
     const { calls } = stubFetch((method) =>
       method === 'POST'
         ? { version: '4', request: { ...request('theirs', 'bob'), status: 'applied' } }
-        : { requiresApproval: true, actor: { id: 'alice' }, requests: [request('theirs', 'bob')] },
+        : {
+            requiresApproval: true,
+            actor: { id: 'alice' },
+            data: [request('theirs', 'bob')],
+            meta: { nextCursor: null, prevCursor: null, hasNext: false, hasPrev: false },
+          },
     );
     renderScreen(<Approvals />, { meta: META });
     fireEvent.change(await screen.findByRole('textbox', { name: 'Review note for theirs' }), {
@@ -64,7 +70,12 @@ describe('approvals', () => {
     stubFetch((method) =>
       method === 'POST'
         ? status(403, { error: 'a change cannot be approved by the person who requested it' })
-        : { requiresApproval: true, actor: { id: 'alice' }, requests: [request('theirs', 'bob')] },
+        : {
+            requiresApproval: true,
+            actor: { id: 'alice' },
+            data: [request('theirs', 'bob')],
+            meta: { nextCursor: null, prevCursor: null, hasNext: false, hasPrev: false },
+          },
     );
     renderScreen(<Approvals />, { meta: META });
     fireEvent.click(await screen.findByRole('button', { name: 'Approve and apply' }));
