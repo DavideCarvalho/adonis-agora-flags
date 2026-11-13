@@ -108,7 +108,7 @@ export function FlagsList({ onOpen }: { onOpen: (key: string) => void }) {
             placeholder="Search key, description, owner"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="min-w-0 flex-1"
+            className="min-w-0 flex-1 basis-full sm:basis-auto"
           />
           <Select aria-label="Tag" value={tag} onChange={(e) => setTag(e.target.value)}>
             <option value="">All tags</option>
