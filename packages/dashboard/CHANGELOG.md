@@ -1,5 +1,15 @@
 # @adonis-agora/flags-dashboard
 
+## 0.6.0
+
+### Minor Changes
+
+- [#13](https://github.com/DavideCarvalho/adonis-agora-flags/pull/13) [`240101a`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/240101a07f319c793f0c346a77306528da7e32d9) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The console shows what the code owns, the way the authkit console shows settings locked by `defineConfig()`. Flags declared in code carry a **defined in code** lock with a line saying where to change them. Metrics and experiments from `config/flags.ts` carry a **config** lock.
+  
+  When the code overrides something the console stored, the console now says so. Before, it hid the console's copy without a word. This covers a flag created in the console and declared in code since, a console metric with the name of a config metric, and metrics picked for a flag whose experiment config defines. The fields that differ are listed, with a button to remove the ignored copy.
+  
+  New: `DELETE /api/flags/:key/declaration`, the `flags:flag:drop-declaration` command, and the `flags_remove_console_declaration` and `flags_delete_metric` MCP tools. `DELETE /api/metrics/:key` now also removes the console copy of a metric config defines, which used to answer 409. `GET /api/flags` and `GET /api/metrics` report the overridden copy as `overriddenConsole`.
+
 ## 0.5.1
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@adonis-agora/flags-dashboard",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "private": false,
   "description": "Console for @adonis-agora/flags (flags, targeting, segments, layers, experiment results, approvals, environments, ops) — a React SPA served by a thin AdonisJS provider. Part of the Agora ecosystem.",
   "license": "MIT",
