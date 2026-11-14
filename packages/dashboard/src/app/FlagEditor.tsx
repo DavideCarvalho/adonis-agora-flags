@@ -6,6 +6,7 @@ import {
   type FlagDefinition,
   type FlagDetail,
   type Issue,
+  type JsonValue,
   type Serving,
 } from '../client/flags-client';
 import { ConfigLockBadge, ConfigLockNote, OverriddenNotice } from './ConfigLock';
@@ -124,6 +125,7 @@ function EditorBody({
     },
   );
   const declaration = detail.declaration;
+  const masked = maskedCodeDefault(detail);
   const dropConsole = useWrite(
     () => api.removeConsoleDeclaration(environment, detail.key),
     onNotice,
@@ -231,6 +233,27 @@ function EditorBody({
             removing={dropConsole.isPending}
             removeLabel="Remove the console declaration"
           />
+        )}
+        {masked && (
+          <div
+            role="note"
+            className="space-y-2 border-b border-line bg-warn/5 px-4 py-3 text-[11px]"
+          >
+            <p className="text-fg-2">
+              Everyone gets <span className="mono">{formatValue(masked.served)}</span> (
+              {masked.variant}) from the targeting stored here, so the code default{' '}
+              <span className="mono">{formatValue(masked.codeDefault)}</span> never applies. The
+              targeting wins over the code on purpose; remove it from the ruleset if the code
+              default is what you want.
+            </p>
+            <Button
+              variant="ghost"
+              disabled={remove.isPending}
+              onClick={() => remove.mutate(undefined)}
+            >
+              Return to the code default
+            </Button>
+          </div>
         )}
         {detail.requiresApproval && (
           <p className="border-b border-line px-4 py-2 text-[11px] text-warn">
@@ -442,4 +465,25 @@ function declarationFields(
       code: code.client === true ? 'yes' : 'no',
     },
   ];
+}
+
+/**
+ * The stored targeting serves one value to everyone and it is not the code default: typical of a
+ * flag created in the console (its targeting came from the console default) and declared in code
+ * since. The targeting wins, as it should; the editor says so and offers to drop it. The kill switch
+ * (`off`) is left alone: that one is deliberate.
+ */
+export function maskedCodeDefault(
+  detail: FlagDetail,
+): { variant: string; served: JsonValue; codeDefault: JsonValue } | null {
+  const { declaration, stored, serving } = detail;
+  if (!declaration || declaration.source === 'console' || !stored) return null;
+  if (serving.kind !== 'fixed') return null;
+  if ((stored.rules?.length ?? 0) > 0 || Object.keys(stored.overrides ?? {}).length > 0)
+    return null;
+  if ((stored.prerequisites?.length ?? 0) > 0) return null;
+  const served = stored.variants[serving.variant];
+  if (served === undefined) return null;
+  if (JSON.stringify(served) === JSON.stringify(declaration.default)) return null;
+  return { variant: serving.variant, served, codeDefault: declaration.default };
 }
