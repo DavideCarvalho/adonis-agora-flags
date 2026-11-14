@@ -1,5 +1,11 @@
 # @adonis-agora/flags-dashboard
 
+## 0.6.1
+
+### Patch Changes
+
+- [#14](https://github.com/DavideCarvalho/adonis-agora-flags/pull/14) [`ee58980`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/ee589803a5b0d175b6501e593f269c966216d526) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The flag editor says when the stored targeting serves one value to everyone that is not the code default (a console-created flag declared in code later), and offers **Return to the code default**, which removes the flag from the ruleset.
+
 ## 0.6.0
 
 ### Minor Changes
