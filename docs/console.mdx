@@ -49,7 +49,13 @@ The console runs on the control-plane in a [central setup](/docs/central-server)
 
 The console joins the app's Agora console registry. With other Agora consoles installed (durable, telescope, payments, …), the brand menu in the sidebar switches between them, showing only the ones the signed-in person may open. **⌘K** (or **Ctrl K**) searches every one of them; here it finds flags by key or description and segments by key.
 
-The sidebar footer shows who is signed in and a sign-out button. Both work without configuration: the person comes from `ctx.auth.user` (`fullName`, `name` or `email`, and the first of `role` / `roles`), and sign-out is the one authkit announces. Set them yourself when your app differs:
+The sidebar footer shows who is signed in, a light/dark toggle and a sign-out button. The user row and sign-out work without configuration; sign-out is the one authkit announces.
+
+Each console has its own fixed accent colour: authkit indigo `#625fff`, durable lime `#a3e635`, telescope magenta `#e879f9`, payments cyan `#22d3ee`, media amber `#fbbf24`, agent rose `#fb7185`, flags emerald `#34d399` and cms orange `#fb923c`. The cms admin is the only console an app can rebrand (`admin.theme` in the `@adonis-agora/cms` config); `accessDenied.accent` colours only the refusal page. Every console has the light/dark toggle in the sidebar footer, remembered per console in each browser.
+
+Without `viewer`, the footer reads `ctx.auth.user` once the request is already authenticated; it never triggers authentication itself. The label is `fullName`, `name` or `email`. Roles come from the user's `role`, `roles` and `globalRoles` (strings, `{ name }` objects or authz role rows `{ role }`) and, when authkit is installed, from the global roles of authkit's per-request identity. The footer shows one of them: the first admin-like one (a name containing `admin`, such as `ADMIN` or `org_admin`), else the first. A `viewer(ctx)` hook replaces all of this.
+
+Set them yourself when your app differs:
 
 ```ts title="config/flags_dashboard.ts"
 import { defineConfig } from '@adonis-agora/flags/dashboard'
