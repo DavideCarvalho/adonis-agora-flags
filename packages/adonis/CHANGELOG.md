@@ -1,5 +1,11 @@
 # @adonis-agora/flags
 
+## 0.8.0
+
+### Minor Changes
+
+- [#7](https://github.com/DavideCarvalho/adonis-agora-flags/pull/7) [`2366ff8`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/2366ff817cc190adcdc0b7a2040845341def7087) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Console ⌘K shows its loading state: a spinner in the search box while a request is in flight, skeleton rows until the first answer, earlier hits kept but dimmed during a re-search, "Nothing found" only after an empty answer, and a quiet "didn't answer" line with Retry when the search fails. Synced with the shared console kit (DataTable `rowClassName`/`subRow`, ⌘K console-local `commands`, collapsible nav sections).
+
 ## 0.7.1
 
 ### Patch Changes
