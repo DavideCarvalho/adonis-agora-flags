@@ -140,6 +140,11 @@ export interface Declaration {
   apps: string[];
   /** `code`: declared in an app's config (read-only here). `console`: created here, editable. */
   source: 'code' | 'console';
+  /**
+   * On a code-declared flag: the declaration it was created with in the console, which the code
+   * now overrides (ignored until removed with `removeConsoleDeclaration`).
+   */
+  overriddenConsole?: DeclarationInput;
 }
 
 /** What the console sends to create or describe a flag (no `apps`/`source`: the server knows). */
@@ -542,6 +547,8 @@ export const api = {
     send<WriteResult>('PUT', `/flags/${seg(key)}/declaration`, { environment, declaration, note }),
   saveFlag: (environment: string, key: string, definition: FlagDefinition, note?: string) =>
     send<WriteResult>('PUT', `/flags/${seg(key)}`, { environment, definition, note }),
+  removeConsoleDeclaration: (environment: string, key: string) =>
+    send<WriteResult>('DELETE', `/flags/${seg(key)}/declaration`, { environment }),
   deleteFlag: (environment: string, key: string, note?: string) =>
     send<WriteResult>('DELETE', `/flags/${seg(key)}`, { environment, note }),
   setEnabled: (environment: string, key: string, enabled: boolean) =>
@@ -604,6 +611,8 @@ export const api = {
         metric: MetricDefinition;
         source: DefinitionSource;
         usedBy: string[];
+        /** On a config metric: the console metric of the same name it overrides. */
+        overriddenConsole?: MetricDefinition;
       }>
     >(`/metrics${buildQuery({ environment })}`),
   saveMetric: (environment: string, key: string, metric: MetricDefinition) =>

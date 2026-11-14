@@ -352,6 +352,23 @@ export class FlagsAdmin {
     return this.propose({ entity: 'flag', key, value: definition }, actor, options);
   }
 
+  /**
+   * Drops the console declaration stored on a flag, keeping its targeting: for a flag created in
+   * the console and declared in code since, whose code declaration already wins.
+   */
+  async dropConsoleDeclaration(
+    key: string,
+    actor: Actor,
+    options: { environment?: string; note?: string } = {},
+  ): Promise<ProposeResult> {
+    const environment = options.environment ?? this.environment;
+    const current = (await this.store.readRuleset(environment)).flags[key];
+    if (!current?.declaration)
+      throw new Error(`flag "${key}" has no console declaration in ${environment}`);
+    const { declaration: _dropped, ...targeting } = current;
+    return this.propose({ entity: 'flag', key, value: targeting }, actor, options);
+  }
+
   /** Changes a console flag's declaration (description, owner, expiry, default, …). */
   async updateDeclaration(
     key: string,

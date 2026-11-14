@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MetricCard, MetricGrid, MetricGridSkeleton } from '../agora-kit/blocks/metric-card';
 import { api, type ExperimentResults, type MetricResult } from '../client/flags-client';
+import { ConfigLockBadge } from './ConfigLock';
 import { useEnv } from './env';
 import { formatMean, formatP, formatPercent } from './serving';
 import { ErrorBox, formatTime, Panel, QueryState, Table } from './shell';
@@ -52,7 +53,7 @@ export function Experiments({ onOpen }: { onOpen: (key: string) => void }) {
                   )}
                   <div className="mt-1 flex flex-wrap gap-1">
                     {!row.configured && <Badge variant="danger">no metrics configured</Badge>}
-                    {row.source === 'config' && <Badge>config</Badge>}
+                    {row.source === 'config' && <ConfigLockBadge>config</ConfigLockBadge>}
                     {row.running ? <Badge variant="type">running</Badge> : <Badge>stopped</Badge>}
                     {row.srmMismatch && <Badge variant="danger">SRM</Badge>}
                     {row.alert && <Badge variant="danger">guardrail</Badge>}

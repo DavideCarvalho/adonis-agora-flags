@@ -23,6 +23,7 @@ import {
   FlagsFlagCreate,
   FlagsFlagDelete,
   FlagsFlagDisable,
+  FlagsFlagDropDeclaration,
   FlagsFlagEnable,
   FlagsFlagEvaluate,
   FlagsFlagOverride,
@@ -128,6 +129,7 @@ describe('console commands', () => {
     expect(names).toEqual(
       expect.arrayContaining([
         'flags:flag:show',
+        'flags:flag:drop-declaration',
         'flags:flag:enable',
         'flags:segments:list',
         'flags:experiments:recompute',
@@ -220,6 +222,35 @@ describe('console commands', () => {
 
     (await run(FlagsFlagDelete, ['banner', '--force'])).assertSucceeded();
     expect((await ruleset()).flags.banner).toBeUndefined();
+  });
+
+  it('flag:drop-declaration clears the console declaration the code overrides', async () => {
+    const rt = await runtime();
+    await rt.admin!.propose(
+      {
+        entity: 'flag',
+        key: 'new_player',
+        value: {
+          variants: { on: true, off: false },
+          enabled: true,
+          offVariant: 'off',
+          fallthrough: { variant: 'on' },
+          declaration: { type: 'boolean', default: true },
+        },
+      },
+      { id: 'test' },
+    );
+    (await run(FlagsFlagDropDeclaration, ['new_player'])).assertSucceeded();
+    const stored = (await ruleset()).flags.new_player;
+    expect(stored?.declaration).toBeUndefined();
+    expect(stored?.fallthrough).toEqual({ variant: 'on' });
+
+    (
+      await run(FlagsFlagCreate, ['banner', '--declaration={"type":"boolean","default":false}'])
+    ).assertSucceeded();
+    const refused = await run(FlagsFlagDropDeclaration, ['banner']);
+    expect(refused.exitCode).toBe(1);
+    expect(logs(refused)).toMatch(/only in the console/);
   });
 
   it('flag:evaluate answers for a subject without recording an exposure', async () => {

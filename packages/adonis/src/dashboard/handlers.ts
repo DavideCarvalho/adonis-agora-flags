@@ -230,6 +230,11 @@ export interface DeclaredFlag extends FlagDeclaration {
   apps: string[];
   /** `code`: declared in an app's config (read-only here). `console`: created and edited here. */
   source: 'code' | 'console';
+  /**
+   * A code-declared flag that also carries a console declaration in the ruleset (created here,
+   * declared in code later): the code wins and this one is ignored until removed.
+   */
+  overriddenConsole?: FlagDeclaration;
 }
 
 /** This app's declarations plus every app's pushed ones (a control-plane hears from tenants). */
@@ -247,11 +252,13 @@ async function declarationsOf(o: Owned, ruleset: Ruleset): Promise<Map<string, D
       out.set(row.key, { ...row.declaration, apps: [row.app], source: 'code' });
     }
   }
-  // Flags created in the console: their declaration travels in the ruleset. Code wins.
+  // Flags created in the console: their declaration travels in the ruleset. Code wins, and the
+  // console's is reported as overridden so the console can say so.
   for (const [key, definition] of Object.entries(ruleset.flags)) {
-    if (definition.declaration && !out.has(key)) {
-      out.set(key, { ...definition.declaration, apps: [], source: 'console' });
-    }
+    if (!definition.declaration) continue;
+    const code = out.get(key);
+    if (code) code.overriddenConsole = definition.declaration;
+    else out.set(key, { ...definition.declaration, apps: [], source: 'console' });
   }
   return out;
 }
@@ -498,6 +505,31 @@ export function updateDeclaration(deps: Deps, req: ApiRequest): Promise<ApiRespo
         deps.actor,
         writeOptions(environment, noteOf(req)),
       ),
+    );
+  });
+}
+
+/**
+ * `DELETE /api/flags/:key/declaration` — drop the console declaration of a flag the code now
+ * declares (the code's already wins; this clears the overridden copy). The targeting stays.
+ */
+export function deleteDeclaration(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
+  return handle(deps, async (o) => {
+    const environment = environmentOf(req, o.runtime);
+    const key = keyParam(req);
+    const ruleset = await o.store.readRuleset(environment);
+    const declared = (await declarationsOf(o, ruleset)).get(key);
+    if (!ruleset.flags[key]?.declaration) {
+      throw new HttpError(404, `flag "${key}" has no console declaration in ${environment}`);
+    }
+    if (declared?.source !== 'code') {
+      throw new HttpError(
+        409,
+        `flag "${key}" is declared only in the console; delete the flag to remove it`,
+      );
+    }
+    return proposed(
+      await o.admin.dropConsoleDeclaration(key, deps.actor, writeOptions(environment, noteOf(req))),
     );
   });
 }
@@ -878,12 +910,18 @@ export function listMetrics(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
         .sort();
     const metrics = Object.entries(analysis.metrics)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([name, metric]) => ({
-        name,
-        metric,
-        source: analysis.metricSources[name],
-        usedBy: usedBy(name),
-      }));
+      .map(([name, metric]) => {
+        const source = analysis.metricSources[name];
+        // A console metric config/flags.ts now defines too: ignored until removed.
+        const overridden = source === 'config' ? ruleset.metrics?.[name] : undefined;
+        return {
+          name,
+          metric,
+          source,
+          usedBy: usedBy(name),
+          ...(overridden ? { overriddenConsole: overridden } : {}),
+        };
+      });
     return ok({ environment, version: ruleset.version, data: metrics });
   });
 }
@@ -912,7 +950,9 @@ export function deleteMetric(deps: Deps, req: ApiRequest): Promise<ApiResponse> 
   return handle(deps, async (o) => {
     const environment = environmentOf(req, o.runtime);
     const key = keyParam(req);
-    assertConsoleMetric(o.runtime, key);
+    // A console copy config/flags.ts overrides may still be removed; config ones may not.
+    const stored = (await o.store.readRuleset(environment)).metrics?.[key];
+    if (!stored) assertConsoleMetric(o.runtime, key);
     return proposed(
       await o.admin.propose(
         { entity: 'metric', key, value: null },
