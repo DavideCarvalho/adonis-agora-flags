@@ -1,5 +1,11 @@
 # @adonis-agora/flags
 
+## 0.9.1
+
+### Patch Changes
+
+- [#11](https://github.com/DavideCarvalho/adonis-agora-flags/pull/11) [`4a58ffa`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/4a58ffa041a9664b83b73ea58424e70dbd08bdb7) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The console's access-denied page uses the console's own accent (emerald `#34d399`) by default, like the rest of the console.
+
 ## 0.9.0
 
 ### Minor Changes
