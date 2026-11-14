@@ -1,5 +1,11 @@
 # @adonis-agora/flags
 
+## 0.9.0
+
+### Minor Changes
+
+- [#8](https://github.com/DavideCarvalho/adonis-agora-flags/pull/8) [`a9aef51`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/a9aef5190f0bfb7827e3b471629e627e5390a6f8) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Server: the `agora.consoles` registry accepts the `flags` and `cms` icon keys, so those consoles show their own tile instead of `generic`. Console: the console switcher shows the CMS console with its own orange tile and glyph, and the kit gains a 16px `DocumentIcon`; the collapsible nav section toggle has a test pinning its focus ring (Agora console kit round 3).
+
 ## 0.8.0
 
 ### Minor Changes
