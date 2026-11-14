@@ -43,9 +43,11 @@ With authkit, `identity: identities.authkit()` in `config/flags.ts` covers both.
 
 ### What the code owns
 
-The code wins over the console, and the console says so. A flag declared in `config/flags.ts` shows a **defined in code** lock: its type, default, variants, owner, tags and description change there, and only its targeting is edited in the console. Metrics and experiments defined in `config/flags.ts` show a **config** lock and are read-only.
+The code owns what a flag is; the console owns who gets what. A flag declared in `config/flags.ts` shows a **defined in code** lock: its type, default, variants, owner, tags and description change there, and only its targeting is edited in the console. Metrics and experiments defined in `config/flags.ts` show a **config** lock and are read-only.
 
 A flag created in the console and declared in code later keeps the console's declaration in the ruleset, ignored. The flag shows **overridden by code**, with the fields where the two differ, and **Remove the console declaration** clears the copy; the targeting stays. A console metric with the name of a config metric shows the same way, with **Delete the console metric**. An experiment defined in config lists the metrics picked in the console as ignored, with **Clear them**.
+
+The targeting wins over the code default: the default applies only when the ruleset has nothing for the flag. When the stored targeting serves one value to everyone and it is not the code default (usually a flag created in the console, whose targeting followed the console's default), the editor says the code default never applies and offers **Return to the code default**, which removes the flag from the ruleset. A kill switch is left alone.
 
 The sidebar groups them: **Flags** (Flags, Segments, Layers), **Experiments** (Experiments, Metrics), **Governance** (Approvals, Activity) and **Config** (Environments, Hygiene, Ops). The environment picker sits in the top bar; it turns amber when you are not looking at the app's own environment. Light and dark themes are a click in the sidebar footer.
 

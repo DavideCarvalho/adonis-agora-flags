@@ -119,6 +119,43 @@ describe('the flag editor', () => {
     expect(call.body).toEqual({ environment: 'staging' });
   });
 
+  it('says when the stored targeting hides the code default, and returns to it', async () => {
+    const { calls } = stubFetch((method, url) => {
+      if (url.includes('/preview')) return { valid: true, issues: [], serving: null };
+      if (method === 'DELETE') return { status: 'applied', version: '4' };
+      return detail({
+        declaration: { type: 'boolean', default: true, apps: ['shop'], source: 'code' },
+      });
+    });
+    renderScreen(<FlagEditor flagKey="new_player" onClose={() => {}} />, {
+      environment: 'staging',
+      meta: META,
+    });
+    expect(await screen.findByText(/never applies/)).toBeTruthy();
+    fireEvent.click(screen.getByText('Return to the code default'));
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE')).toBe(true));
+    expect(calls.find((c) => c.method === 'DELETE')!.url).toBe('/f/api/flags/new_player');
+  });
+
+  it('keeps quiet when the targeting does more than serve one value', async () => {
+    stubFetch((_method, url) => {
+      if (url.includes('/preview')) return { valid: true, issues: [], serving: null };
+      const base = detail();
+      const stored = { ...base.stored!, overrides: { qa: 'on' } };
+      return detail({
+        declaration: { type: 'boolean', default: true, apps: ['shop'], source: 'code' },
+        stored,
+        definition: stored,
+      });
+    });
+    renderScreen(<FlagEditor flagKey="new_player" onClose={() => {}} />, {
+      environment: 'staging',
+      meta: META,
+    });
+    expect(await screen.findByText('defined in code')).toBeTruthy();
+    expect(screen.queryByText(/never applies/)).toBeNull();
+  });
+
   it('saves the whole cleaned definition with a note, in the current environment', async () => {
     const { calls } = stubFetch((method, url) => {
       if (url.includes('/preview')) return { valid: true, issues: [], serving: null };
