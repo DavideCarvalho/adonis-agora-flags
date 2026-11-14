@@ -1,5 +1,11 @@
 # @adonis-agora/flags
 
+## 0.7.1
+
+### Patch Changes
+
+- [#6](https://github.com/DavideCarvalho/adonis-agora-flags/pull/6) [`27b1331`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/27b13317ea60aab9f0a19e0705a9d9bec3b8763d) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Console footer: the signed-in user's role now shows when no `viewer` hook is set. The structural read of `ctx.auth.user` takes `role`, `roles` (strings, `{ name }` or authz `{ role }` rows) and `globalRoles`, plus the global roles of authkit's per-request identity on `ctx.authkit` (read structurally, 250 ms cap). One role is shown: an admin-like one first, else the first.
+
 ## 0.7.0
 
 ### Minor Changes
