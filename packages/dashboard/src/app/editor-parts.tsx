@@ -7,6 +7,7 @@ import type {
   Serve,
   TargetingRule,
 } from '../client/flags-client';
+import { ConfigLockBadge, ConfigLockNote } from './ConfigLock';
 import {
   conditionValuesText,
   isSegmentCondition,
@@ -20,6 +21,7 @@ import {
   toSplit,
   variantText,
 } from './flag-model';
+import { Badge } from './ui/badge';
 import { Button, Field, Input, Select } from './ui/form';
 
 /** A labelled block inside the editor. */
@@ -688,14 +690,6 @@ function ExperimentAnalysis({
   onChange: (next: FlagDefinition) => void;
 }) {
   const experiment: Experiment = definition.experiment ?? {};
-  if (configExperiment !== null) {
-    return (
-      <p className="text-[11px] text-dim">
-        Analysed by experiment <span className="mono">{configExperiment}</span> in config/flags.ts,
-        which takes precedence over the metrics picked here.
-      </p>
-    );
-  }
   type Patch = { [K in keyof Experiment]?: Experiment[K] | undefined };
   const set = (patch: Patch) => {
     const merged: Patch = { ...experiment, ...patch };
@@ -705,6 +699,43 @@ function ExperimentAnalysis({
     const next = merged as Experiment;
     onChange({ ...definition, experiment: next });
   };
+  if (configExperiment !== null) {
+    const picked = [...(experiment.metrics ?? []), ...(experiment.guardrails ?? [])];
+    return (
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-dim">
+          Analysed by experiment <span className="mono text-fg-2">{configExperiment}</span>
+          <ConfigLockBadge>config</ConfigLockBadge>
+        </div>
+        <ConfigLockNote>
+          Its metrics, guardrails, control and confidence come from{' '}
+          <code className="mono">config/flags.ts</code>, which wins over the console: change them
+          there.
+        </ConfigLockNote>
+        {picked.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+            <Badge variant="warn">overridden by code</Badge>
+            <span className="text-dim">
+              The metrics picked here ({picked.join(', ')}) are ignored.
+            </span>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                set({
+                  metrics: undefined,
+                  guardrails: undefined,
+                  control: undefined,
+                  confidence: undefined,
+                })
+              }
+            >
+              Clear them
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  }
   const toggle = (list: 'metrics' | 'guardrails', name: string, on: boolean) => {
     const current = experiment[list] ?? [];
     const next = on ? [...current, name] : current.filter((n) => n !== name);

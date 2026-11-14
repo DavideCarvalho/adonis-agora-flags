@@ -75,6 +75,50 @@ describe('the flag editor', () => {
     expect(screen.getByText('bob')).toBeTruthy();
   });
 
+  it('locks what the code declares, the way authkit locks defineConfig settings', async () => {
+    stubFetch((_method, url) =>
+      url.includes('/preview') ? { valid: true, issues: [], serving: null } : detail(),
+    );
+    renderScreen(<FlagEditor flagKey="new_player" onClose={() => {}} />, {
+      environment: 'staging',
+      meta: META,
+    });
+    expect(await screen.findByText('defined in code')).toBeTruthy();
+    expect(screen.getByText(/win over the console/)).toBeTruthy();
+    expect(screen.queryByText('overridden by code')).toBeNull();
+  });
+
+  it('shows the console declaration the code overrides, and removes it', async () => {
+    const { calls } = stubFetch((method, url) => {
+      if (url.includes('/preview')) return { valid: true, issues: [], serving: null };
+      if (method === 'DELETE') return { status: 'applied', version: '4' };
+      return detail({
+        declaration: {
+          type: 'boolean',
+          default: false,
+          owner: 'video',
+          apps: ['shop'],
+          source: 'code',
+          overriddenConsole: { type: 'boolean', default: true, owner: 'growth' },
+        },
+      });
+    });
+    renderScreen(<FlagEditor flagKey="new_player" onClose={() => {}} />, {
+      environment: 'staging',
+      meta: META,
+    });
+    expect(await screen.findByText('overridden by code')).toBeTruthy();
+    expect(screen.getByText('growth', { selector: 'td' })).toBeTruthy();
+    expect(screen.getByText('video', { selector: 'td' })).toBeTruthy();
+    // Only the fields that differ are listed.
+    expect(screen.queryByText('type', { selector: 'td' })).toBeNull();
+    fireEvent.click(screen.getByText('Remove the console declaration'));
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE')).toBe(true));
+    const call = calls.find((c) => c.method === 'DELETE')!;
+    expect(call.url).toBe('/f/api/flags/new_player/declaration');
+    expect(call.body).toEqual({ environment: 'staging' });
+  });
+
   it('saves the whole cleaned definition with a note, in the current environment', async () => {
     const { calls } = stubFetch((method, url) => {
       if (url.includes('/preview')) return { valid: true, issues: [], serving: null };

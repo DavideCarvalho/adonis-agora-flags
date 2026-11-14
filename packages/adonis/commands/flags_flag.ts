@@ -1,6 +1,7 @@
 import { args, flags } from '@adonisjs/core/ace';
 import {
   createFlag,
+  deleteDeclaration,
   deleteFlag,
   evaluateContext,
   flagDetail,
@@ -282,6 +283,23 @@ export class FlagsFlagUpdate extends FlagWriteCommand {
       body: this.withNote({ declaration }),
     });
     this.reportWrite(out, `${this.key} updated`);
+  }
+}
+
+export class FlagsFlagDropDeclaration extends FlagWriteCommand {
+  static override commandName = 'flags:flag:drop-declaration';
+  static override description =
+    'Drop the console declaration of a flag the code now declares (the code already overrides it); keeps the targeting';
+
+  @args.string({ description: 'Flag key' })
+  declare key: string;
+
+  override async run() {
+    const out = await this.call(deleteDeclaration, {
+      params: { key: this.key },
+      body: this.withNote({}),
+    });
+    this.reportWrite(out, `${this.key}: console declaration dropped, the code declaration applies`);
   }
 }
 

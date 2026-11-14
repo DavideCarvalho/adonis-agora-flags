@@ -31,6 +31,7 @@ Everything you can do in the console you can do with `node ace`. The commands ru
 | `flags:flag:save <flag> --definition=<json>` | Save the whole definition (variants, rules, overrides, fallthrough, experiment) |
 | `flags:flag:create <flag> --declaration=<json>` | Create a flag without code (`{ "type": "boolean", "default": false }`) |
 | `flags:flag:update <flag> --declaration=<json>` | Edit a console-created flag's description, owner, tags, expiry |
+| `flags:flag:drop-declaration <flag>` | Drop the console declaration of a flag the code now declares; the targeting stays |
 | `flags:flag:delete <flag> [--force]` | Remove a flag from the ruleset; the code default takes over |
 | `flags:flag:evaluate [flag] [--subject] [--context=<json>]` | What a subject would get. Records no exposure |
 | `flags:types [--out] [--no-strict]` | Generate TypeScript types for the flags created in the console |

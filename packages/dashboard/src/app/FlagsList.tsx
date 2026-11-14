@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { MetricCard, MetricGrid, MetricGridSkeleton } from '../agora-kit/blocks/metric-card';
 import { api, type FlagRow } from '../client/flags-client';
+import { ConfigLockBadge } from './ConfigLock';
 import { Notice, useEnv, useWrite } from './env';
 import { NewFlag } from './NewFlag';
 import { describeServing, formatValue, STALE_LABELS, servingTone } from './serving';
@@ -245,9 +246,24 @@ export function FlagsTable({
             {flag.declaration ? (
               <>
                 {flag.declaration.type}
-                {flag.declaration.source === 'console' && (
+                {flag.declaration.source === 'console' ? (
                   <Badge className="ml-1" title="Created in the console">
                     console
+                  </Badge>
+                ) : (
+                  <span className="ml-1 inline-flex">
+                    <ConfigLockBadge title="Declared in config/flags.ts: type and default change in code">
+                      code
+                    </ConfigLockBadge>
+                  </span>
+                )}
+                {flag.declaration.overriddenConsole && (
+                  <Badge
+                    variant="warn"
+                    className="ml-1"
+                    title="Created in the console, declared in code since: the code's declaration applies"
+                  >
+                    overridden
                   </Badge>
                 )}
                 <span className="block text-[10px] text-faint">

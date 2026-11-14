@@ -41,6 +41,12 @@ With authkit, `identity: identities.authkit()` in `config/flags.ts` covers both.
 - **Hygiene.** The stale-flag report.
 - **Ops.** The ruleset version and how it is kept fresh, the event transport, every sink's lag and last error, and the in-process buffer.
 
+### What the code owns
+
+The code wins over the console, and the console says so. A flag declared in `config/flags.ts` shows a **defined in code** lock: its type, default, variants, owner, tags and description change there, and only its targeting is edited in the console. Metrics and experiments defined in `config/flags.ts` show a **config** lock and are read-only.
+
+A flag created in the console and declared in code later keeps the console's declaration in the ruleset, ignored. The flag shows **overridden by code**, with the fields where the two differ, and **Remove the console declaration** clears the copy; the targeting stays. A console metric with the name of a config metric shows the same way, with **Delete the console metric**. An experiment defined in config lists the metrics picked in the console as ignored, with **Clear them**.
+
 The sidebar groups them: **Flags** (Flags, Segments, Layers), **Experiments** (Experiments, Metrics), **Governance** (Approvals, Activity) and **Config** (Environments, Hygiene, Ops). The environment picker sits in the top bar; it turns amber when you are not looking at the app's own environment. Light and dark themes are a click in the sidebar footer.
 
 The console runs on the control-plane in a [central setup](/docs/central-server); tenants have none.
@@ -91,7 +97,7 @@ Read tools are always listed: `flags_get_overview`, `flags_list_flags`, `flags_g
 
 The `flags_list_*` tools page like the other Agora libs' tools: pass `limit` (default 20, at most 100) and `page`, and each returns `{ items, next }`, where `next` is the page to ask for next, or `null` on the last one.
 
-Action tools are listed only when the app allows actions on the dev endpoint (`devTools.actions` in `config/mcp.ts`): `flags_set_enabled`, `flags_set_rollout`, `flags_set_variant`, `flags_set_override`, `flags_save_flag`, `flags_save_segment`, `flags_save_metric`, `flags_recompute_experiment`, `flags_approve_change_request` and `flags_reject_change_request`.
+Action tools are listed only when the app allows actions on the dev endpoint (`devTools.actions` in `config/mcp.ts`): `flags_set_enabled`, `flags_set_rollout`, `flags_set_variant`, `flags_set_override`, `flags_save_flag`, `flags_save_segment`, `flags_save_metric`, `flags_delete_metric`, `flags_remove_console_declaration`, `flags_recompute_experiment`, `flags_approve_change_request` and `flags_reject_change_request`.
 
 Actions go through the same validation, approvals and history as the console. Where an environment needs approval, a change becomes a change request. The history records the signed-in person, or `mcp:token:<fingerprint>` for a token.
 
@@ -104,12 +110,13 @@ Everything the console does goes through JSON endpoints under `<path>/api`, behi
 | `GET /api/flags` | | `{ data }`: flags, declarations and what each serves |
 | `POST /api/flags` | `{ key, declaration }` | Create a flag |
 | `PUT /api/flags/:key` | `{ definition, note? }` | Replace a flag's targeting |
+| `DELETE /api/flags/:key/declaration` | | Drop the console declaration of a flag the code now declares (`409` for a flag only the console declares) |
 | `POST /api/flags/:key/enabled` | `{ enabled }` | The kill switch: `false` serves `offVariant` to everyone; `true` lifts it, back to the targeting |
 | `POST /api/flags/:key/rollout` | `{ percent }` | Percentage rollout of an on/off flag |
 | `POST /api/flags/:key/variant` | `{ variant }` | Serve one variant to everyone |
 | `GET /api/metrics` | | `{ data }`: config and console metrics, and the experiments using each |
 | `PUT /api/metrics/:key` | `{ metric, note? }` | Create or replace a console metric (`409` for one defined in config) |
-| `DELETE /api/metrics/:key` | | Delete a console metric (`422` while an experiment uses it) |
+| `DELETE /api/metrics/:key` | | Delete a console metric (`422` while an experiment uses it), or the console copy of a metric config defines (`409` when there is none) |
 | `GET /api/audit` | | The change history, newest first (paged, see below) |
 | `GET /api/change-requests` | | Change requests, newest first (paged) |
 | `GET /api/schedules` | | Scheduled changes, soonest first (paged) |

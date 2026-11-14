@@ -4,6 +4,8 @@ import {
   type ApiResponse,
   approveChangeRequest,
   audit,
+  deleteDeclaration,
+  deleteMetric,
   evaluateContext,
   experimentDetail,
   flagDetail,
@@ -698,6 +700,41 @@ export function flagsDevTools(options: FlagsDevToolsOptions): DevTool[] {
           body: { ...writeBody(input), metric },
         });
       },
+    },
+    {
+      name: 'flags_delete_metric',
+      kind: 'action',
+      destructive: true,
+      description: `Delete a console metric (refused while an experiment uses it). A metric config/flags.ts also defines can be deleted only to clear the console copy the config overrides (flags_list_metrics shows it as overriddenConsole). ${WRITE_RESULT}`,
+      input: {
+        type: 'object',
+        properties: {
+          key: { type: 'string', description: 'Metric name.' },
+          environment: ENVIRONMENT,
+          note: NOTE,
+        },
+        required: ['key'],
+      },
+      run: async (input, tc) =>
+        run(tc, deleteMetric, {
+          params: { key: required(input, 'key') },
+          body: writeBody(input),
+        }),
+    },
+    {
+      name: 'flags_remove_console_declaration',
+      kind: 'action',
+      description: `For a flag created in the console and declared in code since (flags_get_flag shows declaration.overriddenConsole): drop the console's declaration, which the code already overrides. The targeting stays. ${WRITE_RESULT}`,
+      input: {
+        type: 'object',
+        properties: { key: KEY, environment: ENVIRONMENT, note: NOTE },
+        required: ['key'],
+      },
+      run: async (input, tc) =>
+        run(tc, deleteDeclaration, {
+          params: { key: required(input, 'key') },
+          body: writeBody(input),
+        }),
     },
     {
       name: 'flags_recompute_experiment',

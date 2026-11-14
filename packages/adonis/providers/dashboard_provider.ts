@@ -41,6 +41,7 @@ import {
   createFlag,
   createSchedule,
   type Deps,
+  deleteDeclaration,
   deleteFlag,
   deleteLayer,
   deleteMetric,
@@ -126,6 +127,7 @@ export const CONSOLE_ID = 'flags';
  * - `GET    /api/flags`, `/api/flags/:key`             → list / one flag (definition, audit, schedules)
  * - `PUT    /api/flags/:key`  `DELETE /api/flags/:key` → save / remove a definition
  * - `POST   /api/flags/:key/{enabled,rollout,variant,overrides,schedules}`
+ * - `PUT|DELETE /api/flags/:key/declaration`              → edit a console declaration / drop one the code overrides
  * - `POST   /api/preview`, `/api/evaluate`             → validate a draft / test a context
  * - `GET    /api/segments`  `PUT|DELETE /api/segments/:key`
  * - `GET    /api/layers`    `PUT|DELETE /api/layers/:key`  `PUT /api/holdout`
@@ -213,6 +215,9 @@ export default class FlagsDashboardProvider {
     router
       .put(`${api}/flags/:key/declaration`, json(updateDeclaration))
       .as(name('flags.declaration'));
+    router
+      .delete(`${api}/flags/:key/declaration`, json(deleteDeclaration))
+      .as(name('flags.declaration.delete'));
     router.delete(`${api}/flags/:key`, json(deleteFlag)).as(name('flags.delete'));
     router.post(`${api}/flags/:key/enabled`, json(setEnabled)).as(name('flags.enabled'));
     router.post(`${api}/flags/:key/rollout`, json(setRollout)).as(name('flags.rollout'));

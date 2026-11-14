@@ -434,6 +434,72 @@ describe('dashboard API handlers', () => {
     expect((await h.recomputeExperiment(alice, req({ params: { key: 'nope' } }))).status).toBe(404);
   });
 
+  it('reports what the code overrides and lets the console drop its copy', async () => {
+    // Created in the console, declared in code since: the store still holds the console's.
+    await runtime.admin!.propose(
+      {
+        entity: 'flag',
+        key: 'new_player',
+        value: {
+          variants: { on: true, off: false },
+          enabled: true,
+          offVariant: 'off',
+          fallthrough: { variant: 'on' },
+          declaration: { type: 'boolean', default: true, owner: 'growth' },
+        },
+      },
+      alice.actor,
+    );
+    const flags = body(await h.listFlags(alice, req())).data as Array<Record<string, any>>;
+    const player = flags.find((f) => f.key === 'new_player')!;
+    expect(player.declaration).toMatchObject({
+      source: 'code',
+      default: false,
+      owner: 'video-team',
+      overriddenConsole: { type: 'boolean', default: true, owner: 'growth' },
+    });
+    const detail = body(await h.flagDetail(alice, req({ params: { key: 'new_player' } })));
+    expect(detail.declaration.overriddenConsole).toMatchObject({ owner: 'growth' });
+    expect(flags.find((f) => f.key === 'checkout')!.declaration.overriddenConsole).toBeUndefined();
+
+    const dropped = await h.deleteDeclaration(alice, req({ params: { key: 'new_player' } }));
+    expect(dropped.status).toBe(200);
+    const after = body(await h.flagDetail(alice, req({ params: { key: 'new_player' } })));
+    expect(after.declaration.overriddenConsole).toBeUndefined();
+    expect(after.stored.declaration).toBeUndefined();
+    expect(after.stored.fallthrough).toEqual({ variant: 'on' });
+    expect((await h.deleteDeclaration(alice, req({ params: { key: 'new_player' } }))).status).toBe(
+      404,
+    );
+
+    // A console-only flag keeps its declaration: removing it means deleting the flag.
+    await h.createFlag(
+      alice,
+      req({ body: { key: 'banner', declaration: { type: 'boolean', default: false } } }),
+    );
+    expect((await h.deleteDeclaration(alice, req({ params: { key: 'banner' } }))).status).toBe(409);
+
+    // A console metric config/flags.ts now defines: listed as overridden, and deletable.
+    await runtime.admin!.propose(
+      { entity: 'metric', key: 'purchase', value: { kind: 'count', event: 'buy' } },
+      alice.actor,
+    );
+    const metrics = body(await h.listMetrics(alice, req())).data as Array<Record<string, any>>;
+    expect(metrics).toEqual([
+      expect.objectContaining({
+        name: 'purchase',
+        source: 'config',
+        metric: { kind: 'conversion', event: 'purchase' },
+        overriddenConsole: { kind: 'count', event: 'buy' },
+      }),
+    ]);
+    expect((await h.deleteMetric(alice, req({ params: { key: 'purchase' } }))).status).toBe(200);
+    const cleared = body(await h.listMetrics(alice, req())).data as Array<Record<string, any>>;
+    expect(cleared[0]!.overriddenConsole).toBeUndefined();
+    // With no console copy left, the config metric itself is refused.
+    expect((await h.deleteMetric(alice, req({ params: { key: 'purchase' } }))).status).toBe(409);
+  });
+
   it('manages console metrics and analyses console experiments with them', async () => {
     let listed = body(await h.listMetrics(alice, req()));
     expect(listed.data).toEqual([

@@ -40,6 +40,9 @@ describe('Metrics', () => {
     renderScreen(<Metrics />);
     expect(await screen.findByText('purchase')).toBeTruthy();
     expect(screen.getByText('config')).toBeTruthy();
+    expect(screen.getByTitle(/managed in code/)).toBeTruthy();
+    expect(screen.getByText(/change it there/)).toBeTruthy();
+    expect(screen.queryByText('overridden by code')).toBeNull();
     expect((screen.getByLabelText('signup window') as HTMLInputElement).value).toBe('7');
 
     fireEvent.click(screen.getByText('New metric'));
@@ -56,6 +59,27 @@ describe('Metrics', () => {
       environment: 'production',
       metric: { kind: 'conversion', event: 'refund', direction: 'decrease' },
     });
+  });
+
+  it('shows a console metric the config overrides, and deletes it', async () => {
+    const overridden = {
+      ...listing,
+      data: [
+        {
+          ...listing.data[0],
+          overriddenConsole: { kind: 'count', event: 'buy' },
+        },
+      ],
+    };
+    const { calls } = stubFetch((method) =>
+      method === 'GET' ? overridden : { status: 'applied', version: '4' },
+    );
+    renderScreen(<Metrics />);
+    expect(await screen.findByText('overridden by code')).toBeTruthy();
+    expect(screen.getByText('count of "buy" · higher is better')).toBeTruthy();
+    fireEvent.click(screen.getByText('Delete the console metric'));
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE')).toBe(true));
+    expect(calls.find((c) => c.method === 'DELETE')!.url).toBe('/f/api/metrics/purchase');
   });
 
   it('builds a metric from the form, leaving blanks out', () => {
@@ -122,6 +146,26 @@ describe('ExperimentEditor analysis', () => {
       />,
     );
     expect(screen.queryByLabelText('purchase decides')).toBeNull();
-    expect(screen.getByText(/takes precedence/)).toBeTruthy();
+    expect(screen.getByText(/wins over the console/)).toBeTruthy();
+    expect(screen.getByTitle(/managed in code/)).toBeTruthy();
+  });
+
+  it('says which picked metrics the config experiment overrides, and clears them', () => {
+    let latest: unknown = null;
+    renderScreen(
+      <ExperimentEditor
+        definition={{ ...definition, experiment: { metrics: ['purchase'], control: 'on' } }}
+        layers={[]}
+        metrics={metrics}
+        configExperiment="checkout"
+        onChange={(next) => {
+          latest = next;
+        }}
+      />,
+    );
+    expect(screen.getByText('overridden by code')).toBeTruthy();
+    expect(screen.getByText(/\(purchase\) are ignored/)).toBeTruthy();
+    fireEvent.click(screen.getByText('Clear them'));
+    expect((latest as typeof definition).experiment).toEqual({});
   });
 });

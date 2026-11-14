@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, type DefinitionSource, type MetricDefinition } from '../client/flags-client';
+import { ConfigLockBadge, ConfigLockNote, OverriddenNotice } from './ConfigLock';
 import { Notice, useEnv, useWrite } from './env';
 import { ErrorBox, Panel, QueryState } from './shell';
 import { Badge } from './ui/badge';
@@ -199,20 +200,51 @@ function ConfigMetric({
   name,
   metric,
   usedBy,
+  overriddenConsole,
 }: {
   name: string;
   metric: MetricDefinition;
   usedBy: string[];
+  overriddenConsole?: MetricDefinition | undefined;
 }) {
+  const { environment } = useEnv();
+  const remove = useWrite(() => api.deleteMetric(environment, name));
   return (
-    <div className="space-y-1 border-b border-line px-4 py-3 last:border-b-0">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="mono text-sm text-fg">{name}</span>
-        <Badge>config</Badge>
-        <UsedBy usedBy={usedBy} />
+    <div className="border-b border-line last:border-b-0">
+      <div className="space-y-1 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="mono text-sm text-fg">{name}</span>
+          <ConfigLockBadge>config</ConfigLockBadge>
+          <UsedBy usedBy={usedBy} />
+        </div>
+        <p className="text-[11px] text-dim">{describe(metric)}</p>
+        {metric.description && <p className="text-[11px] text-dim">{metric.description}</p>}
+        <ConfigLockNote>
+          Defined in <code className="mono">config/flags.ts</code>, which wins over the console:
+          change it there.
+        </ConfigLockNote>
       </div>
-      <p className="text-[11px] text-dim">{describe(metric)}</p>
-      {metric.description && <p className="text-[11px] text-dim">{metric.description}</p>}
+      {overriddenConsole && (
+        <OverriddenNotice
+          what={
+            <>
+              A console metric of the same name exists in this environment. The config's applies;
+              the console's is ignored.
+            </>
+          }
+          fields={[
+            { label: 'metric', console: describe(overriddenConsole), code: describe(metric) },
+          ]}
+          onRemove={() => remove.mutate(undefined)}
+          removing={remove.isPending}
+          removeLabel="Delete the console metric"
+        />
+      )}
+      {remove.error && (
+        <div className="px-4 pb-3">
+          <ErrorBox error={remove.error} />
+        </div>
+      )}
     </div>
   );
 }
@@ -257,7 +289,13 @@ export function Metrics() {
           />
         ))}
         {bySource('config').map((m) => (
-          <ConfigMetric key={m.name} name={m.name} metric={m.metric} usedBy={m.usedBy} />
+          <ConfigMetric
+            key={m.name}
+            name={m.name}
+            metric={m.metric}
+            usedBy={m.usedBy}
+            overriddenConsole={m.overriddenConsole}
+          />
         ))}
       </QueryState>
     </Panel>

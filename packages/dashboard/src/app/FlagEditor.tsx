@@ -2,11 +2,13 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import {
   api,
+  type DeclarationInput,
   type FlagDefinition,
   type FlagDetail,
   type Issue,
   type Serving,
 } from '../client/flags-client';
+import { ConfigLockBadge, ConfigLockNote, OverriddenNotice } from './ConfigLock';
 import { DeclarationDetails } from './DeclarationDetails';
 import {
   ExperimentEditor,
@@ -122,6 +124,10 @@ function EditorBody({
     },
   );
   const declaration = detail.declaration;
+  const dropConsole = useWrite(
+    () => api.removeConsoleDeclaration(environment, detail.key),
+    onNotice,
+  );
 
   return (
     <div className="space-y-4">
@@ -182,9 +188,12 @@ function EditorBody({
               {declaration.source === 'console' ? (
                 <Badge>created in the console</Badge>
               ) : (
-                <span>
-                  declared in <span className="text-fg-2">{declaration.apps.join(', ')}</span>
-                </span>
+                <>
+                  <span>
+                    declared in <span className="text-fg-2">{declaration.apps.join(', ')}</span>
+                  </span>
+                  <ConfigLockBadge />
+                </>
               )}
             </>
           ) : (
@@ -200,6 +209,29 @@ function EditorBody({
             <Badge variant="type">not in the ruleset yet — saving creates it</Badge>
           )}
         </div>
+        {declaration && declaration.source !== 'console' && (
+          <div className="border-b border-line px-4 py-2">
+            <ConfigLockNote>
+              Type, default, variants, owner, tags and description come from{' '}
+              <code className="mono">config/flags.ts</code> and win over the console: change them
+              there. The targeting below is edited here.
+            </ConfigLockNote>
+          </div>
+        )}
+        {declaration?.overriddenConsole && (
+          <OverriddenNotice
+            what={
+              <>
+                This flag was created in the console and is declared in code now. The code's
+                declaration applies; the one stored here is ignored.
+              </>
+            }
+            fields={declarationFields(declaration.overriddenConsole, declaration)}
+            onRemove={() => dropConsole.mutate(undefined)}
+            removing={dropConsole.isPending}
+            removeLabel="Remove the console declaration"
+          />
+        )}
         {detail.requiresApproval && (
           <p className="border-b border-line px-4 py-2 text-[11px] text-warn">
             {environment} needs a second person: saving files a change request instead of applying
@@ -387,4 +419,27 @@ function EditorBody({
       </Panel>
     </div>
   );
+}
+
+/** The declaration fields worth comparing between the console's copy and the code's. */
+function declarationFields(
+  console: DeclarationInput,
+  code: DeclarationInput,
+): Array<{ label: string; console: string; code: string }> {
+  const list = (v: string[] | undefined) => (v && v.length > 0 ? v.join(', ') : '—');
+  const text = (v: string | undefined) => v ?? '—';
+  return [
+    { label: 'type', console: console.type, code: code.type },
+    { label: 'default', console: formatValue(console.default), code: formatValue(code.default) },
+    { label: 'variants', console: list(console.variants), code: list(code.variants) },
+    { label: 'owner', console: text(console.owner), code: text(code.owner) },
+    { label: 'tags', console: list(console.tags), code: list(code.tags) },
+    { label: 'expires', console: text(console.expiresAt), code: text(code.expiresAt) },
+    { label: 'description', console: text(console.description), code: text(code.description) },
+    {
+      label: 'browser',
+      console: console.client === true ? 'yes' : 'no',
+      code: code.client === true ? 'yes' : 'no',
+    },
+  ];
 }
