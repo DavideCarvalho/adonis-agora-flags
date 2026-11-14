@@ -112,3 +112,21 @@ node ace flags:audit:list --key=checkout --first=20
 | `flags:forget <subject> [--force]` | Delete everything stored about a subject |
 
 On a tenant app the commands refuse: run them on the control-plane.
+
+## Upgrading from 0.6
+
+Two commands are renamed, without an alias:
+
+| Before (0.6) | Now |
+|---|---|
+| `flags:requests list` | `flags:requests:list` |
+| `flags:requests approve <id>` | `flags:requests:approve <id>` |
+| `flags:requests reject <id>` | `flags:requests:reject <id>` |
+| `flags:requests cancel <id>` | `flags:requests:cancel <id>` |
+| `flags:results <experiment>` | `flags:experiments:show <experiment>` |
+| `flags:results <experiment> --fresh` | `flags:experiments:recompute <experiment>` |
+
+Scripts and CI jobs also need these changes:
+
+- `flags:import`, `flags:promote` and `flags:forget` ask for confirmation. Without a terminal they refuse, so pass `--force`.
+- `flags:stale` refuses an `--unused-days` or `--static-days` below 1.
