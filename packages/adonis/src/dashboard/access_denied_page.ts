@@ -89,7 +89,7 @@ export type AccessDeniedOption<Ctx = unknown> = AccessDeniedPageOptions | Access
 /** This console's identity — the ONLY thing that differs between the Agora ports of this file. */
 export const CONSOLE = {
   brand: 'Flags',
-  accent: '#818cf8',
+  accent: '#34d399',
   packageName: '@adonis-agora/flags',
 } as const;
 
