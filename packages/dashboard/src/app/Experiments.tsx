@@ -203,6 +203,11 @@ export function ResultsView({ results }: { results: ExperimentResults }) {
             <span className="mono text-fg-2">{variant}</span> {n}
           </span>
         ))}
+        {results.apps && (
+          <span>
+            apps <span className="mono text-fg-2">{results.apps.join(', ') || 'none'}</span>
+          </span>
+        )}
         <span>computed {formatTime(results.computedAt)}</span>
       </div>
       {results.srm?.mismatch && (

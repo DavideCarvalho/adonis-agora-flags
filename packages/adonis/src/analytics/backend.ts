@@ -7,15 +7,39 @@ import type { MetricDefinition, VariantMetricStats } from './metrics.js';
  */
 export interface AnalyticsBackend {
   readonly kind: string;
+  /**
+   * Whether the backend honours {@link AnalyticsScope.apps}. A backend without it is never asked
+   * for one app's numbers: the console refuses rather than show every app's data as one app's.
+   */
+  readonly filtersByApp?: boolean;
   /** Subjects exposed to the experiment in `environment`, per variant. */
-  exposures(experiment: string, environment: string): Promise<Record<string, number>>;
+  exposures(
+    experiment: string,
+    environment: string,
+    scope?: AnalyticsScope,
+  ): Promise<Record<string, number>>;
   /** One metric's statistics per variant, over every exposed subject (zeros included). */
   metric(
     experiment: string,
     definition: MetricDefinition,
     environment: string,
+    scope?: AnalyticsScope,
   ): Promise<Record<string, VariantMetricStats>>;
   close?(): Promise<void>;
+}
+
+/** Narrows a backend query. */
+export interface AnalyticsScope {
+  /**
+   * Only exposures and events these apps produced (a tenant's `partition`). Omitted: every app.
+   * A subject counts in the app where it was first exposed.
+   */
+  apps?: string[] | undefined;
+}
+
+/** Whether a scope actually narrows to some apps. */
+export function scopedApps(scope: AnalyticsScope | undefined): string[] | undefined {
+  return scope?.apps !== undefined ? [...new Set(scope.apps)] : undefined;
 }
 
 export function emptyStats(): VariantMetricStats {

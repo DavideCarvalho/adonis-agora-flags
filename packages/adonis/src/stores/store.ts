@@ -87,6 +87,8 @@ export interface ScheduledChange {
 /** Evaluations of a flag on one day, for stale-flag detection. */
 export interface UsageRow {
   environment: string;
+  /** The app that evaluated (a tenant's `partition`, or the standalone app). */
+  app?: string;
   flag: string;
   day: string;
   evaluations: number;
@@ -161,7 +163,11 @@ export interface FlagsStore {
 
   /** Adds evaluation counts (stale-flag detection). */
   recordUsage(rows: UsageRow[]): Promise<void>;
-  usage(query: { environment: string; since: string }): Promise<UsageRow[]>;
+  /**
+   * Evaluation counts since a day. With `apps`, only those apps' counts (recorded with an `app`);
+   * without, every app's.
+   */
+  usage(query: { environment: string; since: string; apps?: string[] }): Promise<UsageRow[]>;
 
   /** Records the flags an app declares in code (schema push). */
   saveDeclarations(app: string, declarations: Record<string, FlagDeclaration>): Promise<void>;

@@ -29,6 +29,8 @@ export interface ExperimentSpec {
   control?: string;
   /** Confidence level for fixed-horizon intervals. Default 0.95. */
   confidence?: number;
+  /** Only these apps' exposures and events. Omitted: every app. */
+  apps?: string[] | undefined;
 }
 
 export interface Comparison {
@@ -63,6 +65,8 @@ export interface ExperimentResults {
   experiment: string;
   flag: string;
   environment: string;
+  /** The apps these numbers cover. Absent: every app. */
+  apps?: string[];
   control: string;
   computedAt: string;
   exposures: Record<string, number>;
@@ -73,6 +77,13 @@ export interface ExperimentResults {
   metrics: MetricResult[];
   /** Comparisons computed with too few subjects (< 2 per variant) are skipped and listed here. */
   warnings: string[];
+}
+
+/** The analytics backend cannot narrow its numbers to some apps. */
+export class AppScopeUnsupportedError extends Error {
+  constructor(kind: string) {
+    super(`the "${kind}" analytics backend cannot compute results for one app`);
+  }
 }
 
 /**
@@ -105,7 +116,11 @@ export async function computeResults(
   const confidence = spec.confidence ?? 0.95;
   const warnings: string[] = [];
   const environment = spec.environment ?? 'production';
-  const allExposures = await backend.exposures(spec.key, environment);
+  const scope = spec.apps !== undefined ? { apps: spec.apps } : undefined;
+  if (scope && !backend.filtersByApp) {
+    throw new AppScopeUnsupportedError(backend.kind);
+  }
+  const allExposures = await backend.exposures(spec.key, environment, scope);
   // Global-holdout subjects are recorded under a reserved variant; they are not an arm of this
   // experiment, so they are reported apart and left out of every comparison.
   const holdout = allExposures[HOLDOUT_VARIANT] ?? 0;
@@ -135,6 +150,7 @@ export async function computeResults(
       spec.key,
       definition,
       environment,
+      scope,
     );
     const direction = definition.direction ?? 'increase';
     const guardrail = spec.guardrails?.includes(name) ?? false;
@@ -227,6 +243,7 @@ export async function computeResults(
     experiment: spec.key,
     flag: spec.flag,
     environment,
+    ...(spec.apps !== undefined ? { apps: [...spec.apps] } : {}),
     control,
     computedAt: new Date().toISOString(),
     exposures,

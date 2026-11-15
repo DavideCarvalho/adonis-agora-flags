@@ -158,6 +158,38 @@ The tenant names its partition (from `tenant.partition`) and the secret proves i
 
 Each app's events land on the flags server tagged with the partition from its token; the console lists both apps and their declarations.
 
+## Seeing one app
+
+The ruleset is one for every app. What the apps send is kept per app: each event, exposure and evaluation count is stored with the partition and environment of the token that sent it, whatever the request says.
+
+On the control-plane's console, the **App** picker in the header chooses whose numbers every screen shows: experiment results, exposures, unused flags and the connected apps. **All apps** puts them together. The picker shows up once two apps have called in; a standalone app has none.
+
+The pick travels in the URL (`?app=shop`), so a link opens on the same app. The console API, the `flags_*` MCP tools and the experiment recompute take the same `app`.
+
+### Limit who sees which app
+
+`authorize` can answer the apps a person may see:
+
+```ts title="config/flags_dashboard.ts (flags server)"
+import { defineConfig } from '@adonis-agora/flags/dashboard'
+
+export default defineConfig({
+  authorize: async (ctx) => {
+    const user = ctx.auth.user
+    if (!user) return { allowed: false, reason: 'unauthenticated' }
+    if (user.isAdmin) return { allowed: true }
+    return { allowed: true, apps: user.teamApps } // ['shop']
+  },
+})
+```
+
+`apps: '*'` (or no `apps`) is every app. With a list, the picker offers those apps only, **All apps** covers those apps only, and asking for any other app answers `403`, in the console, its API and the MCP tools alike. Flags, segments and their history stay visible: the ruleset is shared.
+
+<Callout>
+  Results for one app are computed on demand from the analytics backend and reused for a minute.
+  Results for every app are the ones the worker keeps up to date.
+</Callout>
+
 ## Frontends
 
 With `browser: {}` in `config/flags.ts`, frontends read flags with [`remoteFlags({ endpoint: '/_flags/token' })`](/docs/react#without-inertia-remoteflags). Turn it on in each app that has a frontend **and** on the control-plane:

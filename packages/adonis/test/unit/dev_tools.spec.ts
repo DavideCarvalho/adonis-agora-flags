@@ -284,3 +284,61 @@ describe('anyAuthorize', () => {
     });
   });
 });
+
+describe('flags dev tools (MCP) for a viewer limited to some apps', () => {
+  let app: ApplicationService;
+  let lib: DevToolsLib;
+  const ctx = {} as HttpContext;
+  const run = (name: string, input: Record<string, unknown> = {}) =>
+    tool(lib, name).run(input, { ctx, ...tokenCall });
+
+  beforeAll(async () => {
+    const ignitor = new IgnitorFactory()
+      .merge({
+        rcFileContents: {
+          providers: [
+            () => import('../../providers/flags_provider.js'),
+            () => import('../../providers/dashboard_provider.js'),
+          ],
+        },
+        config: {
+          flags: defineConfig({
+            app: 'shop',
+            flags: { new_player: flag.boolean({ default: false }) },
+            store: stores.memory({ production: { flags: {} } }),
+            transport: transports.memory(),
+            dispatcher: 'in-process',
+          }),
+          flags_dashboard: defineDashboardConfig({
+            authorize: () => ({ allowed: true, apps: ['shop'] }),
+          }),
+        },
+      })
+      .withCoreConfig()
+      .withCoreProviders()
+      .create(new URL('./tmp/', import.meta.url));
+    app = ignitor.createApp('web') as ApplicationService;
+    await app.init();
+    app.container.singleton('agora.devTools' as never, () => ({
+      version: 1,
+      register: (registered: DevToolsLib) => {
+        lib = registered;
+      },
+    }));
+    await app.boot();
+  });
+
+  afterAll(async () => {
+    await app.terminate();
+  });
+
+  it('offers only the allowed apps and refuses the others', async () => {
+    const overview = (await run('flags_get_overview')) as { apps: string[]; appScope: unknown };
+    expect(overview.apps).toEqual(['shop']);
+    expect(overview.appScope).toEqual(['shop']);
+    await expect(run('flags_get_ops', { app: 'blog' })).rejects.toThrow(/403/);
+    await expect(run('flags_list_stale', { app: 'blog' })).rejects.toThrow(/403/);
+    await expect(run('flags_list_experiments', { app: 'blog' })).rejects.toThrow(/403/);
+    expect(await run('flags_get_ops', { app: 'shop' })).toMatchObject({ app: 'shop' });
+  });
+});

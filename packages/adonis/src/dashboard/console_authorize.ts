@@ -11,7 +11,14 @@ import type { HttpContext } from '@adonisjs/core/http';
 /** What an authorizer may answer. */
 export type ConsoleAuthorizeResult =
   | boolean
-  | { allowed: true }
+  | {
+      allowed: true;
+      /**
+       * On a central server: the apps (tenant partitions) this viewer may see the events,
+       * exposures, usage and results of. `'*'` (or omitted) is every app.
+       */
+      apps?: '*' | string[];
+    }
   | { allowed: false; reason?: 'unauthenticated' | 'forbidden' }
   | { redirectTo: string };
 
@@ -31,7 +38,7 @@ export type ConsoleAuthorize =
 
 /** A {@link ConsoleAuthorizeResult} normalized to the answer the console writes. */
 export type ConsoleAuthorizeDecision =
-  | { allowed: true }
+  | { allowed: true; apps?: '*' | string[] }
   | { allowed: false; status: 401; reason: 'unauthenticated' }
   | { allowed: false; status: 403; reason: 'forbidden'; error?: unknown }
   | { allowed: false; status: 302; redirectTo: string };
@@ -53,15 +60,37 @@ function lazyModuleClass(value: unknown): ConsoleAuthorizerClass | undefined {
 }
 
 /**
- * Normalize an authorizer's answer. Fails closed: only `true` or `{ allowed: true }` passes;
+ * Normalize an authorizer's answer. Fails closed: only `true` or `{ allowed: true }` passes (its
+ * `apps`, when not `'*'`, is kept as a list of names: a malformed one allows no app);
  * `{ redirectTo }` with a non-empty string is a redirect; anything else is a denial (`401` for
  * `reason: 'unauthenticated'`, `403` otherwise).
  */
 export function normalizeConsoleAuthorizeResult(result: unknown): ConsoleAuthorizeDecision {
   if (result === true) return { allowed: true };
   if (typeof result !== 'object' || result === null) return FORBIDDEN;
-  const value = result as { allowed?: unknown; reason?: unknown; redirectTo?: unknown };
-  if (value.allowed === true) return { allowed: true };
+  const value = result as {
+    allowed?: unknown;
+    reason?: unknown;
+    redirectTo?: unknown;
+    apps?: unknown;
+  };
+  if (value.allowed === true) {
+    if (value.apps === undefined || value.apps === '*') {
+      return value.apps === '*' ? { allowed: true, apps: '*' } : { allowed: true };
+    }
+    // Anything but '*' or a list of names narrows to the names it holds: never wider.
+    const apps = Array.isArray(value.apps)
+      ? [
+          ...new Set(
+            value.apps
+              .filter((a) => typeof a === 'string' || typeof a === 'number')
+              .map(String)
+              .filter((a) => a !== ''),
+          ),
+        ]
+      : [];
+    return { allowed: true, apps };
+  }
   if (value.allowed === undefined && typeof value.redirectTo === 'string' && value.redirectTo) {
     return { allowed: false, status: 302, redirectTo: value.redirectTo };
   }
@@ -182,7 +211,11 @@ export function anyAuthorize(
     let threw = false;
     for (const authorize of resolved) {
       const decision = await authorize(ctx);
-      if (decision.allowed) return { allowed: true };
+      if (decision.allowed) {
+        return decision.apps !== undefined
+          ? { allowed: true, apps: decision.apps }
+          : { allowed: true };
+      }
       if (decision.status === 302) {
         redirectTo ??= decision.redirectTo;
         continue;

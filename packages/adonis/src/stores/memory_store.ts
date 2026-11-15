@@ -186,17 +186,36 @@ export class MemoryStore implements FlagsStore {
 
   async recordUsage(rows: UsageRow[]): Promise<void> {
     for (const row of rows) {
-      const key = `${row.environment}\u0000${row.flag}\u0000${row.day}`;
+      const key = `${row.environment}\u0000${row.app ?? ''}\u0000${row.flag}\u0000${row.day}`;
       const existing = this.#usage.get(key);
       if (existing) existing.evaluations += row.evaluations;
       else this.#usage.set(key, { ...row });
     }
   }
 
-  async usage(query: { environment: string; since: string }): Promise<UsageRow[]> {
-    return [...this.#usage.values()]
-      .filter((row) => row.environment === query.environment && row.day >= query.since)
-      .map((row) => ({ ...row }));
+  async usage(query: { environment: string; since: string; apps?: string[] }): Promise<UsageRow[]> {
+    const rows = [...this.#usage.values()].filter(
+      (row) =>
+        row.environment === query.environment &&
+        row.day >= query.since &&
+        (query.apps === undefined || (row.app !== undefined && query.apps.includes(row.app))),
+    );
+    if (query.apps !== undefined) return rows.map((row) => ({ ...row }));
+    // Every app: one row per flag and day, like the SQL store.
+    const merged = new Map<string, UsageRow>();
+    for (const row of rows) {
+      const key = `${row.flag}\u0000${row.day}`;
+      const existing = merged.get(key);
+      if (existing) existing.evaluations += row.evaluations;
+      else
+        merged.set(key, {
+          environment: row.environment,
+          flag: row.flag,
+          day: row.day,
+          evaluations: row.evaluations,
+        });
+    }
+    return [...merged.values()];
   }
 
   async saveDeclarations(

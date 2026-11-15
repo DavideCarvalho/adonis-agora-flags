@@ -30,6 +30,7 @@ export const FLAGS_TABLES = [
   'flags_change_requests',
   'flags_schedules',
   'flags_usage',
+  'flags_app_usage',
   'flags_declarations',
   'flags_events',
   'flags_sink_cursors',
