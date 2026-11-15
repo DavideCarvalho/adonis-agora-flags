@@ -6,10 +6,26 @@ import {
   type Ruleset,
 } from '@adonis-agora/flags-core';
 import type { HttpContext } from '@adonisjs/core/http';
+import type { ApplicationService } from '@adonisjs/core/types';
 import type { FlagDeclaration } from '../declare.js';
 import type { ControlPlaneConfig } from '../define_config.js';
 import { parseEvents } from '../events/event.js';
 import type { FlagsRuntime } from '../runtime.js';
+import {
+  DEFAULT_MAX_MESSAGE_BYTES,
+  type DeadLetter,
+  decodeMessage,
+  MemoryDedupe,
+  type MessageDedupe,
+  PoisonMessageError,
+  type TenantMessage,
+} from '../tenant_transports/message.js';
+import type {
+  ControlPlaneLink,
+  HandledMessage,
+  LinkLogger,
+  TenantMessageHandler,
+} from '../tenant_transports/types.js';
 import { browserKey } from '../topology/browser_token.js';
 import { TENANT_SCOPES } from '../topology/token.js';
 import {
@@ -28,6 +44,24 @@ export type ControlPlaneOptions = Omit<
   verifyTenant: TenantVerifierOption;
   /** Builds class-form verifiers (the provider passes the container). Default `new`. */
   make?: VerifierMaker;
+  logger?: LinkLogger;
+};
+
+/** What a request or message failed on, mapped to an HTTP status or a dead letter. */
+class IngestError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+const KIND_CAPABILITY: Record<TenantMessage['kind'], string> = {
+  events: TENANT_SCOPES.eventsWrite,
+  usage: TENANT_SCOPES.eventsWrite,
+  declarations: TENANT_SCOPES.declarationsWrite,
+  ruleset: TENANT_SCOPES.rulesetRead,
 };
 
 interface RouterLike {
@@ -63,10 +97,15 @@ function bearer(ctx: HttpContext): string | undefined {
  * Every request is authenticated by `verifyTenant`; the tenant identity and environment come from
  * the verified token, never from the request body.
  */
-export class ControlPlane {
+export class ControlPlane implements TenantMessageHandler {
   readonly prefix: string;
+  readonly maxMessageBytes: number;
   #cache = new Map<string, Ruleset>();
   #verify: (request: TenantVerifierRequest) => Promise<VerifiedTenant | null>;
+  #dedupe: MessageDedupe = new MemoryDedupe();
+  #links: ControlPlaneLink[] = [];
+  /** Shared pollers for environments other than this process's. */
+  #envWatchers = new Map<string, { listeners: Set<(r: Ruleset) => void>; stop: () => void }>();
 
   constructor(
     private readonly runtime: FlagsRuntime,
@@ -76,36 +115,241 @@ export class ControlPlane {
   ) {
     this.prefix = (options.prefix ?? '/_flags').replace(/\/$/, '');
     this.#verify = resolveTenantVerifier(options.verifyTenant, options.make);
+    this.maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
+  }
+
+  /**
+   * Verifies a token and checks it carries `capability`. Every channel (HTTP and every broker)
+   * goes through here: the partition, environment and capabilities come from the verified token.
+   */
+  async #verifyToken(
+    token: string | undefined,
+    claimed: string | undefined,
+    capability: string,
+    advertised: string[],
+  ): Promise<VerifiedTenant | 'unauthorized' | 'forbidden'> {
+    const verified = await this.#verify({ token, partition: claimed, tenant: claimed });
+    if (!verified) return 'unauthorized';
+    if (!verified.capabilities.includes(capability)) return 'forbidden';
+    tenants.set(verified.partition, {
+      ...tenants.get(verified.partition),
+      partition: verified.partition,
+      environment: verified.environment ?? this.runtime.manager.environment,
+      capabilities: advertised,
+      lastSeenAt: new Date().toISOString(),
+    });
+    return verified;
   }
 
   /** Verifies the request's token and checks it carries `capability`; answers 401/403 otherwise. */
   async #auth(ctx: HttpContext, capability: string): Promise<VerifiedTenant | null> {
     const claimed = ctx.request.header('x-flags-tenant') ?? undefined;
-    const verified = await this.#verify({
-      token: bearer(ctx),
-      partition: claimed,
-      tenant: claimed,
-    });
-    if (!verified) {
+    const result = await this.#verifyToken(
+      bearer(ctx),
+      claimed,
+      capability,
+      (ctx.request.header('x-flags-capabilities') ?? '').split(',').filter(Boolean),
+    );
+    if (result === 'unauthorized') {
       ctx.response.status(401).send({ error: 'unauthorized' });
       return null;
     }
-    if (!verified.capabilities.includes(capability)) {
+    if (result === 'forbidden') {
       ctx.response.status(403).send({ error: `token lacks the ${capability} capability` });
       return null;
     }
-    const environment = verified.environment ?? this.runtime.manager.environment;
-    const capabilities = (ctx.request.header('x-flags-capabilities') ?? '')
-      .split(',')
-      .filter(Boolean);
-    tenants.set(verified.partition, {
-      ...tenants.get(verified.partition),
-      partition: verified.partition,
-      environment,
-      capabilities,
-      lastSeenAt: new Date().toISOString(),
-    });
-    return verified;
+    return result;
+  }
+
+  // ── Tenant messages over brokers (tenantTransports.*) ─────────────────────
+
+  /**
+   * Starts the broker drivers in `controlPlane.transports`. The HTTP routes are separate and stay
+   * mounted: browsers, OFREP and HTTP tenants keep using them.
+   */
+  async serveTransports(context: {
+    app?: ApplicationService | undefined;
+    redis(connection?: string): Promise<unknown>;
+    /** Ace commands: only drivers without a loop of their own (`queue`, for `queue:work`). */
+    passiveOnly?: boolean;
+  }): Promise<void> {
+    for (const transport of this.options.transports ?? []) {
+      if (transport.driver === 'http') continue;
+      if (context.passiveOnly && !transport.passive) continue;
+      this.#links.push(
+        await transport.serve({
+          app: context.app,
+          logger: this.options.logger,
+          redis: (connection) => context.redis(connection),
+          handler: this,
+        }),
+      );
+    }
+  }
+
+  /** The broker links this control-plane serves (doctor). */
+  get links(): readonly ControlPlaneLink[] {
+    return this.#links;
+  }
+
+  async close(): Promise<void> {
+    for (const link of this.#links.splice(0)) await link.close?.();
+    for (const watcher of this.#envWatchers.values()) watcher.stop();
+    this.#envWatchers.clear();
+  }
+
+  async deadLetter(letter: Omit<DeadLetter, 'at'>): Promise<void> {
+    const full: DeadLetter = { ...letter, at: new Date().toISOString() };
+    if (this.options.onDeadLetter) {
+      try {
+        await this.options.onDeadLetter(full);
+      } catch {
+        // a broken hook must not block the broker
+      }
+      return;
+    }
+    this.options.logger?.error(
+      `[flags] dead-lettered a tenant message (${full.driver}, ${full.kind ?? '?'} ${full.id ?? '?'} from "${full.partition ?? '?'}"): ${full.reason}: ${full.error}`,
+    );
+  }
+
+  async handle(
+    raw: unknown,
+    _driver: string,
+    options: { dedupe?: MessageDedupe | undefined } = {},
+  ): Promise<HandledMessage> {
+    const message = decodeMessage(raw, this.maxMessageBytes);
+    const body = (message.body ?? {}) as Record<string, unknown>;
+    const capability = KIND_CAPABILITY[message.kind];
+    const result = await this.#verifyToken(
+      message.token,
+      message.partition,
+      capability,
+      Array.isArray(body.capabilities) ? (body.capabilities as unknown[]).map(String) : [],
+    );
+    if (result === 'unauthorized')
+      throw new PoisonMessageError('the tenant token was refused', 'unauthorized');
+    if (result === 'forbidden')
+      throw new PoisonMessageError(`token lacks the ${capability} capability`, 'forbidden');
+    const verified = result;
+    const environment = this.#environment(verified);
+    if (message.kind === 'ruleset') {
+      const ruleset = await this.ruleset(environment);
+      const info = tenants.get(verified.partition);
+      if (info) info.lastRulesetVersion = ruleset.version;
+      const known = typeof body.version === 'string' ? body.version : undefined;
+      return {
+        status: 'ok',
+        message,
+        verified,
+        environment,
+        ruleset: known === ruleset.version ? null : ruleset,
+      };
+    }
+    // Dedupe on the VERIFIED partition: a tenant cannot shadow another's message ids.
+    const dedupe = options.dedupe ?? this.#dedupe;
+    const key = `${verified.partition}:${message.id}`;
+    if (await dedupe.seen(key)) return { status: 'duplicate', message, verified, environment };
+    try {
+      if (message.kind === 'events') await this.#ingestEvents(verified, body.events);
+      else if (message.kind === 'usage') await this.#ingestUsage(verified, body.rows);
+      else await this.#ingestDeclarations(verified, body.declarations);
+    } catch (error) {
+      if (error instanceof IngestError && error.status < 500)
+        throw new PoisonMessageError(error.message, error.status === 413 ? 'too_large' : 'invalid');
+      throw error;
+    }
+    await dedupe.mark(key);
+    return { status: 'ok', message, verified, environment };
+  }
+
+  watchEnvironment(environment: string, listener: (ruleset: Ruleset) => void): () => void {
+    if (environment === this.runtime.manager.environment)
+      return this.runtime.source.onChange(listener);
+    let watcher = this.#envWatchers.get(environment);
+    if (!watcher) {
+      const listeners = new Set<(r: Ruleset) => void>();
+      let last: string | undefined;
+      const poll = setInterval(async () => {
+        try {
+          const version = await this.runtime.store!.version(environment);
+          if (last === undefined) {
+            last = version;
+            return;
+          }
+          if (version === last) return;
+          last = version;
+          const ruleset = await this.ruleset(environment);
+          for (const fn of listeners) fn(ruleset);
+        } catch {
+          // next tick
+        }
+      }, 5000);
+      poll.unref();
+      watcher = { listeners, stop: () => clearInterval(poll) };
+      this.#envWatchers.set(environment, watcher);
+    }
+    const w = watcher;
+    w.listeners.add(listener);
+    return () => {
+      w.listeners.delete(listener);
+      if (w.listeners.size === 0) {
+        w.stop();
+        this.#envWatchers.delete(environment);
+      }
+    };
+  }
+
+  async #ingestEvents(verified: VerifiedTenant, raw: unknown) {
+    let events: ReturnType<typeof parseEvents>;
+    try {
+      events = parseEvents(raw, verified.partition, this.#environment(verified));
+    } catch (error) {
+      throw new IngestError(400, (error as Error).message);
+    }
+    if (events.length > 5000) throw new IngestError(413, 'at most 5000 events per request');
+    await this.runtime.transport!.publish(events);
+    return events.length;
+  }
+
+  async #ingestDeclarations(verified: VerifiedTenant, declarations: unknown) {
+    if (!declarations || typeof declarations !== 'object' || Array.isArray(declarations))
+      throw new IngestError(400, 'declarations must be an object');
+    await this.runtime.store!.saveDeclarations(
+      verified.partition,
+      declarations as Record<string, FlagDeclaration>,
+    );
+  }
+
+  async #ingestUsage(verified: VerifiedTenant, rows: unknown) {
+    if (!Array.isArray(rows)) throw new IngestError(400, 'rows must be an array');
+    if (rows.length > 50_000) throw new IngestError(413, 'at most 50000 usage rows per request');
+    const environment = this.#environment(verified);
+    await this.runtime.store!.recordUsage(
+      (rows as Array<{ flag: string; day: string; evaluations: number }>)
+        .filter(
+          (r) =>
+            r &&
+            typeof r.flag === 'string' &&
+            typeof r.day === 'string' &&
+            /^\d{4}-\d{2}-\d{2}$/.test(r.day) &&
+            Number.isFinite(r.evaluations),
+        )
+        .map((r) => ({
+          environment,
+          // The app comes from the verified token, like the environment: never from the rows.
+          app: verified.partition,
+          flag: r.flag,
+          day: r.day,
+          evaluations: Math.max(0, Math.trunc(r.evaluations)),
+        })),
+    );
+  }
+
+  #ingestFailed(ctx: HttpContext, error: unknown) {
+    if (error instanceof IngestError)
+      return ctx.response.status(error.status).send({ error: error.message });
+    throw error;
   }
 
   #environment(verified: VerifiedTenant): string {
@@ -232,60 +476,40 @@ export class ControlPlane {
   async events(ctx: HttpContext) {
     const verified = await this.#auth(ctx, TENANT_SCOPES.eventsWrite);
     if (!verified) return;
-    let events: ReturnType<typeof parseEvents>;
     try {
-      events = parseEvents(
+      const accepted = await this.#ingestEvents(
+        verified,
         (ctx.request.body() as { events?: unknown }).events,
-        verified.partition,
-        this.#environment(verified),
       );
+      return ctx.response.status(202).send({ accepted });
     } catch (error) {
-      return ctx.response.status(400).send({ error: (error as Error).message });
+      return this.#ingestFailed(ctx, error);
     }
-    if (events.length > 5000)
-      return ctx.response.status(413).send({ error: 'at most 5000 events per request' });
-    await this.runtime.transport!.publish(events);
-    return ctx.response.status(202).send({ accepted: events.length });
   }
 
   async declarations(ctx: HttpContext) {
     const verified = await this.#auth(ctx, TENANT_SCOPES.declarationsWrite);
     if (!verified) return;
-    const body = ctx.request.body() as { declarations?: Record<string, FlagDeclaration> };
-    if (!body.declarations || typeof body.declarations !== 'object') {
-      return ctx.response.status(400).send({ error: 'declarations must be an object' });
+    try {
+      await this.#ingestDeclarations(
+        verified,
+        (ctx.request.body() as { declarations?: unknown }).declarations,
+      );
+      return ctx.response.status(204).send('');
+    } catch (error) {
+      return this.#ingestFailed(ctx, error);
     }
-    await this.runtime.store!.saveDeclarations(verified.partition, body.declarations);
-    return ctx.response.status(204).send('');
   }
 
   async usage(ctx: HttpContext) {
     const verified = await this.#auth(ctx, TENANT_SCOPES.eventsWrite);
     if (!verified) return;
-    const rows = (
-      ctx.request.body() as { rows?: Array<{ flag: string; day: string; evaluations: number }> }
-    ).rows;
-    if (!Array.isArray(rows))
-      return ctx.response.status(400).send({ error: 'rows must be an array' });
-    const environment = this.#environment(verified);
-    await this.runtime.store!.recordUsage(
-      rows
-        .filter(
-          (r) =>
-            typeof r.flag === 'string' &&
-            /^\d{4}-\d{2}-\d{2}$/.test(r.day) &&
-            Number.isFinite(r.evaluations),
-        )
-        .map((r) => ({
-          environment,
-          // The app comes from the verified token, like the environment: never from the rows.
-          app: verified.partition,
-          flag: r.flag,
-          day: r.day,
-          evaluations: Math.max(0, Math.trunc(r.evaluations)),
-        })),
-    );
-    return ctx.response.status(204).send('');
+    try {
+      await this.#ingestUsage(verified, (ctx.request.body() as { rows?: unknown }).rows);
+      return ctx.response.status(204).send('');
+    } catch (error) {
+      return this.#ingestFailed(ctx, error);
+    }
   }
 
   // ── OFREP (OpenFeature Remote Evaluation Protocol) ─────────────────────────

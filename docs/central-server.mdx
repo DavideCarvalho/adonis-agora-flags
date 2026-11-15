@@ -1,6 +1,6 @@
 ---
 title: Central Server
-description: One flags server many apps connect to — topologies, tenant tokens with authkit or shared secrets, and OFREP.
+description: One flags server many apps connect to — topologies, tenant tokens with authkit or shared secrets, transports, and OFREP.
 icon: Network
 ---
 
@@ -149,6 +149,139 @@ tenant: { url, partition: 'streaming', token: env.get('FLAGS_SECRET_STREAMING') 
 ```
 
 The tenant names its partition (from `tenant.partition`) and the secret proves it. A partition gets every capability unless you list `capabilities`.
+
+## Transports
+
+By default a tenant and the control-plane talk over HTTP. `tenant.transport` picks another way for **server-to-server** traffic: the app's events, evaluation counts and declarations, and its ruleset. Configure the same driver on both sides.
+
+Browsers never use it. `remoteFlags`, browser tokens and OFREP always talk to the control-plane over HTTP, so its HTTP routes stay mounted whatever you choose. One control-plane can serve tenants on Redis, tenants on HTTP and browsers at once.
+
+| Driver | Events (push) | Ruleset (watch) | Needs |
+| --- | --- | --- | --- |
+| `tenantTransports.http({ url?, fetch?, timeoutMs? })` (default) | `POST` | `ETag` + server-sent events | nothing |
+| `tenantTransports.queue({ queue?, connection? })` | ✅ jobs | — (HTTP) | `@adonisjs/queue` |
+| `tenantTransports.bullmq({ connection, prefix? })` | ✅ jobs | — (HTTP) | `bullmq` + `ioredis` |
+| `tenantTransports.redis({ connection?, prefix? })` | ✅ stream | ✅ key + pub/sub | `@adonisjs/redis` |
+| `tenantTransports.durable({ controlPlane? })` | ✅ durable runs | ✅ run + durable's control plane | `@adonis-agora/durable` |
+
+The packages are loaded only when you select their driver. `tenantTransports` is not the top-level `transport` option (`transports.db()`, `transports.redis()`), which is the control-plane's own event log.
+
+### Redis
+
+```ts title="config/flags.ts (flags server)"
+import { defineConfig, tenantTransports } from '@adonis-agora/flags'
+
+export default defineConfig({
+  topology: 'control-plane',
+  flags: {},
+  verifyTenant,
+  controlPlane: {
+    transports: [tenantTransports.redis({ connection: 'main' })],
+  },
+})
+```
+
+```ts title="config/flags.ts (an app)"
+import { defineConfig, tenantTransports } from '@adonis-agora/flags'
+
+export default defineConfig({
+  topology: 'tenant',
+  flags: {},
+  tenant: {
+    partition: 'shop',
+    token,
+    transport: tenantTransports.redis({ connection: 'main' }),
+    snapshotPath: 'storage/flags/ruleset.json',
+  },
+})
+```
+
+Both sides need the same Redis and the same `prefix` (default `agora:flags:tenants`). The app does not need `tenant.url` unless it serves a frontend (see below).
+
+### Queue and BullMQ
+
+These carry events only; the ruleset still comes over HTTP, so the app keeps `tenant.url`.
+
+```ts title="config/flags.ts (flags server)"
+controlPlane: {
+  transports: [tenantTransports.queue()],
+},
+```
+
+```ts title="config/flags.ts (an app)"
+tenant: {
+  url: env.get('FLAGS_URL'),
+  partition: 'shop',
+  token,
+  transport: tenantTransports.queue(),
+},
+```
+
+Run the queue worker for `agora-flags-tenants` on the flags server only: `node ace queue:work --queue=agora-flags-tenants`.
+
+For BullMQ, use `tenantTransports.bullmq({ connection: { host: 'redis', port: 6379 } })` on both sides. The flags server runs the worker itself.
+
+### Durable
+
+The app and the flags server run on the same durable cluster. The flags server registers the workflow that applies tenant messages; ruleset changes go out on the `controlPlane` from `config/durable.ts`.
+
+```ts title="config/flags.ts (both sides)"
+// flags server
+controlPlane: { transports: [tenantTransports.durable()] },
+
+// an app
+tenant: { partition: 'shop', token, transport: tenantTransports.durable() },
+```
+
+Every tenant message is a durable run, so you see them, with their retries and failures, in the durable console. Fetching the ruleset is slower than over HTTP or Redis, because each fetch is a run.
+
+### Mixing drivers
+
+`tenant.watch` picks where the ruleset comes from when it differs from `transport`. It takes `http`, `redis` or `durable`:
+
+```ts title="config/flags.ts (an app)"
+tenant: {
+  partition: 'shop',
+  token,
+  transport: tenantTransports.bullmq({ connection }),
+  watch: tenantTransports.redis(),
+},
+```
+
+### Apps with a frontend
+
+A tenant on any driver still issues browser tokens. It gets its signing key from the control-plane over HTTP and gives browsers the control-plane's HTTP address, so set `tenant.url` (or `browser.publicUrl`):
+
+```ts title="config/flags.ts (an app)"
+tenant: {
+  url: env.get('FLAGS_URL'),
+  partition: 'shop',
+  token,
+  transport: tenantTransports.redis(),
+},
+browser: {},
+```
+
+### Security and delivery
+
+Every message carries the app's token and an id. The control-plane runs `verifyTenant` on each message. The partition, environment and capabilities come from the verified token, never from the message or the queue it came from. A shared broker does not let one app write as another.
+
+Delivery is at least once. The control-plane ignores an id it has already applied for that partition. A message it can never apply (an unreadable message, a refused token, a missing capability, one over `controlPlane.maxMessageBytes`, 1 MiB by default) is dead-lettered instead of retried. So is one that still fails after its retries. Dead letters go to `controlPlane.onDeadLetter`, which logs them by default:
+
+```ts title="config/flags.ts (flags server)"
+import logger from '@adonisjs/core/services/logger'
+
+controlPlane: {
+  transports: [tenantTransports.redis()],
+  onDeadLetter: (letter) => logger.error(letter, 'flags tenant message dropped'),
+},
+```
+
+Redis also keeps them in the `<prefix>:dead` stream, BullMQ in the queue's failed jobs, and durable as failed runs.
+
+With `snapshotPath`, a tenant that boots while the control-plane is down still serves the last ruleset, on every driver. On Redis it reads the ruleset key first, which outlives the control-plane.
+
+`node ace agora:doctor --deep` checks that the broker is reachable from each side.
 
 ## End to end: authkit, a flags server, two apps
 

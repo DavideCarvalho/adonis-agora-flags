@@ -56,11 +56,11 @@ export function registerBrowser(
   let url: string;
   if (config.topology === 'tenant') {
     keys = remoteKeySource({
-      url: config.tenant.url,
+      url: config.tenant.url!,
       token: runtime.token!,
       partition: config.tenant.partition,
     });
-    url = browser.publicUrl ?? config.tenant.url;
+    url = browser.publicUrl ?? config.tenant.url!;
   } else {
     const secret = options.secret!;
     const prefix = (

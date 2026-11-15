@@ -105,6 +105,20 @@ export type {
   ScheduledChange,
 } from './stores/store.js';
 export type { Subject, SubjectLike } from './subject.js';
+export {
+  type BullMQTenantTransportOptions,
+  type DeadLetter,
+  type DurableTenantTransportOptions,
+  type HttpTenantTransportOptions,
+  PoisonMessageError,
+  type PushTransport,
+  type QueueTenantTransportOptions,
+  type RedisTenantTransportOptions,
+  type TenantMessage,
+  type TenantTransport,
+  tenantTransports,
+  type WatchTransport,
+} from './tenant_transports/index.js';
 export { FLAGS_RESOURCE, TENANT_SCOPES, type TenantTokenSource } from './topology/token.js';
 export {
   type AuthkitUserVerifierOptions,

@@ -1,33 +1,28 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { emptyRuleset, RULESET_SCHEMA_VERSION, type Ruleset } from '@adonis-agora/flags-core';
+import { emptyRuleset, type Ruleset } from '@adonis-agora/flags-core';
 import type { RulesetSource, SourceStatus } from '../ruleset_source.js';
-import type { TokenSource } from './token.js';
+import type { RulesetChannel } from '../tenant_transports/types.js';
 
 export interface RemoteSourceOptions {
-  /** The control-plane base URL (`https://flags.example.com/_flags`). */
-  url: string;
-  token: TokenSource;
-  /** The tenant's partition (sent as `x-flags-tenant`; the token decides what it really is). */
-  partition: string;
+  /** How the ruleset arrives (`tenant.watch`): http, redis, durable. */
+  channel: RulesetChannel;
   /**
    * Local file holding the last ruleset received. Read at boot when the control-plane is
    * unreachable, so a deploy during an outage still serves real targeting. Default: none.
    */
   snapshotPath?: string;
-  /** Use server-sent events for push updates. Default `true`; polling always runs as a fallback. */
+  /** Listen for pushed changes. Default `true`; polling always runs as a fallback. */
   stream?: boolean;
-  /** Poll interval (ms). Default 30000 with streaming, 5000 without. */
+  /** Poll interval (ms). Default 30000 with push notifications, 5000 without. */
   intervalMs?: number;
-  /** Advertised capabilities (sent as `x-flags-capabilities`). */
-  capabilities?: string[];
-  fetch?: typeof fetch;
   onError?: (error: unknown) => void;
 }
 
 /**
- * A tenant's ruleset: fetched from the control-plane (conditional GET by ETag), kept fresh by an SSE
- * stream with polling as a fallback, and snapshotted to disk. Evaluation stays local.
+ * A tenant's ruleset: fetched from the control-plane over its watch channel, kept fresh by the
+ * channel's change notifications with polling as a fallback, and snapshotted to disk. Evaluation
+ * stays local.
  */
 export class RemoteSource implements RulesetSource {
   #ruleset: Ruleset = emptyRuleset('0');
@@ -35,32 +30,15 @@ export class RemoteSource implements RulesetSource {
   #lastError: string | null = null;
   #listeners = new Set<(ruleset: Ruleset) => void>();
   #timer: NodeJS.Timeout | undefined;
-  #stream: AbortController | undefined;
+  #unsubscribe: (() => void) | undefined;
   #streaming = false;
-  #stopped = false;
   #refreshing: Promise<boolean> | undefined;
-  readonly #fetch: typeof fetch;
+  /** Snapshot writes, one at a time: two at once would share the temp file. */
+  #writing: Promise<void> = Promise.resolve();
 
-  constructor(private readonly options: RemoteSourceOptions) {
-    this.#fetch = options.fetch ?? fetch;
-  }
-
-  get #base() {
-    return this.options.url.replace(/\/$/, '');
-  }
-
-  async #headers(): Promise<Record<string, string>> {
-    return {
-      authorization: `Bearer ${await this.options.token.get()}`,
-      'x-flags-tenant': this.options.partition,
-      'x-flags-capabilities': (
-        this.options.capabilities ?? [`ruleset:v${RULESET_SCHEMA_VERSION}`]
-      ).join(','),
-    };
-  }
+  constructor(private readonly options: RemoteSourceOptions) {}
 
   async start(): Promise<void> {
-    this.#stopped = false;
     const loaded = await this.refresh();
     if (!loaded && !this.#loadedAt && this.options.snapshotPath) {
       try {
@@ -70,13 +48,21 @@ export class RemoteSource implements RulesetSource {
         // No snapshot yet: serve code defaults until the control-plane answers.
       }
     }
-    const streaming = this.options.stream !== false;
+    const subscribe = this.options.stream !== false ? this.options.channel.subscribe : undefined;
     this.#timer = setInterval(
       () => void this.refresh(),
-      this.options.intervalMs ?? (streaming ? 30_000 : 5000),
+      this.options.intervalMs ?? (subscribe ? 30_000 : 5000),
     );
     this.#timer.unref();
-    if (streaming) void this.#openStream();
+    if (subscribe) {
+      this.#unsubscribe = subscribe.call(this.options.channel, {
+        changed: () => void this.refresh(),
+        connected: (up) => {
+          this.#streaming = up;
+        },
+        error: (error) => this.options.onError?.(error),
+      });
+    }
   }
 
   current(): Ruleset {
@@ -97,16 +83,11 @@ export class RemoteSource implements RulesetSource {
 
   async #refresh(): Promise<boolean> {
     try {
-      const headers = await this.#headers();
-      if (this.#loadedAt) headers['if-none-match'] = `"${this.#ruleset.version}"`;
-      const response = await this.#fetch(`${this.#base}/v1/ruleset`, { headers });
-      if (response.status === 304) {
-        this.#lastError = null;
-        return false;
-      }
-      if (response.status === 401) this.options.token.invalidate?.();
-      if (!response.ok) throw new Error(`control-plane answered ${response.status}`);
-      const ruleset = (await response.json()) as Ruleset;
+      const ruleset = await this.options.channel.fetch(
+        this.#loadedAt ? this.#ruleset.version : undefined,
+      );
+      this.#lastError = null;
+      if (!ruleset) return false;
       if (this.#loadedAt && ruleset.version === this.#ruleset.version) return false;
       this.#set(ruleset, true);
       return true;
@@ -128,7 +109,9 @@ export class RemoteSource implements RulesetSource {
         // ignore
       }
     }
-    if (persist && this.options.snapshotPath) void this.#snapshot(ruleset);
+    if (persist && this.options.snapshotPath) {
+      this.#writing = this.#writing.then(() => this.#snapshot(ruleset));
+    }
   }
 
   async #snapshot(ruleset: Ruleset) {
@@ -143,48 +126,6 @@ export class RemoteSource implements RulesetSource {
     }
   }
 
-  /** Reads `event: ruleset` messages; reconnects with backoff while the source runs. */
-  async #openStream() {
-    let backoff = 1000;
-    while (!this.#stopped) {
-      this.#stream = new AbortController();
-      try {
-        const response = await this.#fetch(`${this.#base}/v1/ruleset/stream`, {
-          headers: { ...(await this.#headers()), accept: 'text/event-stream' },
-          signal: this.#stream.signal,
-        });
-        if (response.status === 401) this.options.token.invalidate?.();
-        if (!response.ok || !response.body) throw new Error(`stream answered ${response.status}`);
-        this.#streaming = true;
-        backoff = 1000;
-        const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-        let buffer = '';
-        for (;;) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += value;
-          let boundary = buffer.indexOf('\n\n');
-          while (boundary !== -1) {
-            const message = buffer.slice(0, boundary);
-            buffer = buffer.slice(boundary + 2);
-            if (/^event: ruleset$/m.test(message)) void this.refresh();
-            boundary = buffer.indexOf('\n\n');
-          }
-        }
-      } catch (error) {
-        if (this.#stopped) break;
-        this.options.onError?.(error);
-      } finally {
-        this.#streaming = false;
-      }
-      if (this.#stopped) break;
-      // The server closes the stream when the token expires; reconnect fetches a fresh one.
-      await new Promise((resolve) => setTimeout(resolve, backoff).unref());
-      backoff = Math.min(backoff * 2, 30_000);
-      void this.refresh();
-    }
-  }
-
   status(): SourceStatus {
     return {
       version: this.#ruleset.version,
@@ -196,8 +137,8 @@ export class RemoteSource implements RulesetSource {
   }
 
   async stop(): Promise<void> {
-    this.#stopped = true;
     if (this.#timer) clearInterval(this.#timer);
-    this.#stream?.abort();
+    this.#unsubscribe?.();
+    await this.options.channel.close?.();
   }
 }
