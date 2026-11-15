@@ -174,4 +174,4 @@ Tenants authenticate to the control-plane with a [shared secret](/docs/central-s
 | Targeting attributes | your `attributes` resolver | email, roles and organization from the session, plus your resolver |
 | Console access | `canOpenConsole` (Bouncer) | the `ADMIN` global role |
 | Same person across apps | only if your apps share user ids | yes: one `sub` everywhere, so cross-app experiments work |
-| Tenants of a central server | a shared secret per app | client credentials, revocable in authkit |
+| Tenants of a central server | a shared secret per app | one authkit service-tenant client per app, revocable in authkit |

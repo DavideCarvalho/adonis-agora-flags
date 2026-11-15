@@ -105,14 +105,20 @@ export type {
   ScheduledChange,
 } from './stores/store.js';
 export type { Subject, SubjectLike } from './subject.js';
-export { TENANT_SCOPES, type TokenSource, tokens } from './topology/token.js';
+export { FLAGS_RESOURCE, TENANT_SCOPES, type TenantTokenSource } from './topology/token.js';
 export {
+  type AuthkitUserVerifierOptions,
+  type SharedSecretPartition,
+  type SharedSecretVerifierOptions,
+  sharedSecretVerifier,
   type TenantVerifier,
+  type TenantVerifierContract,
+  type TenantVerifierOption,
+  type TenantVerifierRequest,
   type UserVerifier,
   userVerifiers,
   type VerifiedTenant,
   type VerifiedUser,
-  verifiers,
 } from './topology/verify.js';
 export { DbTransport } from './transports/db_transport.js';
 export { MemoryTransport } from './transports/memory_transport.js';

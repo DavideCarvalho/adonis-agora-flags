@@ -12,7 +12,23 @@ import { parseEvents } from '../events/event.js';
 import type { FlagsRuntime } from '../runtime.js';
 import { browserKey } from '../topology/browser_token.js';
 import { TENANT_SCOPES } from '../topology/token.js';
-import type { VerifiedTenant } from '../topology/verify.js';
+import {
+  resolveTenantVerifier,
+  type TenantVerifierOption,
+  type TenantVerifierRequest,
+  type VerifiedTenant,
+  type VerifierMaker,
+} from '../topology/verify.js';
+
+/** The control-plane's options: `controlPlane` from `config/flags.ts` plus the top-level `verifyTenant`. */
+export type ControlPlaneOptions = Omit<
+  NonNullable<ControlPlaneConfig<Record<string, FlagDeclaration>>['controlPlane']>,
+  'verifyTenant'
+> & {
+  verifyTenant: TenantVerifierOption;
+  /** Builds class-form verifiers (the provider passes the container). Default `new`. */
+  make?: VerifierMaker;
+};
 
 interface RouterLike {
   get(pattern: string, handler: (ctx: HttpContext) => unknown): { as(name: string): unknown };
@@ -50,36 +66,41 @@ function bearer(ctx: HttpContext): string | undefined {
 export class ControlPlane {
   readonly prefix: string;
   #cache = new Map<string, Ruleset>();
+  #verify: (request: TenantVerifierRequest) => Promise<VerifiedTenant | null>;
 
   constructor(
     private readonly runtime: FlagsRuntime,
-    private readonly options: ControlPlaneConfig<Record<string, FlagDeclaration>>['controlPlane'],
+    private readonly options: ControlPlaneOptions,
     /** Set when `browser` is configured: tenants fetch their browser signing keys. */
     private readonly browserSecret?: string,
   ) {
     this.prefix = (options.prefix ?? '/_flags').replace(/\/$/, '');
+    this.#verify = resolveTenantVerifier(options.verifyTenant, options.make);
   }
 
-  async #auth(ctx: HttpContext, scope: string): Promise<VerifiedTenant | null> {
-    const verified = await this.options.verifyTenant({
+  /** Verifies the request's token and checks it carries `capability`; answers 401/403 otherwise. */
+  async #auth(ctx: HttpContext, capability: string): Promise<VerifiedTenant | null> {
+    const claimed = ctx.request.header('x-flags-tenant') ?? undefined;
+    const verified = await this.#verify({
       token: bearer(ctx),
-      tenant: ctx.request.header('x-flags-tenant') ?? undefined,
+      partition: claimed,
+      tenant: claimed,
     });
     if (!verified) {
       ctx.response.status(401).send({ error: 'unauthorized' });
       return null;
     }
-    if (verified.capabilities && !verified.capabilities.includes(scope)) {
-      ctx.response.status(403).send({ error: `token lacks the ${scope} scope` });
+    if (!verified.capabilities.includes(capability)) {
+      ctx.response.status(403).send({ error: `token lacks the ${capability} capability` });
       return null;
     }
     const environment = verified.environment ?? this.runtime.manager.environment;
     const capabilities = (ctx.request.header('x-flags-capabilities') ?? '')
       .split(',')
       .filter(Boolean);
-    tenants.set(verified.tenant, {
-      ...tenants.get(verified.tenant),
-      partition: verified.tenant,
+    tenants.set(verified.partition, {
+      ...tenants.get(verified.partition),
+      partition: verified.partition,
       environment,
       capabilities,
       lastSeenAt: new Date().toISOString(),
@@ -137,8 +158,8 @@ export class ControlPlane {
     const environment = this.#environment(verified);
     ctx.response.header('cache-control', 'no-store');
     return ctx.response.json({
-      key: browserKey(this.browserSecret!, verified.tenant, environment),
-      app: verified.tenant,
+      key: browserKey(this.browserSecret!, verified.partition, environment),
+      app: verified.partition,
       environment,
     });
   }
@@ -147,7 +168,7 @@ export class ControlPlane {
     const verified = await this.#auth(ctx, TENANT_SCOPES.rulesetRead);
     if (!verified) return;
     const ruleset = await this.ruleset(this.#environment(verified));
-    const info = tenants.get(verified.tenant);
+    const info = tenants.get(verified.partition);
     if (info) info.lastRulesetVersion = ruleset.version;
     const etag = `"${ruleset.version}"`;
     ctx.response.header('etag', etag);
@@ -215,7 +236,7 @@ export class ControlPlane {
     try {
       events = parseEvents(
         (ctx.request.body() as { events?: unknown }).events,
-        verified.tenant,
+        verified.partition,
         this.#environment(verified),
       );
     } catch (error) {
@@ -234,7 +255,7 @@ export class ControlPlane {
     if (!body.declarations || typeof body.declarations !== 'object') {
       return ctx.response.status(400).send({ error: 'declarations must be an object' });
     }
-    await this.runtime.store!.saveDeclarations(verified.tenant, body.declarations);
+    await this.runtime.store!.saveDeclarations(verified.partition, body.declarations);
     return ctx.response.status(204).send('');
   }
 

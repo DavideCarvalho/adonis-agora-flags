@@ -173,7 +173,15 @@ export default class FlagsProvider {
       const secret = browserSecret(runtime, this.#appKey());
       let controlPlane: ControlPlane | undefined;
       if (config.topology === 'control-plane') {
-        controlPlane = new ControlPlane(runtime, config.controlPlane, secret);
+        controlPlane = new ControlPlane(
+          runtime,
+          {
+            ...config.controlPlane,
+            verifyTenant: config.verifyTenant,
+            make: (cls) => this.app.container.make(cls),
+          },
+          secret,
+        );
         controlPlane.register(router as never);
       }
       if (config.browser) {

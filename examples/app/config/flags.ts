@@ -1,5 +1,5 @@
 import env from '#start/env'
-import { defineConfig, flag, metric, type InferFlags, verifiers } from '@adonis-agora/flags'
+import { defineConfig, flag, metric, type InferFlags, sharedSecretVerifier } from '@adonis-agora/flags'
 import User from '#models/user'
 import AppFlagsIdentity from '#flags/identity'
 
@@ -52,9 +52,9 @@ const flagsConfig =
           ...owned,
           app: 'flags-server',
           topology: 'control-plane',
-          controlPlane: {
-            verifyTenant: verifiers.sharedSecret({ shop: env.get('FLAGS_SECRET', '') }),
-          },
+          verifyTenant: sharedSecretVerifier({
+            partitions: { shop: env.get('FLAGS_SECRET', '') },
+          }),
         })
       : defineConfig({ ...shared, ...owned })
 
