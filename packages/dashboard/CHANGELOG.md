@@ -1,5 +1,11 @@
 # @adonis-agora/flags-dashboard
 
+## 0.7.1
+
+### Patch Changes
+
+- [#17](https://github.com/DavideCarvalho/adonis-agora-flags/pull/17) [`d739e36`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/d739e36a5bd547d5ec0ddb803322199254ebe89c) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The console kit gains charts on TanStack Charts (`agora-kit/charts`: TimeSeriesChart, BarChart, Sparkline, DonutChart) with a themed tooltip on hover and keyboard focus. No chart in this console uses it yet; nothing changes on screen and its JS bundle stays the same (the chart styles add a few lines of CSS).
+
 ## 0.7.0
 
 ### Minor Changes
