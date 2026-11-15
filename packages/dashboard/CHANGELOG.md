@@ -1,5 +1,11 @@
 # @adonis-agora/flags-dashboard
 
+## 0.7.2
+
+### Patch Changes
+
+- [#18](https://github.com/DavideCarvalho/adonis-agora-flags/pull/18) [`41ab7e5`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/41ab7e5847a6439314106548156c035b58f574a5) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - ⌘K now navigates: it lists every page of the console's sidebar and every other Agora console you can open ("Go to Workflows", found by "durable" too), matched case- and accent-insensitively, before the console's own commands and the cross-console search hits. ⌘K opens even without a search endpoint, and shows the pages and consoles before anything is typed.
+
 ## 0.7.1
 
 ### Patch Changes
