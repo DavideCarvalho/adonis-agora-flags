@@ -33,12 +33,22 @@ declare module '@adonisjs/core/types' {
 export default class FlagsProvider {
   #runtime: FlagsRuntime | undefined;
   #building: Promise<FlagsRuntime> | undefined;
+  #controlPlane: ControlPlane | undefined;
 
   constructor(protected app: ApplicationService) {}
 
   register() {
     this.app.container.singleton('flags.runtime', () => this.#build());
     this.app.container.singleton('flags.manager', async () => (await this.#build()).manager);
+  }
+
+  async #redis(connection?: string): Promise<RedisStreamClient> {
+    const container = this.app.container;
+    if (!container.hasBinding('redis')) throw new Error('@adonisjs/redis is not configured');
+    const redis = (await container.make('redis')) as unknown as {
+      connection(name?: string): { ioConnection: RedisStreamClient };
+    };
+    return redis.connection(connection).ioConnection;
   }
 
   #config(): FlagsConfig {
@@ -68,14 +78,7 @@ export default class FlagsProvider {
             };
             return db.connection(connection);
           },
-          async redis(connection?: string) {
-            if (!container.hasBinding('redis'))
-              throw new Error('@adonisjs/redis is not configured');
-            const redis = (await container.make('redis')) as unknown as {
-              connection(name?: string): { ioConnection: RedisStreamClient };
-            };
-            return redis.connection(connection).ioConnection;
-          },
+          redis: (connection?: string) => this.#redis(connection),
           autoCreateSchema: (config as { autoCreateSchema?: boolean }).autoCreateSchema ?? true,
           partitionEvents: (config as { partitionEvents?: boolean }).partitionEvents ?? false,
         },
@@ -168,22 +171,41 @@ export default class FlagsProvider {
       const config = this.#config();
       // `@flag` in Edge views, when the app renders Edge at all.
       await registerEdgeTag();
-      if (runtime.role === 'worker') return;
-      const router = await this.app.container.make('router');
       const secret = browserSecret(runtime, this.#appKey());
       let controlPlane: ControlPlane | undefined;
       if (config.topology === 'control-plane') {
+        const logger = await this.app.container.make('logger');
         controlPlane = new ControlPlane(
           runtime,
           {
             ...config.controlPlane,
             verifyTenant: config.verifyTenant,
             make: (cls) => this.app.container.make(cls),
+            logger,
           },
           secret,
         );
-        controlPlane.register(router as never);
+        this.#controlPlane = controlPlane;
+        runtime.controlPlane = controlPlane;
+        // Brokers tenants talk through (tenantTransports.*). In ace commands only the passive ones
+        // (`queue`: `node ace queue:work` runs its jobs); the others hold connections and loops.
+        const environment = this.app.getEnvironment();
+        // A broker that is down must not take the HTTP routes (browsers, OFREP) down with it.
+        try {
+          await controlPlane.serveTransports({
+            app: this.app,
+            redis: (connection) => this.#redis(connection),
+            passiveOnly: environment === 'console' || environment === 'repl',
+          });
+        } catch (error) {
+          logger.error(`[flags] tenant transports did not start: ${(error as Error).message}`);
+        }
       }
+      if (runtime.role === 'worker') return;
+      const router = await this.app.container.make('router');
+      // The HTTP routes are mounted whatever tenant transports are configured: browsers, OFREP
+      // and HTTP tenants always use them.
+      controlPlane?.register(router as never);
       if (config.browser) {
         const logger = await this.app.container.make('logger');
         runtime.browser = registerBrowser(router as never, runtime, {
@@ -226,6 +248,8 @@ export default class FlagsProvider {
   }
 
   async shutdown() {
+    await this.#controlPlane?.close();
+    this.#controlPlane = undefined;
     await this.#runtime?.close();
     setRuntime(undefined);
     this.#runtime = undefined;

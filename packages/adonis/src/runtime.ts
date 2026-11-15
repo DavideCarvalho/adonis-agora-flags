@@ -7,6 +7,7 @@ import type {
   FactoryContext,
   FlagsConfig,
   StandaloneConfig,
+  TenantConfig,
 } from './define_config.js';
 import {
   analytics as analyticsFactories,
@@ -27,10 +28,11 @@ import { assertSchemaName, inSchema, query, type SqlDatabase } from './sql.js';
 import { LucidStore } from './stores/lucid_store.js';
 import { MemoryStore } from './stores/memory_store.js';
 import type { FlagsStore } from './stores/store.js';
+import { PushEventTransport, tenantTransports } from './tenant_transports/index.js';
+import type { RulesetChannel, TenantLinkContext, TenantPush } from './tenant_transports/types.js';
 import { RemoteSource } from './topology/remote_source.js';
 import { resolveTenantToken, type TokenSource } from './topology/token.js';
 import { DbTransport } from './transports/db_transport.js';
-import { HttpTransport } from './transports/http_transport.js';
 import { MemoryTransport } from './transports/memory_transport.js';
 import type { Transport } from './transports/transport.js';
 import { UsageCounter } from './usage.js';
@@ -64,6 +66,10 @@ export interface FlagsRuntime {
   enrichers: Enricher[];
   /** Tenant only: how it authenticates to the control-plane. */
   token?: TokenSource;
+  /** Control-plane only: tenant ingestion (HTTP routes and brokers), set by the provider. */
+  controlPlane?: { readonly links: ReadonlyArray<{ driver: string; check?(): Promise<void> }> };
+  /** Tenant only: its push and watch channels to the control-plane. */
+  tenantLinks?: { push: TenantPush; watch: RulesetChannel };
   /** Issues browser tokens, when `browser` is configured (set by the provider). */
   browser?: BrowserTokens | undefined;
   close(): Promise<void>;
@@ -95,6 +101,36 @@ async function lucidAvailable(ctx: FactoryContext): Promise<boolean> {
     if ((error as { flagsConfigError?: boolean }).flagsConfigError) throw error;
     return false;
   }
+}
+
+/** Opens a tenant's push and watch channels from `tenant.transport` / `tenant.watch`. */
+async function openTenantLinks(
+  tenant: TenantConfig<Record<string, never>>['tenant'],
+  token: TokenSource,
+  ctx: FactoryContext,
+  logger: Logger | undefined,
+): Promise<{ push: TenantPush; watch: RulesetChannel }> {
+  const pushDriver = tenant.transport ?? tenantTransports.http();
+  const watchDriver =
+    tenant.watch ??
+    (pushDriver.canWatch && pushDriver.watch ? pushDriver : tenantTransports.http());
+  if (!watchDriver.canWatch || !watchDriver.watch) {
+    throw new Error(
+      `[flags] tenant.watch: the "${watchDriver.driver}" transport cannot carry the ruleset`,
+    );
+  }
+  const linkCtx: TenantLinkContext = {
+    app: ctx.app,
+    url: tenant.url,
+    partition: tenant.partition,
+    token,
+    capabilities: tenant.capabilities,
+    logger,
+    redis: (connection) => ctx.redis(connection),
+  };
+  const push = await pushDriver.push(linkCtx);
+  const watch = await watchDriver.watch(linkCtx);
+  return { push, watch };
 }
 
 /** Builds (and starts) the runtime. Shared by the provider, the commands and the tests. */
@@ -136,41 +172,27 @@ export async function createRuntime(
   if (config.topology === 'tenant') {
     const tenant = config.tenant;
     const token = resolveTenantToken(tenant.token);
+    const links = await openTenantLinks(tenant, token, ctx, logger);
     const source = new RemoteSource({
-      url: tenant.url,
-      token,
-      partition: tenant.partition,
+      channel: links.watch,
       ...(tenant.snapshotPath ? { snapshotPath: tenant.snapshotPath } : {}),
       ...(tenant.stream !== undefined ? { stream: tenant.stream } : {}),
       ...(tenant.intervalMs !== undefined ? { intervalMs: tenant.intervalMs } : {}),
-      ...(tenant.capabilities ? { capabilities: tenant.capabilities } : {}),
       onError: (error) => logger?.warn(`[flags] control-plane: ${(error as Error).message}`),
     });
-    const transport = new HttpTransport({ url: tenant.url, token, partition: tenant.partition });
+    const transport = new PushEventTransport(links.push);
     const buffer = new EventBuffer(transport, {
       ...config.events?.buffer,
       onError: (error) =>
         logger?.warn(`[flags] sending events failed: ${(error as Error).message}`),
     });
-    const base = tenant.url.replace(/\/$/, '');
-    const post = async (path: string, body: unknown) => {
-      const response = await fetch(`${base}${path}`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${await token.get()}`,
-          'x-flags-tenant': tenant.partition,
-        },
-        body: JSON.stringify(body),
-      });
-      if (!response.ok) throw new Error(`control-plane answered ${response.status} on ${path}`);
-    };
+    const post = (kind: 'usage' | 'declarations', body: unknown) => links.push.send(kind, body);
     const usage =
       config.usage === false
         ? undefined
         : new UsageCounter(
             environment,
-            (rows) => post('/v1/usage', { rows }),
+            (rows) => post('usage', { rows }),
             (error) => logger?.warn(`[flags] usage flush failed: ${(error as Error).message}`),
           );
     const manager = new FlagsManager({
@@ -190,7 +212,7 @@ export async function createRuntime(
       buffer.start();
       usage?.start();
       // Tell the control-plane what this app declares, so its console knows the flags exist.
-      void post('/v1/declarations', { declarations: serializeDeclarations(declarations) }).catch(
+      void post('declarations', { declarations: serializeDeclarations(declarations) }).catch(
         (error) =>
           logger?.warn(`[flags] publishing declarations failed: ${(error as Error).message}`),
       );
@@ -207,10 +229,12 @@ export async function createRuntime(
       ...(usage ? { usage } : {}),
       enrichers: enricherList,
       token,
+      tenantLinks: links,
       async close() {
         await source.stop();
         await buffer.close();
         await usage?.close();
+        await links.push.close?.();
       },
     };
   }

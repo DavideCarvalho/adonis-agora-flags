@@ -22,6 +22,8 @@ import { LucidStore } from './stores/lucid_store.js';
 import { MemoryStore } from './stores/memory_store.js';
 import type { FlagsStore } from './stores/store.js';
 import type { Subject, SubjectLike } from './subject.js';
+import type { DeadLetter } from './tenant_transports/message.js';
+import type { TenantTransport, WatchTransport } from './tenant_transports/types.js';
 import type { TenantTokenSource } from './topology/token.js';
 import type { TenantVerifierOption, UserVerifier } from './topology/verify.js';
 import { DbTransport, type DbTransportOptions } from './transports/db_transport.js';
@@ -314,6 +316,15 @@ export interface ControlPlaneConfig<F extends Record<string, FlagDeclaration>>
     ofrep?: boolean;
     /** Origins allowed to call OFREP from browsers. Default: none (no CORS headers). */
     corsOrigins?: string[];
+    /**
+     * Brokers tenants talk to this server through, besides HTTP (`tenantTransports.redis()`, …).
+     * The HTTP routes stay mounted whatever you list: browsers, OFREP and HTTP tenants use them.
+     */
+    transports?: TenantTransport[];
+    /** Largest tenant message accepted over a broker (bytes). Default 1 MiB. */
+    maxMessageBytes?: number;
+    /** Called with each tenant message given up on (poison or out of attempts). Default: logs it. */
+    onDeadLetter?: (letter: DeadLetter) => void | Promise<void>;
     /** Moved: `verifyTenant` is a top-level option. */
     verifyTenant?: never;
   };
@@ -323,7 +334,22 @@ export interface TenantConfig<F extends Record<string, FlagDeclaration>> extends
   topology: 'tenant';
   /** The control-plane connection. */
   tenant: {
-    url: string;
+    /**
+     * The control-plane URL (`https://flags.example.com/_flags`). Needed by the `http` transport
+     * (the default) and by `browser` (browsers always reach the control-plane over HTTP).
+     */
+    url?: string;
+    /**
+     * How this app talks to the control-plane (server to server): `tenantTransports.http()` (the
+     * default), `.queue()`, `.bullmq()`, `.redis()`, `.durable()`. Carries events, usage and
+     * declarations, and the ruleset too when the driver can (`http`, `redis`, `durable`).
+     */
+    transport?: TenantTransport;
+    /**
+     * How the ruleset arrives, when it differs from `transport`: `http`, `redis` or `durable`.
+     * Default: `transport` when it can carry the ruleset, else `http`.
+     */
+    watch?: WatchTransport;
     /**
      * The bearer token sent to the control-plane: a shared secret, a function returning a token
      * (`authkitTenantToken(...)` from `@adonis-agora/authkit-client`), or an object with `get()`.
@@ -360,7 +386,14 @@ export function validateConfig(config: FlagsConfig): void {
     role?: string;
     verifyTenant?: unknown;
     controlPlane?: Record<string, unknown>;
-    tenant?: { url?: string; partition?: string; token?: unknown };
+    tenant?: {
+      url?: string;
+      partition?: string;
+      token?: unknown;
+      transport?: { driver?: string; canWatch?: boolean };
+      watch?: { driver?: string; canWatch?: boolean };
+    };
+    browser?: unknown;
   };
   const topology = raw.topology ?? 'standalone';
   if (raw.controlPlane && 'verifyTenant' in raw.controlPlane) {
@@ -396,8 +429,27 @@ export function validateConfig(config: FlagsConfig): void {
     );
   }
   if (topology === 'tenant') {
-    if (!raw.tenant?.url || !raw.tenant?.partition) {
-      throw new Error('[flags] topology "tenant" needs tenant.url and tenant.partition');
+    if (!raw.tenant?.partition) {
+      throw new Error('[flags] topology "tenant" needs tenant.partition');
+    }
+    const push = raw.tenant.transport;
+    const watch = raw.tenant.watch;
+    if (watch && watch.canWatch !== true) {
+      throw new Error(
+        `[flags] tenant.watch: the "${watch.driver}" transport cannot carry the ruleset; use tenantTransports.http(), .redis() or .durable()`,
+      );
+    }
+    const usesHttp =
+      !push || push.driver === 'http' || (watch ? watch.driver === 'http' : push.canWatch !== true);
+    if (!raw.tenant.url && usesHttp) {
+      throw new Error(
+        '[flags] topology "tenant" needs tenant.url (the control-plane URL) for the http transport',
+      );
+    }
+    if (!raw.tenant.url && raw.browser) {
+      throw new Error(
+        '[flags] `browser` on a tenant needs tenant.url: browsers always reach the control-plane over HTTP',
+      );
     }
     if (raw.tenant.token === undefined || raw.tenant.token === null || raw.tenant.token === '') {
       throw new Error(
