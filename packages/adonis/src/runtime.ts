@@ -8,7 +8,11 @@ import type {
   FlagsConfig,
   StandaloneConfig,
 } from './define_config.js';
-import { analytics as analyticsFactories, sinks as sinkFactories } from './define_config.js';
+import {
+  analytics as analyticsFactories,
+  sinks as sinkFactories,
+  validateConfig,
+} from './define_config.js';
 import { enrichers as builtInEnrichers, type Enricher, runEnrichers } from './enrichers.js';
 import { EventBuffer } from './events/buffer.js';
 import type { BrowserTokens } from './http/browser_tokens.js';
@@ -24,7 +28,7 @@ import { LucidStore } from './stores/lucid_store.js';
 import { MemoryStore } from './stores/memory_store.js';
 import type { FlagsStore } from './stores/store.js';
 import { RemoteSource } from './topology/remote_source.js';
-import { type TokenSource, tokens } from './topology/token.js';
+import { resolveTenantToken, type TokenSource } from './topology/token.js';
 import { DbTransport } from './transports/db_transport.js';
 import { HttpTransport } from './transports/http_transport.js';
 import { MemoryTransport } from './transports/memory_transport.js';
@@ -99,6 +103,7 @@ export async function createRuntime(
   ctx: FactoryContext,
   options: RuntimeOptions = {},
 ): Promise<FlagsRuntime> {
+  validateConfig(config);
   const topology: Topology = config.topology ?? 'standalone';
   const schema = (config as { schema?: string }).schema;
   if (schema) {
@@ -130,7 +135,7 @@ export async function createRuntime(
 
   if (config.topology === 'tenant') {
     const tenant = config.tenant;
-    const token = typeof tenant.token === 'string' ? tokens.static(tenant.token) : tenant.token;
+    const token = resolveTenantToken(tenant.token);
     const source = new RemoteSource({
       url: tenant.url,
       token,

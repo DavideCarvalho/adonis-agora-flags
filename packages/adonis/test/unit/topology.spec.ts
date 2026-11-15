@@ -8,7 +8,7 @@ import { flag } from '../../src/declare.js';
 import { defineConfig, sinks } from '../../src/define_config.js';
 import { ControlPlane } from '../../src/http/control_plane.js';
 import { createRuntime, type FlagsRuntime, lucidContext } from '../../src/runtime.js';
-import { verifiers } from '../../src/topology/verify.js';
+import { sharedSecretVerifier } from '../../src/topology/verify.js';
 import { quietLogger, sqliteDb, type TestDb } from '../helpers.js';
 import { type Handler, serve } from '../http_harness.js';
 
@@ -32,17 +32,19 @@ describe('control-plane and tenant', () => {
         topology: 'control-plane',
         flags: declarations,
         sinks: { warehouse: sinks.lucid() },
-        controlPlane: {
-          verifyTenant: verifiers.sharedSecret({
+        verifyTenant: sharedSecretVerifier({
+          partitions: {
             shop: 's3cret',
             reader: { secret: 'r', capabilities: ['flags:ruleset:read'] },
-          }),
-        },
+          },
+        }),
       }),
       lucidContext(db.database as never),
       { logger: quietLogger },
     );
-    const plane = new ControlPlane(cp, (cp.config as { controlPlane: never }).controlPlane);
+    const plane = new ControlPlane(cp, {
+      verifyTenant: (cp.config as { verifyTenant: never }).verifyTenant,
+    });
     const routes: Array<{ method: string; pattern: string; handler: Handler }> = [];
     plane.register({
       get: (pattern, handler) => {

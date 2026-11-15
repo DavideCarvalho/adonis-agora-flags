@@ -135,10 +135,14 @@ Segue `_1x/ROLE-VOCABULARY-SPEC.md`:
 
 ## 11. Segurança e authkit (opcional)
 
-- Tenant ↔ control-plane: `client_credentials` no authkit-server, JWT curto com
-  `aud: flags` e scopes `flags:ruleset:read flags:events:write`. `verifyTenant` valida por
-  JWKS e tira a `partition` do token, nunca do corpo. Stream SSE fecha no `exp`.
-- Alternativa sem authkit: segredo compartilhado.
+- Tenant ↔ control-plane (contrato `_1x/AGORA-TOPOLOGY-SPEC.md` §A): service tenant do
+  authkit-server, `client_credentials`, JWT `at+jwt` curto com `aud: urn:agora:flags` e as claims
+  `partition` e `capabilities` (`flags:ruleset:read`, `flags:events:write`,
+  `flags:declarations:write`, `flags:ofrep:evaluate`), checadas por endpoint. `verifyTenant` fica
+  no topo do config (função, instância ou import lazy); com authkit é o `authkitTenantVerifier`
+  do authkit-client (JWKS via discovery), e o tenant usa `authkitTenantToken`. A `partition` vem
+  do token, nunca do corpo. Stream SSE fecha no `exp`. A flags não tem helpers de authkit próprios.
+- Alternativa sem authkit: `sharedSecretVerifier({ partitions })`.
 - Console: `authorize: authkitDashboardAuthorize(...)`, como os outros consoles.
 - Permissões por flag/projeto/ambiente no authz. Aprovação em duas pessoas: quem pede não aprova.
 - Audit log com o `sub`.

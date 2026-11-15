@@ -22,8 +22,8 @@ import { LucidStore } from './stores/lucid_store.js';
 import { MemoryStore } from './stores/memory_store.js';
 import type { FlagsStore } from './stores/store.js';
 import type { Subject, SubjectLike } from './subject.js';
-import type { TokenSource } from './topology/token.js';
-import type { TenantVerifier, UserVerifier } from './topology/verify.js';
+import type { TenantTokenSource } from './topology/token.js';
+import type { TenantVerifierOption, UserVerifier } from './topology/verify.js';
 import { DbTransport, type DbTransportOptions } from './transports/db_transport.js';
 import { MemoryTransport } from './transports/memory_transport.js';
 import { QueueTransport, type QueueTransportOptions } from './transports/queue_transport.js';
@@ -290,21 +290,32 @@ export interface StandaloneConfig<F extends Record<string, FlagDeclaration>>
   extends BaseConfig<F>,
     OwnedStateConfig {
   topology?: 'standalone';
+  /** Control-plane only. */
+  verifyTenant?: never;
+  controlPlane?: never;
 }
 
 export interface ControlPlaneConfig<F extends Record<string, FlagDeclaration>>
   extends BaseConfig<F>,
     OwnedStateConfig {
   topology: 'control-plane';
-  controlPlane: {
+  /**
+   * Authenticates tenants. The partition, environment and capabilities come from the verified
+   * token, never from the request. A function, an object with `verify` (a class instance), or a
+   * lazy import of one (`() => import('#tenants/verifier')`). With authkit:
+   * `authkitTenantVerifier({ issuer, resource: 'urn:agora:flags' })` from
+   * `@adonis-agora/authkit-client`; without: `sharedSecretVerifier({ partitions })`.
+   */
+  verifyTenant: TenantVerifierOption;
+  controlPlane?: {
     /** Route prefix. Default `/_flags`. */
     prefix?: string;
-    /** Validates tenant tokens; derive the tenant from the token, never the body. */
-    verifyTenant: TenantVerifier;
     /** Serve the OpenFeature Remote Evaluation Protocol. Default `true`. */
     ofrep?: boolean;
     /** Origins allowed to call OFREP from browsers. Default: none (no CORS headers). */
     corsOrigins?: string[];
+    /** Moved: `verifyTenant` is a top-level option. */
+    verifyTenant?: never;
   };
 }
 
@@ -313,8 +324,11 @@ export interface TenantConfig<F extends Record<string, FlagDeclaration>> extends
   /** The control-plane connection. */
   tenant: {
     url: string;
-    /** A token source (`tokens.clientCredentials(...)`) or a fixed secret. */
-    token: TokenSource | string;
+    /**
+     * The bearer token sent to the control-plane: a shared secret, a function returning a token
+     * (`authkitTenantToken(...)` from `@adonis-agora/authkit-client`), or an object with `get()`.
+     */
+    token: TenantTokenSource;
     /** This app's name on the control-plane. */
     partition: string;
     /** File for the last ruleset received (served when the control-plane is down at boot). */
@@ -329,20 +343,79 @@ export interface TenantConfig<F extends Record<string, FlagDeclaration>> extends
   sinks?: never;
   analytics?: never;
   approvals?: never;
+  verifyTenant?: never;
 }
 
 export type FlagsConfig<
   F extends Record<string, FlagDeclaration> = Record<string, FlagDeclaration>,
 > = StandaloneConfig<F> | ControlPlaneConfig<F> | TenantConfig<F>;
 
+/**
+ * Refuses shapes that cannot work: `verifyTenant` outside a control-plane or still nested under
+ * `controlPlane`, a tenant without a token. Called by `defineConfig` and at boot.
+ */
+export function validateConfig(config: FlagsConfig): void {
+  const raw = config as unknown as {
+    topology?: string;
+    role?: string;
+    verifyTenant?: unknown;
+    controlPlane?: Record<string, unknown>;
+    tenant?: { url?: string; partition?: string; token?: unknown };
+  };
+  const topology = raw.topology ?? 'standalone';
+  if (raw.controlPlane && 'verifyTenant' in raw.controlPlane) {
+    throw new Error(
+      "[flags] controlPlane.verifyTenant moved to the top level of config/flags.ts: `verifyTenant: authkitTenantVerifier({ issuer, resource: 'urn:agora:flags' })` (from @adonis-agora/authkit-client) or `verifyTenant: sharedSecretVerifier({ partitions })`",
+    );
+  }
+  if (topology === 'control-plane') {
+    if (raw.verifyTenant === undefined || raw.verifyTenant === null) {
+      throw new Error(
+        '[flags] topology "control-plane" needs `verifyTenant` (authkitTenantVerifier from @adonis-agora/authkit-client, or sharedSecretVerifier)',
+      );
+    }
+    const kind = typeof raw.verifyTenant;
+    if (
+      kind !== 'function' &&
+      !(
+        kind === 'object' && typeof (raw.verifyTenant as { verify?: unknown }).verify === 'function'
+      )
+    ) {
+      throw new Error(
+        '[flags] verifyTenant must be a function, an object with verify() (a class instance), or a lazy import of one',
+      );
+    }
+  } else if (raw.verifyTenant !== undefined) {
+    throw new Error(
+      `[flags] verifyTenant only applies to topology "control-plane" (this is "${topology}")`,
+    );
+  }
+  if (topology !== 'control-plane' && raw.controlPlane !== undefined) {
+    throw new Error(
+      `[flags] controlPlane only applies to topology "control-plane" (this is "${topology}")`,
+    );
+  }
+  if (topology === 'tenant') {
+    if (!raw.tenant?.url || !raw.tenant?.partition) {
+      throw new Error('[flags] topology "tenant" needs tenant.url and tenant.partition');
+    }
+    if (raw.tenant.token === undefined || raw.tenant.token === null || raw.tenant.token === '') {
+      throw new Error(
+        '[flags] topology "tenant" needs tenant.token: authkitTenantToken({ issuer, clientId, clientSecret, resource: \'urn:agora:flags\' }) from @adonis-agora/authkit-client, or the shared secret',
+      );
+    }
+    if (raw.role === 'worker') {
+      throw new Error(
+        '[flags] role "worker" makes no sense on a tenant: it has no relay; the control-plane fans events out',
+      );
+    }
+  }
+}
+
 /** Identity helper that types `config/flags.ts`. */
 export function defineConfig<const F extends Record<string, FlagDeclaration>>(
   config: FlagsConfig<F>,
 ): FlagsConfig<F> {
-  if (config.topology === 'tenant' && config.role === 'worker') {
-    throw new Error(
-      '[flags] role "worker" makes no sense on a tenant: it has no relay; the control-plane fans events out',
-    );
-  }
+  validateConfig(config as FlagsConfig);
   return config;
 }

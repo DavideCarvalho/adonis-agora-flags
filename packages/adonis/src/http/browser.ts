@@ -65,7 +65,7 @@ export function registerBrowser(
     const secret = options.secret!;
     const prefix = (
       browser.prefix ??
-      (config.topology === 'control-plane' ? config.controlPlane.prefix : undefined) ??
+      (config.topology === 'control-plane' ? config.controlPlane?.prefix : undefined) ??
       '/_flags'
     ).replace(/\/$/, '');
     keys = localKeySource(secret, manager.app, manager.environment);

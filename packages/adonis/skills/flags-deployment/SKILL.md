@@ -5,9 +5,10 @@ description: >-
   durable | in-process), node ace flags:work [--once], transports (db, redis, queue)
   and sinks, retentionDays and partitionEvents, approvals and authorize with
   authz, the console (config/flags_dashboard.ts, authorize, actor), and the
-  central topology: topology 'control-plane' with verifyTenant
-  (verifiers.authkit / sharedSecret), topology 'tenant' with tokens.
-  clientCredentials and snapshotPath, and OFREP. Use for "run flags work in a
+  central topology: topology 'control-plane' with a top-level verifyTenant
+  (authkitTenantVerifier from @adonis-agora/authkit-client, or
+  sharedSecretVerifier), topology 'tenant' with authkitTenantToken or a shared
+  secret and snapshotPath, and OFREP. Use for "run flags work in a
   separate worker", "share flags across apps", "approval required for
   production", or "tenant keeps serving defaults".
 metadata:
@@ -48,19 +49,32 @@ authorize: async (actor, action, { environment }) => /* authz check */ true,
 ### Pattern 3 — one flags server, many apps
 
 ```ts no-check
+import { authkitTenantToken, authkitTenantVerifier } from '@adonis-agora/authkit-client'
+
 // flags server
 topology: 'control-plane',
-controlPlane: { verifyTenant: verifiers.authkit({ issuer: env.get('AUTHKIT_ISSUER') }) },
+verifyTenant: authkitTenantVerifier({
+  issuer: env.get('AUTHKIT_ISSUER'),
+  resource: 'urn:agora:flags',
+}),
 
-// each app
+// each app (one authkit service-tenant client per app, shared with durable/config)
 topology: 'tenant',
 tenant: {
   url: env.get('FLAGS_URL'),
   partition: 'streaming',
-  token: tokens.clientCredentials({ tokenUrl, clientId, clientSecret }),
+  token: authkitTenantToken({
+    issuer: env.get('AUTHKIT_ISSUER'),
+    clientId: env.get('AGORA_TENANT_CLIENT_ID'),
+    clientSecret: env.get('AGORA_TENANT_CLIENT_SECRET'),
+    resource: 'urn:agora:flags',
+  }),
   snapshotPath: 'storage/flags/ruleset.json',
 },
 ```
+
+Without authkit: `verifyTenant: sharedSecretVerifier({ partitions: { streaming: env.get('FLAGS_SECRET_STREAMING') } })`
+on the server and `token: env.get('FLAGS_SECRET_STREAMING')` on the app.
 
 Frontends that do not render through Inertia (SPA, static site) read client
 flags with `remoteFlags({ endpoint: '/_flags/token' })` from
@@ -73,7 +87,10 @@ identity, else `subject` resolver, else anonymous) — and on the control-plane:
 browser: {
   corsOrigins: ['https://app.example.com'],
   // optional: mobile apps holding their own authkit access token (PKCE)
-  verifyUser: userVerifiers.authkit({ issuer: env.get('AUTHKIT_ISSUER'), audience: 'flags' }),
+  verifyUser: userVerifiers.authkit({
+    issuer: env.get('AUTHKIT_ISSUER'),
+    audience: 'https://flags.example.com',
+  }),
 },
 
 // each app with a frontend
@@ -81,7 +98,7 @@ browser: {},
 ```
 
 Tenants fetch their signing key from the control-plane over the tenant
-connection (needs the `flags:events:write` scope); keys derive from the
+connection (needs the `flags:events:write` capability); keys derive from the
 control-plane's `browser.secret` (default `APP_KEY`), per app and environment.
 
 ## Common mistakes
@@ -92,6 +109,14 @@ control-plane's `browser.secret` (default `APP_KEY`), per app and environment.
 never change who the user is, but anyone can send any value. Never gate access
 on a rule over them; security-relevant attributes come from the `attributes`
 resolver in `config/flags.ts`, which the token endpoint signs into the token.
+
+### HIGH — `verifyTenant` under `controlPlane`
+
+`verifyTenant` is a top-level option of `config/flags.ts`; `controlPlane` only
+holds `prefix`, `ofrep` and `corsOrigins`. A config with
+`controlPlane: { verifyTenant }` fails at boot. Tenant tokens carry `partition`
+and `capabilities` claims (an authkit service-tenant client for the resource
+`urn:agora:flags`); the partition never comes from `client_id` or the request.
 
 ### HIGH — CSRF refusing the flags API
 

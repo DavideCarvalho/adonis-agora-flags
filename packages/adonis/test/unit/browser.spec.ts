@@ -1,7 +1,6 @@
-import { createServer, type Server } from 'node:http';
+import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { HttpContext } from '@adonisjs/core/http';
-import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { flag } from '../../src/declare.js';
 import { defineConfig, sinks } from '../../src/define_config.js';
@@ -16,9 +15,10 @@ import {
   signBrowserToken,
   verifyBrowserToken,
 } from '../../src/topology/browser_token.js';
-import { userVerifiers, verifiers } from '../../src/topology/verify.js';
+import { sharedSecretVerifier, userVerifiers } from '../../src/topology/verify.js';
 import { quietLogger, sqliteDb, type TestDb } from '../helpers.js';
 import { type Handler, serve } from '../http_harness.js';
+import { startIssuer, type TestIssuer } from '../issuer.js';
 
 const SECRET = 'browser-secret';
 
@@ -53,7 +53,7 @@ async function controlPlane(db: TestDb) {
       sinks: { mem: sinks.memory() },
       subject,
       attributes: async () => ({ country: 'BR' }),
-      controlPlane: { verifyTenant: verifiers.sharedSecret({ shop: 's3cret' }) },
+      verifyTenant: sharedSecretVerifier({ partitions: { shop: 's3cret' } }),
       browser: { secret: SECRET, corsOrigins: ['https://app.example'] },
     }),
     lucidContext(db.database as never),
@@ -102,7 +102,7 @@ async function controlPlane(db: TestDb) {
   const { routes, router } = collect();
   const plane = new ControlPlane(
     runtime,
-    (runtime.config as { controlPlane: never }).controlPlane,
+    { verifyTenant: (runtime.config as { verifyTenant: never }).verifyTenant },
     SECRET,
   );
   plane.register(router);
@@ -403,49 +403,33 @@ describe('token endpoint subjects (no subject resolver configured)', () => {
 });
 
 describe('authkit user tokens', () => {
-  let jwks: Server;
-  let issuer: string;
-  let sign: (claims: Record<string, unknown>) => Promise<string>;
+  let issuer: TestIssuer;
 
   beforeEach(async () => {
-    const { publicKey, privateKey } = await generateKeyPair('RS256');
-    const jwk = { ...(await exportJWK(publicKey)), kid: 'k1', alg: 'RS256', use: 'sig' };
-    jwks = createServer((_req, res) => {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ keys: [jwk] }));
-    });
-    await new Promise<void>((resolve) => jwks.listen(0, '127.0.0.1', resolve));
-    issuer = `http://127.0.0.1:${(jwks.address() as AddressInfo).port}`;
-    sign = (claims) =>
-      new SignJWT(claims)
-        .setProtectedHeader({ alg: 'RS256', kid: 'k1', typ: 'at+jwt' })
-        .setIssuer(issuer)
-        .setAudience('flags')
-        .setIssuedAt()
-        .setExpirationTime('5m')
-        .sign(privateKey);
+    issuer = await startIssuer({});
   });
 
   afterEach(async () => {
-    jwks.closeAllConnections();
-    await new Promise((resolve) => jwks.close(resolve));
+    await issuer.close();
   });
 
-  it('verifies against the JWKS and maps sub, email, roles and org to the subject', async () => {
+  it('verifies through discovery and maps sub, email, roles and org to the subject', async () => {
     const verify = userVerifiers.authkit({
-      issuer,
-      jwksUri: `${issuer}/jwks`,
-      audience: 'flags',
+      issuer: issuer.url,
+      audience: 'https://flags.example.com',
       environments: { 'web-app': 'staging' },
     });
-    const token = await sign({
-      sub: 'user-42',
-      client_id: 'web-app',
-      email: 'Bia@Agora.dev',
-      roles: ['BETA'],
-      org_id: 'org-1',
-      org_slug: 'acme',
-    });
+    const token = await issuer.sign(
+      {
+        sub: 'user-42',
+        client_id: 'web-app',
+        email: 'Bia@Agora.dev',
+        roles: ['BETA'],
+        org_id: 'org-1',
+        org_slug: 'acme',
+      },
+      { audience: 'https://flags.example.com' },
+    );
     expect(await verify({ token })).toMatchObject({
       subject: {
         id: 'user-42',
@@ -462,5 +446,22 @@ describe('authkit user tokens', () => {
     });
     expect(await verify({ token: `${token}x` })).toBeNull();
     expect(await verify({ token: undefined })).toBeNull();
+  });
+
+  it('refuses another audience and client_credentials tokens', async () => {
+    const verify = userVerifiers.authkit({
+      issuer: issuer.url,
+      audience: 'https://flags.example.com',
+    });
+    const elsewhere = await issuer.sign(
+      { sub: 'user-42' },
+      { audience: 'https://other.example.com' },
+    );
+    expect(await verify({ token: elsewhere })).toBeNull();
+    const service = await issuer.sign(
+      { sub: 'shop-client', client_id: 'shop-client', partition: 'shop' },
+      { audience: 'https://flags.example.com' },
+    );
+    expect(await verify({ token: service })).toBeNull();
   });
 });

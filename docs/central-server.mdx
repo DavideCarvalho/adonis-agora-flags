@@ -1,26 +1,59 @@
 ---
 title: Central Server
-description: One flags server many apps connect to — topology, tenant tokens with authkit, and OFREP.
+description: One flags server many apps connect to — topologies, tenant tokens with authkit or shared secrets, and OFREP.
 icon: Network
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-With several apps, run flags in one place. The **control-plane** owns the ruleset, the console, the event log and the sinks. Each app is a **tenant**: it downloads the ruleset, evaluates locally and sends its events to the control-plane. `topology` takes the same values as in `@adonis-agora/durable`.
+With several apps, run flags in one place. The **control-plane** owns the ruleset, the console, the event log and the sinks. Each app is a **tenant**: it downloads the ruleset, evaluates locally and sends its events to the control-plane. `topology`, `verifyTenant` and `tenant` take the same shape as in `@adonis-agora/durable`.
+
+## Deployment topologies
+
+| | Runs | Needs |
+| --- | --- | --- |
+| `standalone` (default) | everything in the app | nothing |
+| `control-plane` | ruleset, console, events, sinks, OFREP | `verifyTenant` |
+| `tenant` | evaluation in memory, events sent to the control-plane | `tenant: { url, partition, token }` |
+
+authkit-server, the flags control-plane and the apps can be separate servers. Nothing in flags needs authkit-server in its own process: the helpers come from `@adonis-agora/authkit-client`, and flags works without authkit at all (shared secrets).
 
 ## The control-plane
 
 ```ts title="config/flags.ts (flags server)"
-import { defineConfig, verifiers } from '@adonis-agora/flags'
+import env from '#start/env'
+import { defineConfig } from '@adonis-agora/flags'
+import { authkitTenantVerifier } from '@adonis-agora/authkit-client'
 
 export default defineConfig({
   topology: 'control-plane',
   flags: {},
-  controlPlane: {
-    verifyTenant: verifiers.authkit({ issuer: env.get('AUTHKIT_ISSUER'), audience: 'flags' }),
-  },
+  verifyTenant: authkitTenantVerifier({
+    issuer: env.get('AUTHKIT_ISSUER'),
+    resource: 'urn:agora:flags',
+  }),
 })
 ```
+
+`verifyTenant` takes a function, an object with `verify()` (a class instance), or a lazy import of a class:
+
+```ts title="config/flags.ts (flags server)"
+verifyTenant: () => import('#tenants/flags_verifier'),
+```
+
+```ts title="app/tenants/flags_verifier.ts"
+import { AuthkitTenantVerifier } from '@adonis-agora/authkit-client'
+
+export default class FlagsVerifier extends AuthkitTenantVerifier {
+  constructor() {
+    super({ issuer: process.env.AUTHKIT_ISSUER!, resource: 'urn:agora:flags' })
+  }
+}
+```
+
+Whatever the form, it answers `{ partition, environment?, capabilities }` for a valid token and `null` otherwise. The partition (the app), its environment and what it may do all come from the token, never from the request.
+
+`controlPlane` holds the HTTP options: `prefix` (default `/_flags`), `ofrep` (default `true`) and `corsOrigins` for OFREP.
 
 Tenants authenticate with tokens, not cookies: exempt the flags API from `@adonisjs/shield`'s CSRF check on the control-plane, or it refuses their events.
 
@@ -30,16 +63,23 @@ import { flagsCsrfExceptions } from '@adonis-agora/flags'
 csrf: { enabled: true, exceptRoutes: (ctx) => flagsCsrfExceptions(ctx.request.url()) },
 ```
 
-It serves, under `/_flags`:
+It serves, under `/_flags`, each endpoint requiring one capability in the token:
 
-- `GET /v1/ruleset` (with `ETag`) and `GET /v1/ruleset/stream` (server-sent events on every change);
-- `POST /v1/events`, `/v1/declarations`, `/v1/usage` from tenants;
-- the OpenFeature Remote Evaluation Protocol at `/ofrep/v1/evaluate/flags`.
+| Endpoint | Capability |
+| --- | --- |
+| `GET /v1/ruleset` (with `ETag`), `GET /v1/ruleset/stream` (server-sent events) | `flags:ruleset:read` |
+| `POST /v1/events`, `POST /v1/usage`, `POST /v1/browser-key` | `flags:events:write` |
+| `POST /v1/declarations` | `flags:declarations:write` |
+| `POST /ofrep/v1/evaluate/flags[/:key]` | `flags:ofrep:evaluate` |
+
+A token the verifier refuses gets `401`; a valid token without the capability gets `403`.
 
 ## A tenant
 
 ```ts title="config/flags.ts (an app)"
-import { defineConfig, flag, tokens } from '@adonis-agora/flags'
+import env from '#start/env'
+import { defineConfig, flag } from '@adonis-agora/flags'
+import { authkitTenantToken } from '@adonis-agora/authkit-client'
 
 export default defineConfig({
   topology: 'tenant',
@@ -49,38 +89,74 @@ export default defineConfig({
   tenant: {
     url: env.get('FLAGS_URL'),          // https://flags.example.com/_flags
     partition: 'streaming',             // this app's name
-    token: tokens.clientCredentials({
-      tokenUrl: `${env.get('AUTHKIT_ISSUER')}/oauth/token`,
-      clientId: env.get('FLAGS_CLIENT_ID'),
-      clientSecret: env.get('FLAGS_CLIENT_SECRET'),
+    token: authkitTenantToken({
+      issuer: env.get('AUTHKIT_ISSUER'),
+      clientId: env.get('AGORA_TENANT_CLIENT_ID'),
+      clientSecret: env.get('AGORA_TENANT_CLIENT_SECRET'),
+      resource: 'urn:agora:flags',
     }),
     snapshotPath: 'storage/flags/ruleset.json',
   },
 })
 ```
 
+`tenant.token` takes a string (a shared secret), a function returning a token, or an object with `get()`. `authkitTenantToken` finds authkit's token endpoint through discovery, caches the token and refreshes it before it expires.
+
 The app reads flags exactly as before (`ctx.flags`, the service). Changes arrive within milliseconds over the stream; polling is the fallback. `snapshotPath` keeps the last ruleset on disk, so an app that boots while the server is down still serves real targeting.
 
 A tenant has no store, sinks or console: edit flags on the control-plane. It publishes its declarations at boot, so the console knows its flags.
 
-## Authentication
+## Set up authkit
 
-**With authkit** (recommended): register each app in authkit-server as a confidential client with the `client_credentials` grant and the scopes `flags:ruleset:read flags:events:write flags:declarations:write`. The control-plane verifies the JWT against authkit's JWKS; the app's identity comes from the token's `client_id`, never from the request. Revoking the client cuts the app off; open streams close when the token expires.
+Declare the flags resource on authkit-server, next to the other products you run centrally:
+
+```ts title="config/authkit.ts (authkit server)"
+serviceTenants: {
+  resources: {
+    'urn:agora:flags': {},
+    'urn:agora:durable': {},
+  },
+},
+```
+
+Then give each app **one** service-tenant client (console: **Clients → New Client → Service tenant**; or `node ace authkit:clients:create`) with:
+
+- **partition**: the app's name, the same as `tenant.partition`;
+- **capabilities**: `flags:ruleset:read`, `flags:events:write`, `flags:declarations:write` (add `flags:ofrep:evaluate` for OFREP callers), plus whatever the app's other products need;
+- **environment** (optional): the environment whose ruleset the app reads. Without it, the control-plane's.
+
+The same client gets a token for each resource it names, so the app uses one client id and secret for flags, durable and config. A `urn:agora:durable` token is refused by the flags control-plane. Disabling the client cuts the app off; open streams close when the token expires.
 
 Because authkit gives a person the same `sub` in every app, an experiment can span apps: the same user lands in the same variant everywhere.
 
-**Without authkit:** a secret per app.
+## Without authkit
 
-```ts
-verifyTenant: verifiers.sharedSecret({
-  streaming: env.get('FLAGS_SECRET_STREAMING'),
-  billing: { secret: env.get('FLAGS_SECRET_BILLING'), environment: 'staging' },
+A secret per app:
+
+```ts title="config/flags.ts (flags server)"
+import { sharedSecretVerifier } from '@adonis-agora/flags'
+
+verifyTenant: sharedSecretVerifier({
+  partitions: {
+    streaming: env.get('FLAGS_SECRET_STREAMING'),
+    billing: { secret: env.get('FLAGS_SECRET_BILLING'), environment: 'staging' },
+  },
 }),
 ```
 
-```ts
+```ts title="config/flags.ts (an app)"
 tenant: { url, partition: 'streaming', token: env.get('FLAGS_SECRET_STREAMING') }
 ```
+
+The tenant names its partition (from `tenant.partition`) and the secret proves it. A partition gets every capability unless you list `capabilities`.
+
+## End to end: authkit, a flags server, two apps
+
+1. **auth.example.com** runs authkit-server with `serviceTenants.resources['urn:agora:flags']` and two service-tenant clients: `shop` and `blog`, each with the three flags capabilities.
+2. **flags.example.com** runs `topology: 'control-plane'` with `verifyTenant: authkitTenantVerifier({ issuer: 'https://auth.example.com', resource: 'urn:agora:flags' })`. It never calls authkit except to fetch its keys.
+3. **shop.example.com** and **blog.example.com** run `topology: 'tenant'`, each with `authkitTenantToken({ issuer, clientId, clientSecret, resource: 'urn:agora:flags' })` and its own `partition`.
+
+Each app's events land on the flags server tagged with the partition from its token; the console lists both apps and their declarations.
 
 ## Frontends
 
@@ -88,7 +164,7 @@ With `browser: {}` in `config/flags.ts`, frontends read flags with [`remoteFlags
 
 ```ts title="config/flags.ts (flags server)"
 topology: 'control-plane',
-controlPlane: { verifyTenant },
+verifyTenant,
 browser: { corsOrigins: ['https://app.example.com', 'https://shop.example.com'] },
 ```
 
@@ -101,7 +177,7 @@ browser: {},
 The app signs its users' tokens; the browser then talks to the control-plane directly:
 
 1. The browser calls the app's `GET /_flags/token` with its session cookie.
-2. The app signs the session's user with **its own key**. It got that key from the control-plane (`POST /v1/browser-key`) over the tenant connection it already has, authenticated by its authkit client credentials or shared secret. No new secret to distribute.
+2. The app signs the session's user with **its own key**. It got that key from the control-plane (`POST /v1/browser-key`) over the tenant connection it already has, authenticated by its tenant token. No new secret to distribute.
 3. The browser calls the control-plane with the token. The control-plane derives the app's key again from the token's app and environment, so a token cannot be moved to another app or environment, and an app can only mint tokens for itself.
 
 The control-plane derives every app key from `browser.secret`, which defaults to its `APP_KEY`. Rotating it invalidates outstanding tokens; frontends fetch new ones on their own. Set `browser.publicUrl` on a tenant when browsers reach the control-plane under another address than the app does (an internal hostname, for example).
@@ -114,21 +190,24 @@ Since authkit gives a person the same `sub` in every app, a user lands in the sa
 
 ### Apps with their own authkit token
 
-A mobile app or SPA that signs in to authkit itself (PKCE) has no Adonis session to ask. Let the control-plane accept its access tokens too:
+A mobile app or SPA that signs in to authkit itself (PKCE) has no Adonis session to ask. Let the control-plane accept its access tokens too. It needs `@adonis-agora/authkit-client`:
 
 ```ts title="config/flags.ts (flags server)"
 import { userVerifiers } from '@adonis-agora/flags'
 
 browser: {
-  verifyUser: userVerifiers.authkit({ issuer: env.get('AUTHKIT_ISSUER'), audience: 'flags' }),
+  verifyUser: userVerifiers.authkit({
+    issuer: env.get('AUTHKIT_ISSUER'),
+    audience: 'https://flags.example.com',
+  }),
 },
 ```
 
-The token's audience must include `flags`, and its `client_id` becomes the app on events.
+Declare `https://flags.example.com` in authkit-server's `accessTokens.resources` and have the app request it. The token is checked against the keys found by discovery; its `sub` is the subject, its email, global roles and active organization become targeting attributes, and its `client_id` becomes the app on events. Map client ids to environments with `environments: { 'mobile-app': 'staging' }`.
 
 ## OFREP: browsers, mobile and other languages
 
-Any OpenFeature SDK with an OFREP provider can evaluate against the control-plane — web, React Native, Go, Python. Evaluation happens on the server, so the rules never leave it. Give those clients a token with the `flags:ofrep:evaluate` scope, and list browser origins in `controlPlane.corsOrigins`.
+Any OpenFeature SDK with an OFREP provider can evaluate against the control-plane — web, React Native, Go, Python. Evaluation happens on the server, so the rules never leave it. Give those clients a token with the `flags:ofrep:evaluate` capability, and list browser origins in `controlPlane.corsOrigins`.
 
 <Callout type="warn">
   OFREP callers send their own evaluation context. Do not base security decisions on flags whose targeting a client can influence.
