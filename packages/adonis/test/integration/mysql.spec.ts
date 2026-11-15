@@ -4,7 +4,7 @@ import { flag } from '../../src/declare.js';
 import { defineConfig, sinks } from '../../src/define_config.js';
 import { Relay } from '../../src/relay/relay.js';
 import { createRuntime, type FlagsRuntime, lucidContext } from '../../src/runtime.js';
-import { createFlagsTables } from '../../src/schema.js';
+import { createFlagsTables, FLAGS_TABLES } from '../../src/schema.js';
 import { MemorySink } from '../../src/sinks/sink.js';
 import { query } from '../../src/sql.js';
 import { DbTransport } from '../../src/transports/db_transport.js';
@@ -31,7 +31,7 @@ describe('MySQL', () => {
       db.db,
       "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name LIKE 'flags\\_%'",
     );
-    expect(Number(tables[0]!.n)).toBe(12);
+    expect(Number(tables[0]!.n)).toBe(FLAGS_TABLES.length);
   });
 
   it('keeps every table in the configured database', async () => {
@@ -56,7 +56,7 @@ describe('MySQL', () => {
             )
           )[0]!.n,
         );
-      expect(await count(`'${own}'`)).toBe(12);
+      expect(await count(`'${own}'`)).toBe(FLAGS_TABLES.length);
       expect(await count('DATABASE()')).toBe(0);
       await runtime.admin!.turnOn('new_player', { id: 'alice' });
       await runtime.manager.refresh();
