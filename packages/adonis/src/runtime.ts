@@ -299,6 +299,7 @@ export async function createRuntime(
           environment,
           (rows) => store.recordUsage(rows),
           (error) => logger?.warn(`[flags] usage flush failed: ${(error as Error).message}`),
+          app,
         );
 
   const admin = new FlagsAdmin(store, {

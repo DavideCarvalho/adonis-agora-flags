@@ -1,4 +1,4 @@
-import { type AnalyticsBackend, statsFromRow } from './backend.js';
+import { type AnalyticsBackend, type AnalyticsScope, scopedApps, statsFromRow } from './backend.js';
 import {
   type MetricDefinition,
   subjectAggregates,
@@ -82,6 +82,10 @@ function literal(value: string | number): string {
   return typeof value === 'number' ? String(value) : `'${value.replaceAll("'", "''")}'`;
 }
 
+function inList(column: string, values: string[]): string {
+  return values.length === 0 ? 'FALSE' : `${column} IN (${values.map(literal).join(', ')})`;
+}
+
 /**
  * Level 2 of DESIGN §12: reads the Parquet files the `parquet` sink writes, with DuckDB, in process.
  * No server to run. Point it at the same `path`. Queries scan files, so run it where a few seconds
@@ -89,6 +93,7 @@ function literal(value: string | number): string {
  */
 export class DuckDbBackend implements AnalyticsBackend {
   readonly kind = 'duckdb';
+  readonly filtersByApp = true;
   readonly #duck: DuckDb;
 
   constructor(private readonly options: DuckDbOptions & { path: string }) {
@@ -99,19 +104,27 @@ export class DuckDbBackend implements AnalyticsBackend {
     return literal(`${this.options.path.replace(/\/$/, '')}/**/*.parquet`);
   }
 
-  /** First exposure per subject, deduped by event id like every other backend. */
-  #exposuresSql(experiment: string, environment: string) {
+  /**
+   * First exposure per subject, deduped by event id like every other backend. A subject counts in
+   * the app where it was first exposed.
+   */
+  #exposuresSql(experiment: string, environment: string, scope?: AnalyticsScope) {
+    const apps = scopedApps(scope);
     return `SELECT subject, arg_min(variant, ts) AS variant, min(ts) AS first_seen_ts
               FROM read_parquet(${this.#glob}, hive_partitioning = true, union_by_name = true)
              WHERE type = 'exposure' AND environment = ${literal(environment)}
                AND experiment = ${literal(experiment)}
-             GROUP BY subject`;
+             GROUP BY subject${apps === undefined ? '' : ` HAVING ${inList('arg_min(app, ts)', apps)}`}`;
   }
 
-  async exposures(experiment: string, environment: string): Promise<Record<string, number>> {
+  async exposures(
+    experiment: string,
+    environment: string,
+    scope?: AnalyticsScope,
+  ): Promise<Record<string, number>> {
     return this.#duck.withConnection(async (_sql, select) => {
       const rows = await select<{ variant: string; n: number | bigint }>(
-        `SELECT variant, COUNT(*) AS n FROM (${this.#exposuresSql(experiment, environment)}) GROUP BY variant`,
+        `SELECT variant, COUNT(*) AS n FROM (${this.#exposuresSql(experiment, environment, scope)}) GROUP BY variant`,
       ).catch(noFiles);
       return Object.fromEntries(rows.map((row) => [row.variant, Number(row.n)]));
     });
@@ -121,18 +134,20 @@ export class DuckDbBackend implements AnalyticsBackend {
     experiment: string,
     definition: MetricDefinition,
     environment: string,
+    scope?: AnalyticsScope,
   ): Promise<Record<string, VariantMetricStats>> {
     const { post, pre } = subjectAggregates(definition);
     const window = definition.windowMs ?? UNBOUNDED_MS;
     const preWindow = definition.cupedMs ?? 0;
+    const apps = scopedApps(scope);
     return this.#duck.withConnection(async (_sql, select) => {
       const rows = await select(
-        `WITH x AS (${this.#exposuresSql(experiment, environment)}),
+        `WITH x AS (${this.#exposuresSql(experiment, environment, scope)}),
               t AS (
                 SELECT DISTINCT ON (event_id) subject, value, ts
                   FROM read_parquet(${this.#glob}, hive_partitioning = true, union_by_name = true)
                  WHERE type = 'track' AND environment = ${literal(environment)}
-                   AND name = ${literal(definition.event)}
+                   AND name = ${literal(definition.event)}${apps === undefined ? '' : ` AND ${inList('app', apps)}`}
               )
          SELECT variant, COUNT(*) AS n,
                 SUM(y) AS sum_y, SUM(y * y) AS sum_y2,

@@ -176,6 +176,13 @@ export interface FlagRow {
 
 export interface Meta {
   app: string;
+  /**
+   * The apps whose data this person may pick between (a central server's tenants). Absent from
+   * servers older than the app picker.
+   */
+  apps?: string[];
+  /** `'*'`: every app. A list: this person sees those apps only. */
+  appScope?: '*' | string[];
   topology: string;
   environment: string;
   environments: string[];
@@ -294,6 +301,8 @@ export interface ExperimentResults {
   flag: string;
   /** Environment whose events were analysed (absent in results computed before 0.1). */
   environment?: string;
+  /** The apps these numbers cover. Absent: every app. */
+  apps?: string[];
   /** Global-holdout subjects who reached the experiment (not compared). */
   holdout?: number;
   control: string;
@@ -457,8 +466,22 @@ function redirectToAuthSurface(redirectTo: string | undefined): void {
   window.location.href = redirectTo ?? (uiBase() || '/');
 }
 
+/** The app picked in this page's URL (`?app=`), sent with every API call. Absent: all apps. */
+export function selectedApp(): string | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const value = new URLSearchParams(window.location.search).get('app');
+  return value && value !== '*' ? value : undefined;
+}
+
+/** `path` with the picked app appended as `app=` (no-op when none is picked). */
+export function withApp(path: string): string {
+  const app = selectedApp();
+  if (app === undefined) return path;
+  return `${path}${path.includes('?') ? '&' : '?'}app=${encodeURIComponent(app)}`;
+}
+
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(apiBase() + path, init);
+  const res = await fetch(apiBase() + withApp(path), init);
   if (res.status === 401) {
     const body = await readBody(res);
     const target =

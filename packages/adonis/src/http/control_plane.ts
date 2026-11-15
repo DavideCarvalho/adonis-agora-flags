@@ -278,6 +278,8 @@ export class ControlPlane {
         )
         .map((r) => ({
           environment,
+          // The app comes from the verified token, like the environment: never from the rows.
+          app: verified.partition,
           flag: r.flag,
           day: r.day,
           evaluations: Math.max(0, Math.trunc(r.evaluations)),

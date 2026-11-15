@@ -486,6 +486,10 @@ export class LucidStore implements FlagsStore {
     return true;
   }
 
+  /**
+   * Every count goes to `flags_usage` (all apps); a count that names its app also goes to
+   * `flags_app_usage`, which answers the per-app reads.
+   */
   async recordUsage(rows: UsageRow[]): Promise<void> {
     if (rows.length === 0) return;
     for (const row of rows) {
@@ -494,10 +498,37 @@ export class LucidStore implements FlagsStore {
           ? 'INSERT INTO flags_usage (environment, flag, day, evaluations) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE evaluations = evaluations + VALUES(evaluations)'
           : 'INSERT INTO flags_usage (environment, flag, day, evaluations) VALUES (?, ?, ?, ?) ON CONFLICT (environment, flag, day) DO UPDATE SET evaluations = flags_usage.evaluations + excluded.evaluations';
       await this.db.rawQuery(sql, [row.environment, row.flag, row.day, row.evaluations]);
+      if (row.app === undefined || row.app === '') continue;
+      const perApp =
+        this.dialect === 'mysql'
+          ? 'INSERT INTO flags_app_usage (environment, app, flag, day, evaluations) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE evaluations = evaluations + VALUES(evaluations)'
+          : 'INSERT INTO flags_app_usage (environment, app, flag, day, evaluations) VALUES (?, ?, ?, ?, ?) ON CONFLICT (environment, app, flag, day) DO UPDATE SET evaluations = flags_app_usage.evaluations + excluded.evaluations';
+      await this.db.rawQuery(perApp, [
+        row.environment,
+        row.app,
+        row.flag,
+        row.day,
+        row.evaluations,
+      ]);
     }
   }
 
-  async usage(q: { environment: string; since: string }): Promise<UsageRow[]> {
+  async usage(q: { environment: string; since: string; apps?: string[] }): Promise<UsageRow[]> {
+    if (q.apps !== undefined) {
+      if (q.apps.length === 0) return [];
+      const rows = await query<Record<string, unknown>>(
+        this.db,
+        `SELECT environment, app, flag, day, evaluations FROM flags_app_usage WHERE environment = ? AND day >= ? AND app IN (${q.apps.map(() => '?').join(', ')})`,
+        [q.environment, q.since, ...q.apps],
+      );
+      return rows.map((row) => ({
+        environment: String(row.environment),
+        app: String(row.app),
+        flag: String(row.flag),
+        day: String(row.day),
+        evaluations: toNumber(row.evaluations),
+      }));
+    }
     const rows = await query<Record<string, unknown>>(
       this.db,
       'SELECT environment, flag, day, evaluations FROM flags_usage WHERE environment = ? AND day >= ?',

@@ -16,6 +16,7 @@ import {
 import { type FlagsAdmin, ForbiddenError, type ProposeResult, ValidationError } from '../admin.js';
 import { resolveAnalysis } from '../analytics/experiments.js';
 import type { MetricDefinition as ConfigMetric } from '../analytics/metrics.js';
+import { AppScopeUnsupportedError, type ExperimentResults } from '../analytics/results.js';
 import type { FlagDeclaration } from '../declare.js';
 import type { ExperimentConfig } from '../define_config.js';
 import { knownTenants } from '../http/control_plane.js';
@@ -64,6 +65,10 @@ import {
  *
  * Every call takes an `environment` (query string for reads, body for writes); omitted, it is the
  * environment this app evaluates.
+ *
+ * Reads of what apps produce (experiment results, evaluation counts, connected apps) also take an
+ * `app`: one app's numbers instead of every app's. `Deps.apps` bounds both: a person limited to
+ * some apps gets those apps' numbers without `app`, and `403` for an app outside them.
  */
 
 /** What the handlers need to answer a request. */
@@ -74,6 +79,11 @@ export interface Deps {
   actor: Actor;
   /** Injectable clock (stale report). */
   now?: () => Date;
+  /**
+   * The apps this person may see the data of (the console `authorize`'s `apps`). `'*'` or
+   * omitted: every app.
+   */
+  apps?: '*' | string[];
 }
 
 /** The subset of an HTTP request the handlers read. */
@@ -190,6 +200,31 @@ function environmentOf(req: ApiRequest, runtime: FlagsRuntime): string {
   return value === undefined ? runtime.manager.environment : checkEnvironment(value);
 }
 
+/** The apps a request reads the data of; `undefined` is every app (no filter). */
+function appsOf(deps: Deps, req: ApiRequest): string[] | undefined {
+  const allowed = allowedApps(deps);
+  const body = bodyOf(req).app;
+  const asked =
+    first(req.query.app) ?? (typeof body === 'string' && body !== '' ? body : undefined);
+  if (asked === undefined) return allowed;
+  if (asked.length > 191) throw new HttpError(400, 'app must be at most 191 characters');
+  if (allowed !== undefined && !allowed.includes(asked)) {
+    throw new HttpError(403, `you may not see the app "${asked}"`);
+  }
+  return [asked];
+}
+
+/** `Deps.apps` as a list, or `undefined` for every app. */
+function allowedApps(deps: Deps): string[] | undefined {
+  return deps.apps === undefined || deps.apps === '*' ? undefined : [...deps.apps];
+}
+
+/** Whether this person may see an app's name and data. */
+function canSee(deps: Deps): (app: string) => boolean {
+  const allowed = allowedApps(deps);
+  return allowed === undefined ? () => true : (app) => allowed.includes(app);
+}
+
 function keyParam(req: ApiRequest, name = 'key'): string {
   const key = req.params[name];
   if (key === undefined || key === '' || key.length > 200) {
@@ -237,8 +272,15 @@ export interface DeclaredFlag extends FlagDeclaration {
   overriddenConsole?: FlagDeclaration;
 }
 
-/** This app's declarations plus every app's pushed ones (a control-plane hears from tenants). */
-async function declarationsOf(o: Owned, ruleset: Ruleset): Promise<Map<string, DeclaredFlag>> {
+/**
+ * This app's declarations plus every app's pushed ones (a control-plane hears from tenants). The
+ * flag catalog is shared; `visible` drops the names of apps this person may not see.
+ */
+async function declarationsOf(
+  o: Owned,
+  ruleset: Ruleset,
+  visible: (app: string) => boolean = () => true,
+): Promise<Map<string, DeclaredFlag>> {
   const out = new Map<string, DeclaredFlag>();
   const app = o.runtime.manager.app;
   for (const [key, declaration] of Object.entries(o.admin.declarations)) {
@@ -260,6 +302,7 @@ async function declarationsOf(o: Owned, ruleset: Ruleset): Promise<Map<string, D
     if (code) code.overriddenConsole = definition.declaration;
     else out.set(key, { ...definition.declaration, apps: [], source: 'console' });
   }
+  for (const declared of out.values()) declared.apps = declared.apps.filter(visible);
   return out;
 }
 
@@ -317,6 +360,18 @@ function flagTags(
 
 // ── Meta ────────────────────────────────────────────────────────────────────
 
+/**
+ * The apps whose data lands here: on a control-plane, every tenant that called it or published its
+ * declarations, plus this server when it declares flags itself; else this app.
+ */
+async function knownApps(o: Owned): Promise<string[]> {
+  const self = o.runtime.manager.app;
+  if (o.runtime.topology !== 'control-plane') return [self];
+  const names = new Set((await tenantsOf(o.store)).map((t) => t.partition));
+  if (Object.keys(o.admin.declarations).length > 0) names.add(self);
+  return [...names].sort();
+}
+
 /** `GET /api/meta` — what the shell needs: environments, approvals, who you are. */
 export function meta(deps: Deps, _req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) => {
@@ -325,8 +380,12 @@ export function meta(deps: Deps, _req: ApiRequest): Promise<ApiResponse> {
     const experiments = Object.keys(
       analysisOf(o.runtime, await o.store.readRuleset(current)).experiments,
     ).sort();
+    const allowed = allowedApps(deps);
     return ok({
       app: o.runtime.manager.app,
+      // The apps the picker offers: the ones this person may see, else every app that reports here.
+      apps: allowed ? [...allowed].sort() : await knownApps(o),
+      appScope: allowed ?? '*',
       topology: o.runtime.topology,
       environment: current,
       environments,
@@ -346,11 +405,16 @@ export function meta(deps: Deps, _req: ApiRequest): Promise<ApiResponse> {
 export function listFlags(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) => {
     const environment = environmentOf(req, o.runtime);
+    const apps = appsOf(deps, req);
     const [ruleset, stale] = await Promise.all([
       o.store.readRuleset(environment),
-      o.admin.stale({ environment, ...(deps.now ? { now: deps.now() } : {}) }),
+      o.admin.stale({
+        environment,
+        ...(deps.now ? { now: deps.now() } : {}),
+        ...(apps !== undefined ? { apps } : {}),
+      }),
     ]);
-    const declared = await declarationsOf(o, ruleset);
+    const declared = await declarationsOf(o, ruleset, canSee(deps));
     const staleByKey = new Map(stale.map((s) => [s.key, s.reasons]));
     const keys = [...new Set([...Object.keys(ruleset.flags), ...declared.keys()])].sort();
     const flags = keys.map((key) => {
@@ -382,7 +446,7 @@ export function flagDetail(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
     const environment = environmentOf(req, o.runtime);
     const key = keyParam(req);
     const ruleset = await o.store.readRuleset(environment);
-    const declared = await declarationsOf(o, ruleset);
+    const declared = await declarationsOf(o, ruleset, canSee(deps));
     const stored = ruleset.flags[key];
     const declaration = declared.get(key);
     if (!stored && !declaration) {
@@ -971,18 +1035,66 @@ function assertConsoleMetric(runtime: FlagsRuntime, key: string) {
 
 // ── Experiments ─────────────────────────────────────────────────────────────
 
+/** How long one app's results are reused before they are computed again. */
+const SCOPED_RESULTS_TTL_MS = 60_000;
+const scopedResults = new WeakMap<
+  FlagsRuntime,
+  Map<string, { at: number; results: Promise<ExperimentResults | null> }>
+>();
+
+/**
+ * An experiment's results: the worker's cached ones for every app, or, for some apps, computed from
+ * the analytics backend (reused for a minute, never stored).
+ */
+async function resultsFor(
+  o: Owned,
+  key: string,
+  environment: string,
+  ruleset: Ruleset,
+  apps: string[] | undefined,
+  options: { fresh?: boolean } = {},
+): Promise<ExperimentResults | null> {
+  if (apps === undefined) return o.runtime.manager.results(key, environment);
+  const worker = o.runtime.worker;
+  if (!worker || !o.runtime.analytics) return null;
+  let cache = scopedResults.get(o.runtime);
+  if (!cache) {
+    cache = new Map();
+    scopedResults.set(o.runtime, cache);
+  }
+  const id = JSON.stringify([environment, key, ruleset.version, [...apps].sort()]);
+  const now = Date.now();
+  const hit = cache.get(id);
+  if (!options.fresh && hit && now - hit.at < SCOPED_RESULTS_TTL_MS) return hit.results;
+  for (const [entry, value] of cache) {
+    if (now - value.at >= SCOPED_RESULTS_TTL_MS) cache.delete(entry);
+  }
+  const results = worker.computeResults(key, environment, ruleset, { apps }).catch((error) => {
+    cache.delete(id);
+    if (error instanceof AppScopeUnsupportedError) throw new HttpError(409, error.message);
+    throw error;
+  });
+  cache.set(id, { at: now, results });
+  return results;
+}
+
 /** `GET /api/experiments` — configured experiments with a summary of their last results. */
 export function listExperiments(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) => {
     const environment = environmentOf(req, o.runtime);
     const ruleset = await o.store.readRuleset(environment);
     const configs = analysisOf(o.runtime, ruleset).experiments;
+    const apps = appsOf(deps, req);
     const rows = [];
     const covered = new Set<string>();
     for (const [key, config] of Object.entries(configs)) {
       const flag = config.flag ?? key;
       covered.add(flag);
-      const results = await o.runtime.manager.results(key, environment);
+      const results = await resultsFor(o, key, environment, ruleset, apps).catch((error) => {
+        // A backend that cannot narrow to an app: no numbers rather than every app's.
+        if (error instanceof HttpError && error.status === 409) return null;
+        throw error;
+      });
       rows.push({
         key,
         flag,
@@ -1027,7 +1139,12 @@ export function listExperiments(deps: Deps, req: ApiRequest): Promise<ApiRespons
       });
     }
     rows.sort((a, b) => a.key.localeCompare(b.key));
-    return ok({ environment, analytics: o.runtime.analytics !== undefined, data: rows });
+    return ok({
+      environment,
+      ...(apps !== undefined ? { apps } : {}),
+      analytics: o.runtime.analytics !== undefined,
+      data: rows,
+    });
   });
 }
 
@@ -1039,13 +1156,15 @@ export function experimentDetail(deps: Deps, req: ApiRequest): Promise<ApiRespon
     const ruleset = await o.store.readRuleset(environment);
     const config = analysisOf(o.runtime, ruleset).experiments[key];
     if (!config) throw new HttpError(404, `experiment "${key}" is not configured`);
+    const apps = appsOf(deps, req);
     return ok({
       key,
       flag: config.flag ?? key,
       config,
       analytics: o.runtime.analytics !== undefined,
       environment,
-      results: await o.runtime.manager.results(key, environment),
+      ...(apps !== undefined ? { apps } : {}),
+      results: await resultsFor(o, key, environment, ruleset, apps),
     });
   });
 }
@@ -1065,9 +1184,13 @@ export function recomputeExperiment(deps: Deps, req: ApiRequest): Promise<ApiRes
         'No analytics backend is configured, so experiment results cannot be computed here.',
       );
     }
-    const results = await o.runtime.worker.computeResults(key, environment, ruleset);
+    const apps = appsOf(deps, req);
+    const results =
+      apps === undefined
+        ? await o.runtime.worker.computeResults(key, environment, ruleset)
+        : await resultsFor(o, key, environment, ruleset, apps, { fresh: true });
     if (!results) throw new HttpError(503, `results for "${key}" could not be computed`);
-    return ok({ key, results });
+    return ok({ key, ...(apps !== undefined ? { apps } : {}), results });
   });
 }
 
@@ -1282,19 +1405,26 @@ export function stale(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
     const environment = environmentOf(req, o.runtime);
     const unusedDays = intQuery(req, 'unusedDays', 30, 3650);
     const staticDays = intQuery(req, 'staticDays', 30, 3650);
+    const apps = appsOf(deps, req);
     const flags = await o.admin.stale({
       environment,
       unusedDays,
       staticDays,
       ...(deps.now ? { now: deps.now() } : {}),
+      ...(apps !== undefined ? { apps } : {}),
     });
-    return ok({ environment, unusedDays, staticDays, data: flags });
+    return ok({
+      environment,
+      ...(apps !== undefined ? { apps } : {}),
+      unusedDays,
+      staticDays,
+      data: flags,
+    });
   });
 }
 
 // ── Ops ─────────────────────────────────────────────────────────────────────
 
-/** `GET /api/ops` — is the machinery healthy: source, buffer, transport and every sink. */
 /**
  * Tenants that called this control-plane. The in-memory view only covers this replica, so it is
  * merged with what every replica persisted: the declarations tenants publish at boot.
@@ -1319,8 +1449,13 @@ async function tenantsOf(store: FlagsStore) {
   });
 }
 
-export function ops(deps: Deps, _req: ApiRequest): Promise<ApiResponse> {
+/**
+ * `GET /api/ops?app` — is the machinery healthy: source, buffer, transport and every sink, and the
+ * connected apps (the one asked for, or every app this person may see).
+ */
+export function ops(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) => {
+    const apps = appsOf(deps, req);
     const status = o.runtime.manager.status();
     const names = [...o.runtime.sinks.keys()];
     let sinks: Array<SinkStatus | { sink: string }> = names.map((sink) => ({ sink }));
@@ -1351,7 +1486,12 @@ export function ops(deps: Deps, _req: ApiRequest): Promise<ApiResponse> {
           : null,
       worker: o.runtime.worker !== undefined,
       analytics: o.runtime.analytics !== undefined,
-      tenants: o.runtime.topology === 'control-plane' ? await tenantsOf(o.store) : [],
+      tenants:
+        o.runtime.topology === 'control-plane'
+          ? (await tenantsOf(o.store)).filter(
+              (t) => apps === undefined || apps.includes(t.partition),
+            )
+          : [],
     });
   });
 }

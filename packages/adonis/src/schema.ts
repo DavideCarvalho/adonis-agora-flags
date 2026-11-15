@@ -124,6 +124,14 @@ function statements(dialect: Dialect, options: SchemaOptions): string[] {
       evaluations BIGINT NOT NULL,
       PRIMARY KEY (environment, flag, day)
     )`,
+    `CREATE TABLE IF NOT EXISTS flags_app_usage (
+      environment ${K} NOT NULL,
+      app ${K} NOT NULL,
+      flag ${K} NOT NULL,
+      day CHAR(10) NOT NULL,
+      evaluations BIGINT NOT NULL,
+      PRIMARY KEY (environment, app, flag, day)
+    )`,
     `CREATE TABLE IF NOT EXISTS flags_declarations (
       app ${K} NOT NULL,
       flag ${K} NOT NULL,

@@ -9,6 +9,7 @@ import {
   createFlagsTables,
   ensureEventPartitions,
   eventsArePartitioned,
+  FLAGS_TABLES,
   pruneEvents,
 } from '../../src/schema.js';
 import { MemorySink } from '../../src/sinks/sink.js';
@@ -54,7 +55,7 @@ describe('Postgres', () => {
       db.db,
       "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = current_schema() AND table_name LIKE 'flags_%'",
     );
-    expect(Number(tables[0]!.n)).toBe(12);
+    expect(Number(tables[0]!.n)).toBe(FLAGS_TABLES.length);
   });
 
   it('keeps every table in the configured schema, with no search_path involved', async () => {
@@ -80,7 +81,7 @@ describe('Postgres', () => {
       runtime = await createRuntime(config, lucidContext(db.database as never), {
         logger: quietLogger,
       });
-      expect(await count(own)).toBe(12);
+      expect(await count(own)).toBe(FLAGS_TABLES.length);
       // The connection's own schema (its search_path) stays empty.
       expect(await count(db.schema)).toBe(0);
 

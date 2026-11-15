@@ -165,11 +165,15 @@ export class FlagsWorker {
     );
   }
 
-  /** Computes and caches one experiment's results for an environment (default: this process's). */
+  /**
+   * Computes and caches one experiment's results for an environment (default: this process's).
+   * With `apps`, computes the numbers of those apps only and caches nothing.
+   */
   async computeResults(
     key: string,
     environment = this.#environment,
     rulesetOf?: Ruleset,
+    options: { apps?: string[] | undefined } = {},
   ): Promise<ExperimentResults | null> {
     const { analytics, resultsCache } = this.options;
     if (!analytics || !resultsCache) return null;
@@ -184,7 +188,8 @@ export class FlagsWorker {
       if (!definition) throw new Error(`experiment "${key}" uses unknown metric "${name}"`);
       definitions[name] = definition;
     }
-    const previous = (await resultsCache.get(environment, key)) ?? undefined;
+    const scoped = options.apps !== undefined;
+    const previous = scoped ? undefined : ((await resultsCache.get(environment, key)) ?? undefined);
     const result = await computeResults(
       analytics,
       {
@@ -195,10 +200,12 @@ export class FlagsWorker {
         ...(experiment.guardrails ? { guardrails: experiment.guardrails } : {}),
         ...(experiment.control ? { control: experiment.control } : {}),
         ...(experiment.confidence ? { confidence: experiment.confidence } : {}),
+        ...(scoped ? { apps: options.apps } : {}),
       },
       ruleset.flags[flagKey],
       previous,
     );
+    if (scoped) return result;
     await resultsCache.set(environment, key, result);
     for (const metric of result.metrics) {
       if (metric.alert)

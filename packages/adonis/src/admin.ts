@@ -685,7 +685,14 @@ export class FlagsAdmin {
    * or killed (`static`), or in the ruleset but declared by no app (`undeclared`).
    */
   async stale(
-    options: { environment?: string; unusedDays?: number; staticDays?: number; now?: Date } = {},
+    options: {
+      environment?: string;
+      unusedDays?: number;
+      staticDays?: number;
+      now?: Date;
+      /** Judge `unused` by these apps' evaluations only. Default: every app's. */
+      apps?: string[];
+    } = {},
   ): Promise<StaleFlag[]> {
     const environment = options.environment ?? this.environment;
     const now = options.now ?? new Date();
@@ -694,7 +701,11 @@ export class FlagsAdmin {
     const since = new Date(now.getTime() - 90 * 86_400_000).toISOString().slice(0, 10);
     const [ruleset, usage, declaredRows] = await Promise.all([
       this.store.readRuleset(environment),
-      this.store.usage({ environment, since }),
+      this.store.usage({
+        environment,
+        since,
+        ...(options.apps !== undefined ? { apps: options.apps } : {}),
+      }),
       this.store.declarations(),
     ]);
     const lastSeen = new Map<string, string>();

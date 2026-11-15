@@ -196,7 +196,14 @@ export default class FlagsDashboardProvider {
       }
       try {
         const actor = await this.actorOf(config, ctx);
-        const result = await handler({ runtime: getRuntime(), actor }, toApiRequest(ctx));
+        const result = await handler(
+          {
+            runtime: getRuntime(),
+            actor,
+            ...(guard.apps !== undefined ? { apps: guard.apps } : {}),
+          },
+          toApiRequest(ctx),
+        );
         return ctx.response.status(result.status).json(result.body);
       } catch (error) {
         return ctx.response
@@ -406,11 +413,18 @@ export default class FlagsDashboardProvider {
             return { status: 503, body: { error: '@adonis-agora/flags is not booted' } };
           }
           const actor = mcpActor(await this.actorOf(config, ctx), caller);
-          return (handler as Handler)({ runtime: getRuntime(), actor }, {
-            params: {},
-            query: {},
-            ...req,
-          } as ApiRequest);
+          return (handler as Handler)(
+            {
+              runtime: getRuntime(),
+              actor,
+              ...(decision.apps !== undefined ? { apps: decision.apps } : {}),
+            },
+            {
+              params: {},
+              query: {},
+              ...req,
+            } as ApiRequest,
+          );
         },
       });
     } catch (error) {
@@ -549,10 +563,14 @@ export default class FlagsDashboardProvider {
     config: ResolvedFlagsDashboardConfig,
     ctx: HttpContext,
     mode: 'page' | 'api',
-  ): Promise<{ allowed: boolean }> {
+  ): Promise<{ allowed: boolean; apps?: '*' | string[] }> {
     // Never `if (!(await authorize(ctx)))`: a `{ allowed: false }` decision is truthy.
     const decision = await this.authorizeGuard(ctx);
-    if (decision.allowed) return { allowed: true };
+    if (decision.allowed) {
+      return decision.apps !== undefined
+        ? { allowed: true, apps: decision.apps }
+        : { allowed: true };
+    }
     if (decision.status === 403 && decision.error !== undefined) {
       await this.warnAuthorizeThrow(decision.error);
     }

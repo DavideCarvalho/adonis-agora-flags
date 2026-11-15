@@ -21,7 +21,7 @@ export {
   type StaleFlag,
   ValidationError,
 } from './admin.js';
-export type { AnalyticsBackend } from './analytics/backend.js';
+export type { AnalyticsBackend, AnalyticsScope } from './analytics/backend.js';
 export { ClickHouseBackend } from './analytics/clickhouse_backend.js';
 export { DuckDbBackend } from './analytics/duckdb.js';
 export { LucidBackend } from './analytics/lucid_backend.js';

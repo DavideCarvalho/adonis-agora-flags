@@ -225,6 +225,11 @@ const ENVIRONMENT: DevToolInputProperty = {
   type: 'string',
   description: "Environment, e.g. 'production', 'staging'. Default: the app's own.",
 };
+const APP: DevToolInputProperty = {
+  type: 'string',
+  description:
+    "On a central server: one app's numbers (a tenant's partition). Default: every app you may see.",
+};
 const NOTE: DevToolInputProperty = {
   type: 'string',
   description: 'Why: recorded with the change (and on the change request when approvals are on).',
@@ -257,7 +262,11 @@ function writeBody(input: Record<string, unknown>): Record<string, unknown> {
 
 function envQuery(input: Record<string, unknown>): Record<string, string> {
   const environment = str(input, 'environment');
-  return environment !== undefined ? { environment } : {};
+  const app = str(input, 'app');
+  return {
+    ...(environment !== undefined ? { environment } : {}),
+    ...(app !== undefined ? { app } : {}),
+  };
 }
 
 /**
@@ -391,7 +400,10 @@ export function flagsDevTools(options: FlagsDevToolsOptions): DevTool[] {
       kind: 'read',
       description:
         'Experiments: their flag, metrics and guardrails, whether running, exposures, sample-ratio mismatch, guardrail alerts and per-metric verdicts from the last computation. Flags marked as experiments with no metrics are listed with configured: false. Returns { items, next }.',
-      input: { type: 'object', properties: { environment: ENVIRONMENT, page: PAGE, limit: LIMIT } },
+      input: {
+        type: 'object',
+        properties: { environment: ENVIRONMENT, app: APP, page: PAGE, limit: LIMIT },
+      },
       run: async (input, tc) =>
         paged(await run(tc, listExperiments, { query: envQuery(input) }), 'data', input, tc),
     },
@@ -405,6 +417,7 @@ export function flagsDevTools(options: FlagsDevToolsOptions): DevTool[] {
         properties: {
           key: { type: 'string', description: 'Experiment key.' },
           environment: ENVIRONMENT,
+          app: APP,
         },
         required: ['key'],
       },
@@ -494,6 +507,7 @@ export function flagsDevTools(options: FlagsDevToolsOptions): DevTool[] {
           unusedDays: { type: 'integer', minimum: 1, description: 'Default 30.' },
           staticDays: { type: 'integer', minimum: 1, description: 'Default 30.' },
           environment: ENVIRONMENT,
+          app: APP,
           page: PAGE,
           limit: LIMIT,
         },
@@ -510,9 +524,9 @@ export function flagsDevTools(options: FlagsDevToolsOptions): DevTool[] {
       name: 'flags_get_ops',
       kind: 'read',
       description:
-        'Operational state: the ruleset version and how it is kept fresh, the event transport, each sink’s lag and last error, and the in-process event buffer.',
-      input: { type: 'object', properties: {} },
-      run: async (_input, tc) => run(tc, ops, {}),
+        'Operational state: the ruleset version and how it is kept fresh, the event transport, each sink’s lag and last error, the in-process event buffer and, on a central server, the connected apps.',
+      input: { type: 'object', properties: { app: APP } },
+      run: async (input, tc) => run(tc, ops, { query: envQuery(input) }),
     },
 
     // ── Actions ────────────────────────────────────────────────────────────
@@ -746,6 +760,7 @@ export function flagsDevTools(options: FlagsDevToolsOptions): DevTool[] {
         properties: {
           key: { type: 'string', description: 'Experiment key.' },
           environment: ENVIRONMENT,
+          app: APP,
         },
         required: ['key'],
       },

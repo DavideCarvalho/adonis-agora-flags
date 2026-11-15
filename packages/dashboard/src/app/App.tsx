@@ -7,6 +7,7 @@ import { AppShell, type NavSection, PageBody } from '../agora-kit/shell/app-shel
 import { type AgoraShellConfig, readShellConfig } from '../agora-kit/shell-config';
 import { api, CONFIG_ELEMENT_ID, defaultEnvironment, type Meta } from '../client/flags-client';
 import { Activity } from './Activity';
+import { AppPicker } from './AppPicker';
 import { Approvals } from './Approvals';
 import { Environments } from './Environments';
 import { ExperimentDetail, Experiments } from './Experiments';
@@ -217,15 +218,18 @@ export function App() {
         title={title}
         searchPlaceholder="Search flags, segments, runs, users…"
         actions={
-          <EnvironmentPicker
-            environment={environment}
-            environments={environments}
-            isAppEnvironment={environment === appEnvironment}
-            approvals={approvals}
-            onChange={(env) =>
-              navigate({ ...route, env: env === meta.data?.environment ? undefined : env })
-            }
-          />
+          <>
+            <AppPicker meta={meta.data} />
+            <EnvironmentPicker
+              environment={environment}
+              environments={environments}
+              isAppEnvironment={environment === appEnvironment}
+              approvals={approvals}
+              onChange={(env) =>
+                navigate({ ...route, env: env === meta.data?.environment ? undefined : env })
+              }
+            />
+          </>
         }
       >
         <PageBody>

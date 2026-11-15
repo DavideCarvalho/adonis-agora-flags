@@ -13,6 +13,8 @@ export class UsageCounter {
     private readonly environment: string,
     private readonly sink: (rows: UsageRow[]) => Promise<void>,
     private readonly onError?: (error: unknown) => void,
+    /** The app the counts belong to. A tenant leaves it out: the control-plane takes its token's. */
+    private readonly app?: string,
   ) {}
 
   hit(flag: string) {
@@ -29,6 +31,7 @@ export class UsageCounter {
     const day = new Date().toISOString().slice(0, 10);
     const rows = [...this.#counts].map(([flag, evaluations]) => ({
       environment: this.environment,
+      ...(this.app !== undefined ? { app: this.app } : {}),
       flag,
       day,
       evaluations,
