@@ -1,5 +1,11 @@
 # @adonis-agora/flags
 
+## 0.12.1
+
+### Patch Changes
+
+- [#19](https://github.com/DavideCarvalho/adonis-agora-flags/pull/19) [`163f252`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/163f25242ebb3ba499b7511e26e79daf51adc097) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Ships the current console: chart tooltips (TanStack Charts) and ⌘K navigation to pages and consoles. The console is bundled into this package, so the dashboard-only release did not reach apps.
+
 ## 0.12.0
 
 ### Minor Changes
