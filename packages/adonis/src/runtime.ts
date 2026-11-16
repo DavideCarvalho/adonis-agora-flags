@@ -32,6 +32,7 @@ import { PushEventTransport, tenantTransports } from './tenant_transports/index.
 import type { RulesetChannel, TenantLinkContext, TenantPush } from './tenant_transports/types.js';
 import { RemoteSource } from './topology/remote_source.js';
 import { resolveTenantToken, type TokenSource } from './topology/token.js';
+import { ControlPlaneAddress } from './topology/url.js';
 import { DbTransport } from './transports/db_transport.js';
 import { MemoryTransport } from './transports/memory_transport.js';
 import type { Transport } from './transports/transport.js';
@@ -68,6 +69,8 @@ export interface FlagsRuntime {
   token?: TokenSource;
   /** Control-plane only: tenant ingestion (HTTP routes and brokers), set by the provider. */
   controlPlane?: { readonly links: ReadonlyArray<{ driver: string; check?(): Promise<void> }> };
+  /** Tenant only: `tenant.url`, resolved on first use (shared by every channel). */
+  controlPlaneUrl?: ControlPlaneAddress;
   /** Tenant only: its push and watch channels to the control-plane. */
   tenantLinks?: { push: TenantPush; watch: RulesetChannel };
   /** Issues browser tokens, when `browser` is configured (set by the provider). */
@@ -106,6 +109,7 @@ async function lucidAvailable(ctx: FactoryContext): Promise<boolean> {
 /** Opens a tenant's push and watch channels from `tenant.transport` / `tenant.watch`. */
 async function openTenantLinks(
   tenant: TenantConfig<Record<string, never>>['tenant'],
+  url: ControlPlaneAddress | undefined,
   token: TokenSource,
   ctx: FactoryContext,
   logger: Logger | undefined,
@@ -121,7 +125,7 @@ async function openTenantLinks(
   }
   const linkCtx: TenantLinkContext = {
     app: ctx.app,
-    url: tenant.url,
+    url,
     partition: tenant.partition,
     token,
     capabilities: tenant.capabilities,
@@ -165,14 +169,25 @@ export async function createRuntime(
     config.topology === 'tenant' ? config.tenant.partition : (config.app ?? ctx.appName ?? 'app');
   const logger = options.logger;
   const declarations = config.flags;
-  const enricherList = [builtInEnrichers.diagnostics(), ...(config.enrichers ?? [])];
+  // A tenant's exposures and tracks reach the control plane, which emits them (with `app`): by
+  // default the tenant leaves them to it, so nothing is recorded twice.
+  const diagnostics =
+    config.topology === 'tenant'
+      ? builtInEnrichers.diagnostics({
+          app,
+          ...(config.diagnostics === 'local' ? {} : { skip: ['exposure', 'track'] }),
+        })
+      : builtInEnrichers.diagnostics();
+  const enricherList = [diagnostics, ...(config.enrichers ?? [])];
   for (const enricher of enricherList) await enricher.setup?.();
   const start = options.start !== false;
 
   if (config.topology === 'tenant') {
     const tenant = config.tenant;
     const token = resolveTenantToken(tenant.token);
-    const links = await openTenantLinks(tenant, token, ctx, logger);
+    const controlPlaneUrl =
+      tenant.url !== undefined ? new ControlPlaneAddress(tenant.url) : undefined;
+    const links = await openTenantLinks(tenant, controlPlaneUrl, token, ctx, logger);
     const source = new RemoteSource({
       channel: links.watch,
       ...(tenant.snapshotPath ? { snapshotPath: tenant.snapshotPath } : {}),
@@ -229,6 +244,7 @@ export async function createRuntime(
       ...(usage ? { usage } : {}),
       enrichers: enricherList,
       token,
+      ...(controlPlaneUrl ? { controlPlaneUrl } : {}),
       tenantLinks: links,
       async close() {
         await source.stop();

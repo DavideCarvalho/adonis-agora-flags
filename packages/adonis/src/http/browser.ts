@@ -5,6 +5,7 @@ import {
   localKeySource,
   remoteKeySource,
 } from '../topology/browser_token.js';
+import type { ControlPlaneAddress } from '../topology/url.js';
 import { BrowserApi } from './browser_api.js';
 import { BrowserTokens } from './browser_tokens.js';
 import type { ControlPlane } from './control_plane.js';
@@ -53,14 +54,15 @@ export function registerBrowser(
   if (!browser) return undefined;
   const manager = runtime.manager;
   let keys: BrowserKeySource;
-  let url: string;
+  let url: string | ControlPlaneAddress;
   if (config.topology === 'tenant') {
+    const address = runtime.controlPlaneUrl!;
     keys = remoteKeySource({
-      url: config.tenant.url!,
+      url: address,
       token: runtime.token!,
       partition: config.tenant.partition,
     });
-    url = browser.publicUrl ?? config.tenant.url!;
+    url = browser.publicUrl ?? address;
   } else {
     const secret = options.secret!;
     const prefix = (

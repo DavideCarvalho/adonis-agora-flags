@@ -55,6 +55,7 @@ export {
 } from './define_config.js';
 export {
   DIAGNOSTICS_CHANNELS,
+  type DiagnosticsEnricherOptions,
   type Enricher,
   enrichers,
   FLAGS_DIAGNOSTIC_EVENTS,
@@ -120,6 +121,7 @@ export {
   type WatchTransport,
 } from './tenant_transports/index.js';
 export { FLAGS_RESOURCE, TENANT_SCOPES, type TenantTokenSource } from './topology/token.js';
+export type { LazyTenantUrl, TenantUrl } from './topology/url.js';
 export {
   type AuthkitUserVerifierOptions,
   type SharedSecretPartition,

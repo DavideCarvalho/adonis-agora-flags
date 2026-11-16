@@ -8,6 +8,7 @@ import {
   type IssuedBrowserToken,
   signBrowserToken,
 } from '../topology/browser_token.js';
+import type { ControlPlaneAddress } from '../topology/url.js';
 
 export interface BrowserTokenResponse extends IssuedBrowserToken {
   /** The flags API the token is for. */
@@ -24,7 +25,7 @@ export class BrowserTokens {
   constructor(
     private readonly runtime: FlagsRuntime,
     private readonly keys: BrowserKeySource,
-    private readonly url: string,
+    private readonly url: string | ControlPlaneAddress,
     private readonly config: BrowserConfig,
     private readonly logger?: { warn(message: string): void },
   ) {}
@@ -43,7 +44,7 @@ export class BrowserTokens {
         ...(this.config.ttlSeconds !== undefined ? { ttlSeconds: this.config.ttlSeconds } : {}),
       },
     );
-    return { ...issued, url: this.url };
+    return { ...issued, url: typeof this.url === 'string' ? this.url : await this.url.get() };
   }
 
   async handle(ctx: HttpContext) {

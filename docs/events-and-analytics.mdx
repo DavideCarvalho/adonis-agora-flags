@@ -121,6 +121,14 @@ onDiagnostic('flags', 'change', (event) => {
 
 `change` fires in the process that made the change. Other processes pick the new ruleset up without publishing it again.
 
+On a [central server](/docs/central-server), each event is published once. The tenant app publishes its evaluations, with `app` set to `tenant.partition`. The control plane publishes the exposures and tracks it receives from tenants, with `app` set to the tenant, so the tenant does not publish them itself. Set `diagnostics: 'local'` in the tenant's `config/flags.ts` to have it publish them too, for example when the control plane does not run diagnostics:
+
+```ts
+onDiagnostic('flags', 'track', (event) => {
+  metrics.increment('conversions', { app: event.app })
+})
+```
+
 For OpenTelemetry's feature-flag attributes (`feature_flag.key`, `feature_flag.result.variant`…) and Sentry flag context, add enrichers:
 
 ```ts

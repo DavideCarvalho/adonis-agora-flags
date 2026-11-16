@@ -1,6 +1,7 @@
 import type { Ruleset } from '@adonis-agora/flags-core';
 import type { ApplicationService } from '@adonisjs/core/types';
 import type { TokenSource } from '../topology/token.js';
+import type { ControlPlaneAddress } from '../topology/url.js';
 import type { VerifiedTenant } from '../topology/verify.js';
 import type { DeadLetter, MessageDedupe, TenantMessage, TenantMessageKind } from './message.js';
 
@@ -14,8 +15,8 @@ export interface LinkLogger {
 /** What a driver gets on a tenant. */
 export interface TenantLinkContext {
   app?: ApplicationService | undefined;
-  /** `tenant.url`, when set. */
-  url?: string | undefined;
+  /** `tenant.url`, when set: resolve it with `await url.get()` before each request. */
+  url?: ControlPlaneAddress | undefined;
   partition: string;
   token: TokenSource;
   /** Advertised capabilities (`tenant.capabilities`). */

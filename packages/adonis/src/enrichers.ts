@@ -36,7 +36,7 @@ export type FlagsDiagnosticEvent = (typeof FLAGS_DIAGNOSTIC_EVENTS)[number];
 
 /** The `emit` of `@adonis-agora/diagnostics`, read from its global slot: flags never imports it. */
 const EMIT_SLOT = Symbol.for('@agora/diagnostics:emit');
-type EmitFn = (lib: string, event: string, payload: unknown) => void;
+type EmitFn = (lib: string, event: string, payload: unknown, options?: { app?: string }) => void;
 
 /**
  * Diagnostics' claim registry (a reference-counted `Map<'lib:event', number>`): its generic OTel
@@ -80,31 +80,57 @@ interface OtelApi {
   };
 }
 
+export interface DiagnosticsEnricherOptions {
+  /**
+   * The tenant app the events are about, stamped as the envelope's `app` (diagnostics 1.0.0-rc.6+;
+   * older versions ignore it). Set from `tenant.partition` on a tenant.
+   */
+  app?: string;
+  /** Events this process leaves to the control plane, which emits them for it. */
+  skip?: readonly FlagsDiagnosticEvent[];
+}
+
+/**
+ * Publishes `agora:flags:<event>` through diagnostics' `emit`. Each event goes through `emit` once
+ * even with no subscriber: that call is what registers the channel, and its OTel bridge only
+ * subscribes to registered channels. After that the payload is built only when someone listens.
+ */
+export function flagsDiagnostics(): (
+  event: FlagsDiagnosticEvent,
+  payload: () => unknown,
+  app?: string,
+) => void {
+  const registered = new Set<FlagsDiagnosticEvent>();
+  const channels = new Map(
+    FLAGS_DIAGNOSTIC_EVENTS.map((event) => [event, channel(`agora:flags:${event}`)]),
+  );
+  return (event, payload, app) => {
+    if (registered.has(event) && !channels.get(event)?.hasSubscribers) return;
+    const emit = diagnosticsEmit();
+    if (!emit) return;
+    registered.add(event);
+    if (app === undefined) emit('flags', event, payload());
+    else emit('flags', event, payload(), { app });
+  };
+}
+
 export const enrichers = {
   /**
    * Publishes evaluations, exposures, tracks and ruleset changes through `@adonis-agora/diagnostics`
    * (`agora:flags:<event>`), so its OpenTelemetry bridge, telescope and `onDiagnostic('flags', …)`
    * listeners see them. Always on; does nothing when diagnostics is not installed.
    */
-  diagnostics(): Enricher {
-    // Each event goes through diagnostics' `emit` once even with no subscriber: that call is what
-    // registers the channel, and its OTel bridge only subscribes to registered channels. After that
-    // the payload is built only when someone listens.
-    const registered = new Set<FlagsDiagnosticEvent>();
-    const channels = new Map(
-      FLAGS_DIAGNOSTIC_EVENTS.map((event) => [event, channel(`agora:flags:${event}`)]),
-    );
-    const publish = (event: FlagsDiagnosticEvent, payload: () => unknown) => {
-      if (registered.has(event) && !channels.get(event)?.hasSubscribers) return;
-      const emit = diagnosticsEmit();
-      if (!emit) return;
-      registered.add(event);
-      emit('flags', event, payload());
+  diagnostics(options: DiagnosticsEnricherOptions = {}): Enricher {
+    const publish = flagsDiagnostics();
+    const skip = new Set(options.skip ?? []);
+    const app = options.app;
+    const send = (event: FlagsDiagnosticEvent, payload: () => unknown) => {
+      if (!skip.has(event)) publish(event, payload, app);
     };
     return {
       name: 'diagnostics',
       onEvaluation(details, context) {
-        publish('evaluation', () => ({
+        send('evaluation', () => ({
           flag: details.flagKey,
           variant: details.variant,
           reason: details.reason,
@@ -113,10 +139,10 @@ export const enrichers = {
         }));
       },
       onEvent(event) {
-        publish(event.type === 'exposure' ? 'exposure' : 'track', () => event);
+        send(event.type === 'exposure' ? 'exposure' : 'track', () => event);
       },
       onChange(change) {
-        publish('change', () => change);
+        send('change', () => change);
       },
     };
   },

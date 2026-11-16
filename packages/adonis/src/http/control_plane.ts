@@ -9,6 +9,7 @@ import type { HttpContext } from '@adonisjs/core/http';
 import type { ApplicationService } from '@adonisjs/core/types';
 import type { FlagDeclaration } from '../declare.js';
 import type { ControlPlaneConfig } from '../define_config.js';
+import { flagsDiagnostics } from '../enrichers.js';
 import { parseEvents } from '../events/event.js';
 import type { FlagsRuntime } from '../runtime.js';
 import {
@@ -104,6 +105,7 @@ export class ControlPlane implements TenantMessageHandler {
   #verify: (request: TenantVerifierRequest) => Promise<VerifiedTenant | null>;
   #dedupe: MessageDedupe = new MemoryDedupe();
   #links: ControlPlaneLink[] = [];
+  #diagnostics = flagsDiagnostics();
   /** Shared pollers for environments other than this process's. */
   #envWatchers = new Map<string, { listeners: Set<(r: Ruleset) => void>; stop: () => void }>();
 
@@ -309,6 +311,9 @@ export class ControlPlane implements TenantMessageHandler {
     }
     if (events.length > 5000) throw new IngestError(413, 'at most 5000 events per request');
     await this.runtime.transport!.publish(events);
+    // This server coordinates the tenant's events now: it emits them, attributed to the tenant
+    // (which does not emit them itself by default).
+    for (const event of events) this.#diagnostics(event.type, () => event, verified.partition);
     return events.length;
   }
 
