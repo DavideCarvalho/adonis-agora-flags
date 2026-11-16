@@ -76,6 +76,12 @@ tenant: {
 Without authkit: `verifyTenant: sharedSecretVerifier({ partitions: { streaming: env.get('FLAGS_SECRET_STREAMING') } })`
 on the server and `token: env.get('FLAGS_SECRET_STREAMING')` on the app.
 
+`tenant.url` may be lazy: `controlPlaneUrl({ issuer, resource: 'urn:agora:flags' })` from
+`@adonis-agora/authkit-client` (resolved before the first request, refreshed on a
+connection error or 404). Diagnostics events are published once: the tenant publishes
+evaluations (`app` = partition); the control plane publishes the tenant's exposures and
+tracks (`app` = partition) and the tenant does not, unless `diagnostics: 'local'`.
+
 Frontends that do not render through Inertia (SPA, static site) read client
 flags with `remoteFlags({ endpoint: '/_flags/token' })` from
 `@adonis-agora/flags-react`. Set `browser: {}` in the app's config — it mounts

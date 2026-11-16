@@ -1,5 +1,11 @@
 import { RULESET_SCHEMA_VERSION, type Ruleset } from '@adonis-agora/flags-core';
 import type { TokenSource } from '../topology/token.js';
+import {
+  type ControlPlaneAddress,
+  controlPlaneAddress,
+  fetchControlPlane,
+  type TenantUrl,
+} from '../topology/url.js';
 import type {
   RulesetChannel,
   RulesetChannelListener,
@@ -9,8 +15,11 @@ import type {
 } from './types.js';
 
 export interface HttpTenantTransportOptions {
-  /** The control-plane base URL (`https://flags.example.com/_flags`). Default: `tenant.url`. */
-  url?: string;
+  /**
+   * The control-plane base URL (`https://flags.example.com/_flags`), or a function resolving it.
+   * Default: `tenant.url`.
+   */
+  url?: TenantUrl;
   /** Replaces the global `fetch` (a proxy, mTLS, tests). */
   fetch?: typeof fetch;
   /** Aborts a request after this many ms. Default: none (the SSE stream is never cut). */
@@ -22,7 +31,7 @@ export interface HttpTenantTransportOptions {
 }
 
 interface HttpOptions {
-  url: string;
+  url: ControlPlaneAddress;
   token: TokenSource;
   partition: string;
   capabilities?: string[] | undefined;
@@ -30,12 +39,12 @@ interface HttpOptions {
   timeoutMs?: number | undefined;
 }
 
-function base(url: string) {
-  return url.replace(/\/$/, '');
-}
-
-function doFetch(options: HttpOptions): typeof fetch {
-  return options.fetch ?? ((input, init) => fetch(input, init));
+function request(
+  options: HttpOptions,
+  path: string,
+  init: () => Promise<RequestInit> | RequestInit,
+): Promise<Response> {
+  return fetchControlPlane(options.url, path, init, options.fetch);
 }
 
 function signal(timeoutMs: number | undefined): { signal?: AbortSignal } {
@@ -53,12 +62,13 @@ export class HttpPush implements TenantPush {
 
   async send(kind: 'events' | 'usage' | 'declarations', body: unknown): Promise<void> {
     if (kind === 'events') return this.#sendEvents(body);
-    const response = await doFetch(this.options)(`${base(this.options.url)}${PATHS[kind]}`, {
+    const payload = JSON.stringify(body);
+    const response = await request(this.options, PATHS[kind], async () => ({
       method: 'POST',
       headers: await this.#headers(),
-      body: JSON.stringify(body),
+      body: payload,
       ...signal(this.options.timeoutMs),
-    });
+    }));
     if (response.status === 401) this.options.token.invalidate?.();
     if (!response.ok)
       throw new Error(`control-plane answered ${response.status} on ${PATHS[kind]}`);
@@ -75,14 +85,15 @@ export class HttpPush implements TenantPush {
   async #sendEvents(body: unknown): Promise<void> {
     const retries = this.options.retries ?? 3;
     let lastError: unknown;
+    const payload = JSON.stringify(body);
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
-        const response = await doFetch(this.options)(`${base(this.options.url)}/v1/events`, {
+        const response = await request(this.options, '/v1/events', async () => ({
           method: 'POST',
           headers: await this.#headers(),
-          body: JSON.stringify(body),
+          body: payload,
           ...signal(this.options.timeoutMs),
-        });
+        }));
         if (response.ok) return;
         if (response.status === 401) this.options.token.invalidate?.();
         // 4xx other than 401/429 will not succeed on retry.
@@ -108,13 +119,13 @@ export class HttpPush implements TenantPush {
 }
 
 async function httpCheck(options: HttpOptions): Promise<void> {
-  const response = await doFetch(options)(`${base(options.url)}/v1/ruleset`, {
+  const response = await request(options, '/v1/ruleset', async () => ({
     headers: {
       authorization: `Bearer ${await options.token.get()}`,
       'x-flags-tenant': options.partition,
     },
     signal: AbortSignal.timeout(options.timeoutMs ?? 5000),
-  });
+  }));
   if (response.status === 401) throw new Error('the control-plane refused the tenant token (401)');
   if (!response.ok && response.status !== 403)
     throw new Error(`the control-plane answered ${response.status}`);
@@ -139,10 +150,10 @@ export class HttpRulesetChannel implements RulesetChannel {
   async fetch(knownVersion: string | undefined): Promise<Ruleset | null> {
     const headers = await this.#headers();
     if (knownVersion !== undefined) headers['if-none-match'] = `"${knownVersion}"`;
-    const response = await doFetch(this.options)(`${base(this.options.url)}/v1/ruleset`, {
+    const response = await request(this.options, '/v1/ruleset', () => ({
       headers,
       ...signal(this.options.timeoutMs),
-    });
+    }));
     if (response.status === 304) return null;
     if (response.status === 401) this.options.token.invalidate?.();
     if (!response.ok) throw new Error(`control-plane answered ${response.status}`);
@@ -157,15 +168,13 @@ export class HttpRulesetChannel implements RulesetChannel {
       void (async () => {
         let backoff = 1000;
         while (!stopped) {
-          controller = new AbortController();
+          const current = new AbortController();
+          controller = current;
           try {
-            const response = await doFetch(this.options)(
-              `${base(this.options.url)}/v1/ruleset/stream`,
-              {
-                headers: { ...(await this.#headers()), accept: 'text/event-stream' },
-                signal: controller.signal,
-              },
-            );
+            const response = await request(this.options, '/v1/ruleset/stream', async () => ({
+              headers: { ...(await this.#headers()), accept: 'text/event-stream' },
+              signal: current.signal,
+            }));
             if (response.status === 401) this.options.token.invalidate?.();
             if (!response.ok || !response.body)
               throw new Error(`stream answered ${response.status}`);
@@ -214,8 +223,11 @@ async function readEvents(body: NonNullable<Response['body']>, listener: Ruleset
   }
 }
 
-function needUrl(options: HttpTenantTransportOptions, ctx: TenantLinkContext): string {
-  const url = options.url ?? ctx.url;
+function needUrl(
+  own: ControlPlaneAddress | undefined,
+  ctx: TenantLinkContext,
+): ControlPlaneAddress {
+  const url = own ?? ctx.url;
   if (!url)
     throw new Error(
       '[flags] the "http" tenant transport needs tenant.url (or tenantTransports.http({ url }))',
@@ -225,8 +237,10 @@ function needUrl(options: HttpTenantTransportOptions, ctx: TenantLinkContext): s
 
 /** The default: POST for events, ETag + server-sent events for the ruleset. No peer. */
 export function httpTransport(options: HttpTenantTransportOptions = {}): WatchTransport {
+  // One address for push and watch, so a refresh after a move serves both.
+  const own = options.url !== undefined ? controlPlaneAddress(options.url) : undefined;
   const common = (ctx: TenantLinkContext): HttpOptions => ({
-    url: needUrl(options, ctx),
+    url: needUrl(own, ctx),
     token: ctx.token,
     partition: ctx.partition,
     capabilities: ctx.capabilities,

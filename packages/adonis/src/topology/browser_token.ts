@@ -1,6 +1,12 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Subject } from '../subject.js';
 import type { TokenSource } from './token.js';
+import {
+  type ControlPlaneAddress,
+  controlPlaneAddress,
+  fetchControlPlane,
+  type TenantUrl,
+} from './url.js';
 import type { VerifiedUser } from './verify.js';
 
 /**
@@ -118,25 +124,30 @@ export function localKeySource(secret: string, app: string, environment: string)
  * like every other tenant call. Cached for an hour; concurrent callers share one request.
  */
 export function remoteKeySource(options: {
-  url: string;
+  url: TenantUrl | ControlPlaneAddress;
   token: TokenSource;
   partition: string;
   fetch?: typeof fetch;
   cacheMs?: number;
 }): BrowserKeySource {
-  const doFetch = options.fetch ?? fetch;
+  const address = controlPlaneAddress(options.url);
   let cached: { value: { key: string; app: string; environment: string }; until: number } | null =
     null;
   let inflight: Promise<{ key: string; app: string; environment: string }> | undefined;
   const load = async () => {
-    const request = async () =>
-      doFetch(`${options.url.replace(/\/$/, '')}/v1/browser-key`, {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${await options.token.get()}`,
-          'x-flags-tenant': options.partition,
-        },
-      });
+    const request = () =>
+      fetchControlPlane(
+        address,
+        '/v1/browser-key',
+        async () => ({
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${await options.token.get()}`,
+            'x-flags-tenant': options.partition,
+          },
+        }),
+        options.fetch,
+      );
     let response = await request();
     if (response.status === 401 && options.token.invalidate) {
       options.token.invalidate();

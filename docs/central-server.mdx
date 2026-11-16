@@ -102,6 +102,19 @@ export default defineConfig({
 
 `tenant.token` takes a string (a shared secret), a function returning a token, or an object with `get()`. `authkitTenantToken` finds authkit's token endpoint through discovery, caches the token and refreshes it before it expires.
 
+`tenant.url` also takes a function resolving the URL, so the app can find the control plane through authkit discovery instead of an env var:
+
+```ts title="config/flags.ts (an app)"
+import { controlPlaneUrl } from '@adonis-agora/authkit-client'
+
+tenant: {
+  url: controlPlaneUrl({ issuer: env.get('AUTHKIT_ISSUER'), resource: 'urn:agora:flags' }),
+  // …
+}
+```
+
+It is resolved before the first request and resolved again (its `refresh()`) when the control plane stops answering or answers 404. `node ace agora:doctor --deep` reports whether it resolves.
+
 The app reads flags exactly as before (`ctx.flags`, the service). Changes arrive within milliseconds over the stream; polling is the fallback. `snapshotPath` keeps the last ruleset on disk, so an app that boots while the server is down still serves real targeting.
 
 A tenant has no store, sinks or console: edit flags on the control-plane. It publishes its declarations at boot, so the console knows its flags.

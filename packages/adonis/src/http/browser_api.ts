@@ -3,6 +3,7 @@ import { PassThrough } from 'node:stream';
 import { evaluate, type JsonValue, type Ruleset } from '@adonis-agora/flags-core';
 import type { HttpContext } from '@adonisjs/core/http';
 import { HOLDOUT_VARIANT } from '../analytics/results.js';
+import { flagsDiagnostics } from '../enrichers.js';
 import { EVENT_SCHEMA_VERSION, exposureId, type FlagEvent, uuidv7 } from '../events/event.js';
 import type { FlagsRuntime } from '../runtime.js';
 import { toContext } from '../subject.js';
@@ -52,6 +53,7 @@ function browserAttributes(input: unknown): Record<string, string | number | boo
  */
 export class BrowserApi {
   #clientFlags: { at: number; keys: Set<string> } | undefined;
+  #diagnostics = flagsDiagnostics();
 
   constructor(
     private readonly runtime: FlagsRuntime,
@@ -290,6 +292,11 @@ export class BrowserApi {
       }
     }
     if (out.length > 0) await this.runtime.transport!.publish(out);
+    // A tenant's browser reports here, on the control plane: this server emits those events,
+    // attributed to the tenant (the tenant never sees them).
+    if (this.runtime.topology === 'control-plane' && app !== this.runtime.manager.app) {
+      for (const event of out) this.#diagnostics(event.type, () => event, app);
+    }
     return ctx.response.status(202).send({ accepted: out.length });
   }
 }

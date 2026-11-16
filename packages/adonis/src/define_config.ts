@@ -25,6 +25,7 @@ import type { Subject, SubjectLike } from './subject.js';
 import type { DeadLetter } from './tenant_transports/message.js';
 import type { TenantTransport, WatchTransport } from './tenant_transports/types.js';
 import type { TenantTokenSource } from './topology/token.js';
+import { isTenantUrl, type TenantUrl } from './topology/url.js';
 import type { TenantVerifierOption, UserVerifier } from './topology/verify.js';
 import { DbTransport, type DbTransportOptions } from './transports/db_transport.js';
 import { MemoryTransport } from './transports/memory_transport.js';
@@ -295,6 +296,8 @@ export interface StandaloneConfig<F extends Record<string, FlagDeclaration>>
   /** Control-plane only. */
   verifyTenant?: never;
   controlPlane?: never;
+  /** Tenant only. */
+  diagnostics?: never;
 }
 
 export interface ControlPlaneConfig<F extends Record<string, FlagDeclaration>>
@@ -328,6 +331,8 @@ export interface ControlPlaneConfig<F extends Record<string, FlagDeclaration>>
     /** Moved: `verifyTenant` is a top-level option. */
     verifyTenant?: never;
   };
+  /** Tenant only. */
+  diagnostics?: never;
 }
 
 export interface TenantConfig<F extends Record<string, FlagDeclaration>> extends BaseConfig<F> {
@@ -335,10 +340,12 @@ export interface TenantConfig<F extends Record<string, FlagDeclaration>> extends
   /** The control-plane connection. */
   tenant: {
     /**
-     * The control-plane URL (`https://flags.example.com/_flags`). Needed by the `http` transport
-     * (the default) and by `browser` (browsers always reach the control-plane over HTTP).
+     * The control-plane URL (`https://flags.example.com/_flags`), or a function resolving it
+     * (`controlPlaneUrl(...)` from `@adonis-agora/authkit-client`): resolved before the first
+     * request, refreshed (its `refresh()`) after a connection error or a 404. Needed by the `http`
+     * transport (the default) and by `browser` (browsers always reach the control-plane over HTTP).
      */
-    url?: string;
+    url?: TenantUrl;
     /**
      * How this app talks to the control-plane (server to server): `tenantTransports.http()` (the
      * default), `.queue()`, `.bullmq()`, `.redis()`, `.durable()`. Carries events, usage and
@@ -363,6 +370,13 @@ export interface TenantConfig<F extends Record<string, FlagDeclaration>> extends
     intervalMs?: number;
     capabilities?: string[];
   };
+  /**
+   * Where exposures and tracks reach `@adonis-agora/diagnostics`. `'control-plane'` (default): the
+   * control plane emits them, with `app` set to this tenant, once it has them; this app does not, so
+   * nothing is recorded twice. `'local'`: this app emits them too (when the control plane does not
+   * run diagnostics). Evaluations are always emitted here, with `app` set to `tenant.partition`.
+   */
+  diagnostics?: 'control-plane' | 'local';
   /** FORBIDDEN on a tenant: it owns no state; everything lives on the control-plane. */
   store?: never;
   transport?: never;
@@ -386,8 +400,9 @@ export function validateConfig(config: FlagsConfig): void {
     role?: string;
     verifyTenant?: unknown;
     controlPlane?: Record<string, unknown>;
+    diagnostics?: unknown;
     tenant?: {
-      url?: string;
+      url?: unknown;
       partition?: string;
       token?: unknown;
       transport?: { driver?: string; canWatch?: boolean };
@@ -428,9 +443,26 @@ export function validateConfig(config: FlagsConfig): void {
       `[flags] controlPlane only applies to topology "control-plane" (this is "${topology}")`,
     );
   }
+  if (topology !== 'tenant' && raw.diagnostics !== undefined) {
+    throw new Error(
+      `[flags] diagnostics only applies to topology "tenant" (this is "${topology}")`,
+    );
+  }
   if (topology === 'tenant') {
     if (!raw.tenant?.partition) {
       throw new Error('[flags] topology "tenant" needs tenant.partition');
+    }
+    if (
+      raw.diagnostics !== undefined &&
+      raw.diagnostics !== 'control-plane' &&
+      raw.diagnostics !== 'local'
+    ) {
+      throw new Error('[flags] diagnostics must be "control-plane" or "local"');
+    }
+    if (raw.tenant.url !== undefined && !isTenantUrl(raw.tenant.url)) {
+      throw new Error(
+        '[flags] tenant.url must be the control-plane URL or a function resolving it (controlPlaneUrl() from @adonis-agora/authkit-client)',
+      );
     }
     const push = raw.tenant.transport;
     const watch = raw.tenant.watch;

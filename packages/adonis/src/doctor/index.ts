@@ -66,4 +66,29 @@ export const agoraDoctorChecks: AgoraDoctorCheck[] = [
       return { status: 'skip', message: 'standalone: no control-plane' };
     },
   },
+  {
+    id: 'flags.control-plane-url',
+    lib: 'flags',
+    title: 'Tenant resolves the control-plane URL',
+    cost: 'deep',
+    async run(app) {
+      if (!app.container.hasBinding('flags.runtime'))
+        return { status: 'skip', message: 'the flags provider is not registered' };
+      const runtime = (await app.container.make('flags.runtime')) as FlagsRuntime;
+      if (runtime.topology !== 'tenant') return { status: 'skip', message: 'not a tenant' };
+      const address = runtime.controlPlaneUrl;
+      if (!address) return { status: 'skip', message: 'no tenant.url (broker-only tenant)' };
+      try {
+        const url = await address.get();
+        return { status: 'ok', message: `control plane at ${url}` };
+      } catch (error) {
+        return {
+          status: 'error',
+          message: `tenant.url did not resolve: ${(error as Error).message}`,
+          fix: 'Check tenant.url in config/flags.ts (or the discovery it calls) and that the control plane is published',
+          docs: DOCS,
+        };
+      }
+    },
+  },
 ];
