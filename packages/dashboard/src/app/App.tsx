@@ -5,6 +5,8 @@ import { PageHeader } from '../agora-kit/blocks/page-header';
 import { cn } from '../agora-kit/lib/utils';
 import { AppShell, type NavSection, PageBody } from '../agora-kit/shell/app-shell';
 import { type AgoraShellConfig, readShellConfig } from '../agora-kit/shell-config';
+import { splitHash, subscribeHashUrl } from '../agora-kit/url-state/hash-url';
+import { NuqsHashAdapter } from '../agora-kit/url-state/nuqs-hash-adapter';
 import { api, CONFIG_ELEMENT_ID, defaultEnvironment, type Meta } from '../client/flags-client';
 import { Activity } from './Activity';
 import { AppPicker } from './AppPicker';
@@ -37,16 +39,37 @@ import { Segments } from './Segments';
 /** Flags' accent (emerald): passed to the kit's ThemeProvider in `main.tsx`. */
 export const FLAGS_ACCENT = '#34d399';
 
-/** The hash is the single source of truth for the screen, the open item and the environment. */
+/**
+ * The hash is the single source of truth for the screen, the open item and the environment. A
+ * screen's own view state (filters, search, page cursor) rides in the same query, written by nuqs
+ * through the kit's `NuqsHashAdapter`; the route follows those query-only writes too (they fire no
+ * `hashchange`), but keeps its object while the screen, item and environment are unchanged.
+ */
 function useHashRoute(): [Route, (next: Route) => void] {
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.hash));
-  useEffect(() => {
-    const sync = () => setRoute(parseRoute(window.location.hash));
-    window.addEventListener('hashchange', sync);
-    return () => window.removeEventListener('hashchange', sync);
-  }, []);
+  useEffect(
+    () =>
+      subscribeHashUrl(() =>
+        setRoute((prev) => {
+          const next = parseRoute(window.location.hash);
+          return formatRoute(next) === formatRoute(prev) ? prev : next;
+        }),
+      ),
+    [],
+  );
   const navigate = useCallback((next: Route) => {
-    const hash = formatRoute(next);
+    let hash = formatRoute(next);
+    // Switching environment on the same screen keeps that screen's filters.
+    const current = parseRoute(window.location.hash);
+    if (current.screen === next.screen && current.id === next.id) {
+      const { path, search } = splitHash(hash);
+      const query = new URLSearchParams(search);
+      for (const [key, value] of new URLSearchParams(splitHash(window.location.hash).search)) {
+        if (key !== 'env') query.append(key, value);
+      }
+      const rest = query.toString();
+      hash = rest === '' ? `#${path}` : `#${path}?${rest}`;
+    }
     if (window.location.hash !== hash) window.location.hash = hash;
   }, []);
   return [route, navigate];
@@ -160,7 +183,19 @@ function EnvironmentPicker({
  * picker in the topbar. Every screen renders inside its own error boundary; detail views (a flag's
  * editor, an experiment's results) replace their list.
  */
+/**
+ * The flags console, wrapped in the kit's `NuqsHashAdapter`: each screen's filters live in the
+ * hash's query (`#/flags?q=checkout&show=stale`), so a filtered view is a link.
+ */
 export function App() {
+  return (
+    <NuqsHashAdapter>
+      <Console />
+    </NuqsHashAdapter>
+  );
+}
+
+function Console() {
   // What the provider put in the page: switcher, ⌘K search, viewer, sign-out (all optional).
   const shellConfig = useMemo(() => readShellConfig(CONFIG_ELEMENT_ID), []);
   const [route, navigate] = useHashRoute();

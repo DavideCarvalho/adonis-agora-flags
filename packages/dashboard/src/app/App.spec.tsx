@@ -157,3 +157,28 @@ describe('the shell', () => {
     expect(screen.queryByText('no relay')).toBeNull();
   });
 });
+
+describe('the shell: filters in the URL', () => {
+  it('switching environment keeps the screen and its filters', async () => {
+    window.history.replaceState(null, '', '/#/flags?show=stale&q=check');
+    renderApp();
+    const picker = (await screen.findAllByLabelText('Environment'))[0] as HTMLSelectElement;
+    await waitFor(() => expect(picker.querySelector('option[value="staging"]')).toBeTruthy());
+    fireEvent.change(picker, { target: { value: 'staging' } });
+    await waitFor(() =>
+      expect(window.location.hash).toBe('#/flags?env=staging&show=stale&q=check'),
+    );
+    expect((screen.getByLabelText('Search flags') as HTMLInputElement).value).toBe('check');
+  });
+
+  it('leaving a screen drops its filters; the route follows query-only writes', async () => {
+    window.history.replaceState(null, '', '/#/flags?show=stale');
+    renderApp();
+    await screen.findByLabelText('Search flags');
+    fireEvent.click(screen.getByRole('link', { name: 'Approvals' }));
+    await waitFor(() => expect(window.location.hash).toBe('#/approvals'));
+    fireEvent.click(await screen.findByRole('tab', { name: 'All' }));
+    await waitFor(() => expect(window.location.hash).toBe('#/approvals?status=all'));
+    expect(screen.getByRole('heading', { level: 1, name: 'Approvals' })).toBeTruthy();
+  });
+});

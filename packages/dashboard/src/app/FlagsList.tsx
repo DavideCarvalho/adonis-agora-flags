@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { parseAsString, parseAsStringLiteral, useQueryStates } from 'nuqs';
 import { useMemo, useState } from 'react';
 import { MetricCard, MetricGrid, MetricGridSkeleton } from '../agora-kit/blocks/metric-card';
 import { api, type FlagRow } from '../client/flags-client';
@@ -11,7 +12,19 @@ import { Badge } from './ui/badge';
 import { Button, Input, Select, Toggle } from './ui/form';
 import { Segmented } from './ui/segmented';
 
-type Show = 'all' | 'stale' | 'experiments';
+const SHOWS = ['all', 'stale', 'experiments'] as const;
+type Show = (typeof SHOWS)[number];
+
+/**
+ * The list's filters, in the hash's query (`#/flags?q=checkout&tag=billing&show=stale`). Typing in
+ * the search rewrites the current history entry; picking a tag, an owner or a view adds one.
+ */
+export const flagListParams = {
+  q: parseAsString.withDefault(''),
+  tag: parseAsString.withDefault('').withOptions({ history: 'push' }),
+  owner: parseAsString.withDefault('').withOptions({ history: 'push' }),
+  show: parseAsStringLiteral(SHOWS).withDefault('all').withOptions({ history: 'push' }),
+};
 
 /** Pure filter, so the list and its spec agree on what "matches" means. */
 export function filterFlags(
@@ -45,10 +58,7 @@ export function FlagsList({ onOpen }: { onOpen: (key: string) => void }) {
     queryKey: ['flags', environment],
     queryFn: () => api.flags(environment),
   });
-  const [search, setSearch] = useState('');
-  const [tag, setTag] = useState('');
-  const [owner, setOwner] = useState('');
-  const [show, setShow] = useState<Show>('all');
+  const [{ q: search, tag, owner, show }, setFilters] = useQueryStates(flagListParams);
   const [creating, setCreating] = useState(false);
   const kill = useWrite((input: { key: string; enabled: boolean }) =>
     api.setEnabled(environment, input.key, input.enabled),
@@ -80,7 +90,7 @@ export function FlagsList({ onOpen }: { onOpen: (key: string) => void }) {
             <Segmented
               aria-label="Show"
               value={show}
-              onChange={setShow}
+              onChange={(value) => void setFilters({ show: value })}
               options={[
                 { value: 'all', label: 'All' },
                 {
@@ -108,10 +118,14 @@ export function FlagsList({ onOpen }: { onOpen: (key: string) => void }) {
             aria-label="Search flags"
             placeholder="Search key, description, owner"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => void setFilters({ q: e.target.value })}
             className="min-w-0 flex-1 basis-full sm:basis-auto"
           />
-          <Select aria-label="Tag" value={tag} onChange={(e) => setTag(e.target.value)}>
+          <Select
+            aria-label="Tag"
+            value={tag}
+            onChange={(e) => void setFilters({ tag: e.target.value })}
+          >
             <option value="">All tags</option>
             {tags.map((t) => (
               <option key={t} value={t}>
@@ -119,7 +133,11 @@ export function FlagsList({ onOpen }: { onOpen: (key: string) => void }) {
               </option>
             ))}
           </Select>
-          <Select aria-label="Owner" value={owner} onChange={(e) => setOwner(e.target.value)}>
+          <Select
+            aria-label="Owner"
+            value={owner}
+            onChange={(e) => void setFilters({ owner: e.target.value })}
+          >
             <option value="">All owners</option>
             {owners.map((o) => (
               <option key={o} value={o}>

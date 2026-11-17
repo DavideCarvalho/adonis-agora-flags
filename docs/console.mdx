@@ -41,6 +41,8 @@ With authkit, `identity: identities.authkit()` in `config/flags.ts` covers both.
 - **Hygiene.** The stale-flag report.
 - **Ops.** The ruleset version and how it is kept fresh, the event transport, every sink's lag and last error, and the in-process buffer.
 
+Filters are in the URL: copy the link to share a filtered view. `/flags#/flags?env=staging&show=stale&q=checkout` opens the stale flags matching "checkout" in staging, and back/forward step through your picks. The flag list (`q`, `tag`, `owner`, `show`), Approvals (`status`), Activity (`entity`, `key` and the page) and Hygiene (`unused`, `static`) all keep theirs there.
+
 ### What the code owns
 
 The code owns what a flag is; the console owns who gets what. A flag declared in `config/flags.ts` shows a **defined in code** lock: its type, default, variants, owner, tags and description change there, and only its targeting is edited in the console. Metrics and experiments defined in `config/flags.ts` show a **config** lock and are read-only.
