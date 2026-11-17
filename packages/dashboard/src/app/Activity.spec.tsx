@@ -51,7 +51,10 @@ describe('the audit log: view in the URL', () => {
 
     act(() => window.history.forward());
     await waitFor(() => expect(window.location.hash).toBe('#/activity?after=c1'));
+    // Typing replaces the entry (even though it resets the pushed page cursor).
+    const before = window.history.length;
     fireEvent.change(screen.getByLabelText('Filter by key'), { target: { value: 'checkout' } });
     await waitFor(() => expect(window.location.hash).toBe('#/activity?key=checkout'));
+    expect(window.history.length).toBe(before);
   });
 });

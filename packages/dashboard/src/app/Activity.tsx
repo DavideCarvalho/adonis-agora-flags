@@ -67,7 +67,9 @@ export function Activity() {
           placeholder="Exact key"
           className="w-64"
           value={key}
-          onChange={(e) => void setView({ key: e.target.value, after: null })}
+          onChange={(e) =>
+            void setView({ key: e.target.value, after: null }, { history: 'replace' })
+          }
         />
       </div>
       <QueryState query={query} empty={entries.length === 0} emptyMessage="No changes recorded.">
