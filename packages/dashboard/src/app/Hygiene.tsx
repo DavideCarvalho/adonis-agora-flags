@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { parseAsInteger, useQueryStates } from 'nuqs';
 import { api } from '../client/flags-client';
 import { useEnv } from './env';
 import { STALE_LABELS } from './serving';
@@ -10,8 +10,11 @@ import { Field, Input } from './ui/form';
 /** Flags that probably should be removed from code and from the ruleset. */
 export function Hygiene({ onOpen }: { onOpen: (key: string) => void }) {
   const { environment } = useEnv();
-  const [unusedDays, setUnusedDays] = useState(30);
-  const [staticDays, setStaticDays] = useState(30);
+  // `?unused=60&static=14` in the hash; 30 (the default) leaves the URL. Typing replaces.
+  const [{ unused: unusedDays, static: staticDays }, setDays] = useQueryStates({
+    unused: parseAsInteger.withDefault(30),
+    static: parseAsInteger.withDefault(30),
+  });
   const query = useQuery({
     queryKey: ['stale', environment, unusedDays, staticDays],
     queryFn: () => api.stale(environment, unusedDays, staticDays),
@@ -30,7 +33,7 @@ export function Hygiene({ onOpen }: { onOpen: (key: string) => void }) {
               min={1}
               className="w-20"
               value={unusedDays}
-              onChange={(e) => setUnusedDays(Math.max(1, Number(e.target.value) || 1))}
+              onChange={(e) => void setDays({ unused: Math.max(1, Number(e.target.value) || 1) })}
             />
           </Field>
           <Field label="Static for (days)" className="flex-row items-center gap-2">
@@ -40,7 +43,7 @@ export function Hygiene({ onOpen }: { onOpen: (key: string) => void }) {
               min={1}
               className="w-20"
               value={staticDays}
-              onChange={(e) => setStaticDays(Math.max(1, Number(e.target.value) || 1))}
+              onChange={(e) => void setDays({ static: Math.max(1, Number(e.target.value) || 1) })}
             />
           </Field>
         </div>

@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FlagRow } from '../client/flags-client';
 import { clearConfig, injectConfig, stubFetch } from '../client/test-config.test-helper';
@@ -116,5 +116,55 @@ describe('the flag list', () => {
     renderScreen(<FlagsList onOpen={onOpen} />);
     fireEvent.click(await screen.findByRole('button', { name: 'checkout' }));
     expect(onOpen).toHaveBeenCalledWith('checkout');
+  });
+});
+
+describe('the flag list: filters in the URL', () => {
+  const keys = () =>
+    screen
+      .getAllByRole('button')
+      .map((b) => b.textContent)
+      .filter((t) => FLAGS.some((f) => f.key === t));
+
+  it('opens filtered from a shared link', async () => {
+    window.history.replaceState(null, '', '/flags#/flags?env=staging&show=stale');
+    stubFetch(() => ({ environment: 'staging', version: '1', data: FLAGS }));
+    renderScreen(<FlagsList onOpen={() => {}} />, { environment: 'staging' });
+    await screen.findByText('code default false');
+    expect(keys()).toEqual(['old_banner']);
+  });
+
+  it('typing replaces the history entry, keeping the route and the environment', async () => {
+    window.history.replaceState(null, '', '/flags?app=shop#/flags?env=staging');
+    stubFetch(() => ({ environment: 'staging', version: '1', data: FLAGS }));
+    renderScreen(<FlagsList onOpen={() => {}} />, { environment: 'staging' });
+    await screen.findByText('20% on');
+    const start = window.history.length;
+    fireEvent.change(screen.getByLabelText('Search flags'), { target: { value: 'play' } });
+    await waitFor(() => expect(window.location.hash).toBe('#/flags?env=staging&q=play'));
+    expect(window.location.search).toBe('?app=shop');
+    expect(window.history.length).toBe(start);
+    expect(keys()).toEqual(['new_player']);
+
+    // Cleared back to the default: the param leaves the URL.
+    fireEvent.change(screen.getByLabelText('Search flags'), { target: { value: '' } });
+    await waitFor(() => expect(window.location.hash).toBe('#/flags?env=staging'));
+  });
+
+  it('picking a view pushes, and back undoes it', async () => {
+    window.history.replaceState(null, '', '/flags#/flags');
+    stubFetch(() => ({ environment: 'production', version: '1', data: FLAGS }));
+    renderScreen(<FlagsList onOpen={() => {}} />);
+    await screen.findByText('20% on');
+    fireEvent.click(screen.getByRole('tab', { name: /Experiments/ }));
+    await waitFor(() => expect(window.location.hash).toBe('#/flags?show=experiments'));
+    expect(keys()).toEqual(['checkout']);
+    fireEvent.change(screen.getByLabelText('Owner'), { target: { value: 'video' } });
+    await waitFor(() => expect(window.location.hash).toBe('#/flags?show=experiments&owner=video'));
+
+    act(() => window.history.back());
+    await waitFor(() => expect(window.location.hash).toBe('#/flags?show=experiments'));
+    act(() => window.history.back());
+    await waitFor(() => expect(keys()).toEqual(['new_player', 'checkout', 'old_banner']));
   });
 });

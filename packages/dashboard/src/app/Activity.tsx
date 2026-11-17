@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { parseAsArrayOf, parseAsString, parseAsStringLiteral, useQueryStates } from 'nuqs';
 import { api } from '../client/flags-client';
 import { useEnv } from './env';
 import { HistoryPanel } from './FlagTools';
@@ -7,15 +7,27 @@ import { Panel, QueryState } from './shell';
 import { Button, Input } from './ui/form';
 import { Segmented } from './ui/segmented';
 
-type Entity = '' | 'flag' | 'segment' | 'layer' | 'metric' | 'holdout' | 'ruleset';
+const ENTITIES = ['', 'flag', 'segment', 'layer', 'metric', 'holdout', 'ruleset'] as const;
+type Entity = (typeof ENTITIES)[number];
+
+/**
+ * The audit log's view, in the hash's query (`#/activity?entity=flag&key=checkout&after=c1,c2`):
+ * `after` holds the cursor of every page walked so far, so a link opens on the same page and
+ * back/forward step through pages. Typing the key replaces; picking an entity or a page pushes.
+ */
+export const activityParams = {
+  entity: parseAsStringLiteral(ENTITIES).withDefault('').withOptions({ history: 'push' }),
+  key: parseAsString.withDefault(''),
+  after: parseAsArrayOf(parseAsString).withDefault([]).withOptions({ history: 'push' }),
+};
 
 /** The environment's audit log: every change, who made it, before and after. */
 export function Activity() {
   const { environment } = useEnv();
-  const [entity, setEntity] = useState<Entity>('');
-  const [key, setKey] = useState('');
   // The cursors of the pages walked so far: the last one is the page shown, none is the newest.
-  const [cursors, setCursors] = useState<string[]>([]);
+  const [{ entity, key, after: cursors }, setView] = useQueryStates(activityParams);
+  const setCursors = (next: string[] | ((walked: string[]) => string[])) =>
+    void setView((view) => ({ after: typeof next === 'function' ? next(view.after) : next }));
   const after = cursors[cursors.length - 1];
   const query = useQuery({
     queryKey: ['audit', environment, entity, key, after],
@@ -36,10 +48,7 @@ export function Activity() {
         <Segmented
           aria-label="Entity"
           value={entity}
-          onChange={(value) => {
-            setEntity(value);
-            setCursors([]);
-          }}
+          onChange={(value: Entity) => void setView({ entity: value, after: null })}
           options={[
             { value: '', label: 'All' },
             { value: 'flag', label: 'Flags' },
@@ -58,10 +67,9 @@ export function Activity() {
           placeholder="Exact key"
           className="w-64"
           value={key}
-          onChange={(e) => {
-            setKey(e.target.value);
-            setCursors([]);
-          }}
+          onChange={(e) =>
+            void setView({ key: e.target.value, after: null }, { history: 'replace' })
+          }
         />
       </div>
       <QueryState query={query} empty={entries.length === 0} emptyMessage="No changes recorded.">

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { parseAsStringLiteral, useQueryState } from 'nuqs';
 import { useState } from 'react';
 import { api, type ChangeRequest } from '../client/flags-client';
 import { useEnv } from './env';
@@ -100,7 +101,13 @@ type Status = 'pending' | 'all';
  */
 export function Approvals() {
   const { environment, meta } = useEnv();
-  const [status, setStatus] = useState<Status>('pending');
+  // `?status=all` in the hash; pending (the default) leaves the URL.
+  const [status, setStatus] = useQueryState(
+    'status',
+    parseAsStringLiteral(['pending', 'all'] as const)
+      .withDefault('pending')
+      .withOptions({ history: 'push' }),
+  );
   const query = useQuery({
     queryKey: ['change-requests', environment, status],
     queryFn: () => api.changeRequests(environment, status),
@@ -119,7 +126,7 @@ export function Approvals() {
         <Segmented
           aria-label="Request status"
           value={status}
-          onChange={setStatus}
+          onChange={(value: Status) => void setStatus(value)}
           options={[
             { value: 'pending', label: 'Pending' },
             { value: 'all', label: 'All' },
