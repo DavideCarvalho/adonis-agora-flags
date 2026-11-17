@@ -1,5 +1,11 @@
 # @adonis-agora/flags
 
+## 0.14.1
+
+### Patch Changes
+
+- [#23](https://github.com/DavideCarvalho/adonis-agora-flags/pull/23) [`1eac6b7`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/1eac6b720b8a21bf31da5959cb4abd0f47a06a21) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Ships the console with its filters in the URL (copy the link to share a filtered view). The console is bundled into this package at build time, so it needs its own release to reach apps.
+
 ## 0.14.0
 
 ### Minor Changes
