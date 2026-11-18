@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FlagRow } from '../client/flags-client';
 import { clearConfig, injectConfig, stubFetch } from '../client/test-config.test-helper';
 import { FlagsList, filterFlags } from './FlagsList';
-import { renderScreen } from './render.test-helper';
+import { pickCombo, renderScreen } from './render.test-helper';
 
 const originalFetch = globalThis.fetch;
 
@@ -159,7 +159,7 @@ describe('the flag list: filters in the URL', () => {
     fireEvent.click(screen.getByRole('tab', { name: /Experiments/ }));
     await waitFor(() => expect(window.location.hash).toBe('#/flags?show=experiments'));
     expect(keys()).toEqual(['checkout']);
-    fireEvent.change(screen.getByLabelText('Owner'), { target: { value: 'video' } });
+    await pickCombo('Owner', 'vid', 'video');
     await waitFor(() => expect(window.location.hash).toBe('#/flags?show=experiments&owner=video'));
 
     act(() => window.history.back());

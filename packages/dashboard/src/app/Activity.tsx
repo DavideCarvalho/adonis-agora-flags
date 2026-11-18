@@ -1,10 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { parseAsArrayOf, parseAsString, parseAsStringLiteral, useQueryStates } from 'nuqs';
+import { ComboSelect } from '../agora-kit/blocks/combo-field';
 import { api } from '../client/flags-client';
+import { useEntityKeys } from './catalogs';
 import { useEnv } from './env';
 import { HistoryPanel } from './FlagTools';
 import { Panel, QueryState } from './shell';
-import { Button, Input } from './ui/form';
+import { Button } from './ui/form';
 import { Segmented } from './ui/segmented';
 
 const ENTITIES = ['', 'flag', 'segment', 'layer', 'metric', 'holdout', 'ruleset'] as const;
@@ -13,7 +15,7 @@ type Entity = (typeof ENTITIES)[number];
 /**
  * The audit log's view, in the hash's query (`#/activity?entity=flag&key=checkout&after=c1,c2`):
  * `after` holds the cursor of every page walked so far, so a link opens on the same page and
- * back/forward step through pages. Typing the key replaces; picking an entity or a page pushes.
+ * back/forward step through pages. Picking the key replaces; picking an entity or a page pushes.
  */
 export const activityParams = {
   entity: parseAsStringLiteral(ENTITIES).withDefault('').withOptions({ history: 'push' }),
@@ -29,6 +31,7 @@ export function Activity() {
   const setCursors = (next: string[] | ((walked: string[]) => string[])) =>
     void setView((view) => ({ after: typeof next === 'function' ? next(view.after) : next }));
   const after = cursors[cursors.length - 1];
+  const keys = useEntityKeys(environment, entity);
   const query = useQuery({
     queryKey: ['audit', environment, entity, key, after],
     queryFn: () =>
@@ -62,13 +65,16 @@ export function Activity() {
       }
     >
       <div className="border-b border-line px-4 py-2">
-        <Input
+        <ComboSelect
           aria-label="Filter by key"
           placeholder="Exact key"
           className="w-64"
-          value={key}
-          onChange={(e) =>
-            void setView({ key: e.target.value, after: null }, { history: 'replace' })
+          options={keys.keys}
+          loading={keys.loading}
+          creatable
+          value={key === '' ? null : key}
+          onValueChange={(next) =>
+            void setView({ key: next ?? '', after: null }, { history: 'replace' })
           }
         />
       </div>

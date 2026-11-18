@@ -1,3 +1,4 @@
+import { ComboSelect } from '../agora-kit/blocks/combo-field';
 import type {
   AttributeCondition,
   Condition,
@@ -279,20 +280,18 @@ function ConditionEditor({
         <option value="segment">Segment</option>
       </Select>
       {segment ? (
-        <Select
+        <ComboSelect
           aria-label={`${label} segment`}
-          value={condition.segment}
-          onChange={(e) => onChange({ ...condition, segment: e.target.value })}
-        >
-          {!segments.includes(condition.segment) && (
-            <option value={condition.segment}>{condition.segment || '(choose)'}</option>
-          )}
-          {segments.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </Select>
+          className="w-48"
+          options={segments}
+          clearable={false}
+          value={condition.segment === '' ? null : condition.segment}
+          onValueChange={(segment) => {
+            if (segment !== null) onChange({ ...condition, segment });
+          }}
+          placeholder="(choose)"
+          emptyText="No segment matches"
+        />
       ) : (
         <AttributeFields
           condition={condition}
@@ -542,24 +541,23 @@ export function PrerequisitesEditor({
       {prerequisites.map((p, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: positional rows with editable names; a name key would remount the input being typed into.
         <div key={i} className="flex flex-wrap items-center gap-2">
-          <Select
+          <ComboSelect
             aria-label={`Prerequisite ${i + 1} flag`}
-            value={p.flag}
-            onChange={(e) =>
+            className="mono w-56"
+            options={keys}
+            clearable={false}
+            value={p.flag === '' ? null : p.flag}
+            onValueChange={(flag) => {
+              if (flag === null) return;
               onChange(
                 prerequisites.map((x, j) =>
-                  j === i ? { flag: e.target.value, variant: flags[e.target.value]?.[0] ?? '' } : x,
+                  j === i ? { flag, variant: flags[flag]?.[0] ?? '' } : x,
                 ),
-              )
-            }
-          >
-            {!keys.includes(p.flag) && <option value={p.flag}>{p.flag || '(choose)'}</option>}
-            {keys.map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </Select>
+              );
+            }}
+            placeholder="(choose)"
+            emptyText="No flag matches"
+          />
           <span className="text-[11px] text-dim">must serve</span>
           <VariantSelect
             label={`Prerequisite ${i + 1} variant`}
@@ -634,20 +632,17 @@ export function ExperimentEditor({
             />
           </Field>
           <Field label="Layer" hint="Experiments in one layer never share a subject">
-            <Select
+            <ComboSelect
               aria-label="Layer"
-              value={experiment.layer ?? ''}
-              onChange={(e) =>
-                onChange({ ...definition, experiment: { ...experiment, layer: e.target.value } })
+              className="w-48"
+              options={layers}
+              value={experiment.layer ? experiment.layer : null}
+              onValueChange={(layer) =>
+                onChange({ ...definition, experiment: { ...experiment, layer: layer ?? '' } })
               }
-            >
-              <option value="">No layer</option>
-              {layers.map((l) => (
-                <option key={l} value={l}>
-                  {l}
-                </option>
-              ))}
-            </Select>
+              placeholder="No layer"
+              emptyText="No layer matches"
+            />
           </Field>
           <label className="inline-flex items-center gap-2 pb-1 text-xs text-fg-2">
             <input

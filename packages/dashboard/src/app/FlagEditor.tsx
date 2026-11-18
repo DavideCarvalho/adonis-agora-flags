@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
+import { ComboMultiSelect } from '../agora-kit/blocks/combo-field';
 import {
   api,
   type DeclarationInput,
@@ -10,6 +11,7 @@ import {
   type Serving,
 } from '../client/flags-client';
 import { ConfigLockBadge, ConfigLockNote, OverriddenNotice } from './ConfigLock';
+import { useFlagFacets } from './catalogs';
 import { DeclarationDetails } from './DeclarationDetails';
 import {
   ExperimentEditor,
@@ -108,6 +110,7 @@ function EditorBody({
   const { environment, meta } = useEnv();
   const [draft, setDraft] = useState<FlagDefinition>(() => structuredClone(detail.definition));
   const [note, setNote] = useState('');
+  const facets = useFlagFacets(environment);
   const clean = useMemo(() => cleanDefinition(draft), [draft]);
   const preview = useLivePreview(environment, detail.key, clean);
   const variants = Object.keys(draft.variants);
@@ -379,20 +382,16 @@ function EditorBody({
 
         <Section title="Labels">
           <div className="flex flex-wrap gap-3">
-            <Field label="Tags (comma-separated)">
-              <Input
+            <Field label="Tags">
+              <ComboMultiSelect
                 aria-label="Tags"
                 className="w-64"
-                defaultValue={(draft.tags ?? []).join(', ')}
-                onBlur={(e) =>
-                  setDraft({
-                    ...draft,
-                    tags: e.target.value
-                      .split(',')
-                      .map((t) => t.trim())
-                      .filter((t) => t !== ''),
-                  })
-                }
+                options={facets.tags}
+                loading={facets.loading}
+                creatable
+                value={draft.tags ?? []}
+                onValueChange={(tags) => setDraft({ ...draft, tags })}
+                placeholder="Pick or type a tag"
               />
             </Field>
             <Field label="Salt" hint="Changing it reshuffles every bucket">
