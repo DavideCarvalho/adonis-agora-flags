@@ -467,6 +467,36 @@ describe('tenant transports', () => {
       );
       expect(again.ruleset).toBeNull();
     });
+
+    it('accepts wildcard capabilities on bus messages and refuses unrelated ones', async () => {
+      const grants: Record<string, string[]> = {
+        'flags-wildcard': ['flags:*'],
+        everything: ['*'],
+        unrelated: ['config:*'],
+      };
+      cp = await startControlPlane(db, [], undefined, {
+        verifyTenant: (async ({ token }: { token?: string }) =>
+          token && grants[token]
+            ? { partition: 'shop', capabilities: grants[token] }
+            : null) as never,
+      });
+      for (const token of ['flags-wildcard', 'everything']) {
+        expect(
+          (await cp.plane.handle(createMessage('ruleset', 'shop', token, {}), 'test')).status,
+        ).toBe('ok');
+        expect(
+          (
+            await cp.plane.handle(
+              createMessage('declarations', 'shop', token, { declarations: {} }),
+              'test',
+            )
+          ).status,
+        ).toBe('ok');
+      }
+      await expect(
+        cp.plane.handle(createMessage('ruleset', 'shop', 'unrelated', {}), 'test'),
+      ).rejects.toMatchObject({ reason: 'forbidden' });
+    });
   });
 
   describe('http', () => {

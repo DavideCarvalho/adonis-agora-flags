@@ -120,6 +120,7 @@ export {
   tenantTransports,
   type WatchTransport,
 } from './tenant_transports/index.js';
+export { capabilityAllows } from './topology/capabilities.js';
 export { FLAGS_RESOURCE, TENANT_SCOPES, type TenantTokenSource } from './topology/token.js';
 export type { LazyTenantUrl, TenantUrl } from './topology/url.js';
 export {

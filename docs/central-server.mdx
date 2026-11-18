@@ -74,6 +74,16 @@ It serves, under `/_flags`, each endpoint requiring one capability in the token:
 
 A token the verifier refuses gets `401`; a valid token without the capability gets `403`.
 
+A capability can use `*` wildcards. A `*` segment matches any one segment, and a trailing `*` also covers everything under it:
+
+| Granted | Allows |
+| --- | --- |
+| `flags:*` | every endpoint above |
+| `flags:*:write` | `flags:events:write` and `flags:declarations:write` |
+| `*` | everything, in every product |
+
+Nothing else is implied: `flags:events:write` does not allow `flags:ruleset:read`, and `flags:*` does not allow another product's capabilities.
+
 ## A tenant
 
 ```ts title="config/flags.ts (an app)"
@@ -135,7 +145,7 @@ serviceTenants: {
 Then give each app **one** service-tenant client (console: **Clients → New Client → Service tenant**; or `node ace authkit:clients:create`) with:
 
 - **partition**: the app's name, the same as `tenant.partition`;
-- **capabilities**: `flags:ruleset:read`, `flags:events:write`, `flags:declarations:write` (add `flags:ofrep:evaluate` for OFREP callers), plus whatever the app's other products need;
+- **capabilities**: `flags:ruleset:read`, `flags:events:write`, `flags:declarations:write` (add `flags:ofrep:evaluate` for OFREP callers), or `flags:*` for all of them, plus whatever the app's other products need;
 - **environment** (optional): the environment whose ruleset the app reads. Without it, the control-plane's.
 
 The same client gets a token for each resource it names, so the app uses one client id and secret for flags, durable and config. A `urn:agora:durable` token is refused by the flags control-plane. Disabling the client cuts the app off; open streams close when the token expires.

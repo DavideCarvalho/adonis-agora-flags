@@ -28,6 +28,7 @@ import type {
   TenantMessageHandler,
 } from '../tenant_transports/types.js';
 import { browserKey } from '../topology/browser_token.js';
+import { capabilityAllows } from '../topology/capabilities.js';
 import { TENANT_SCOPES } from '../topology/token.js';
 import {
   resolveTenantVerifier,
@@ -132,7 +133,7 @@ export class ControlPlane implements TenantMessageHandler {
   ): Promise<VerifiedTenant | 'unauthorized' | 'forbidden'> {
     const verified = await this.#verify({ token, partition: claimed, tenant: claimed });
     if (!verified) return 'unauthorized';
-    if (!verified.capabilities.includes(capability)) return 'forbidden';
+    if (!capabilityAllows(verified.capabilities, capability)) return 'forbidden';
     tenants.set(verified.partition, {
       ...tenants.get(verified.partition),
       partition: verified.partition,

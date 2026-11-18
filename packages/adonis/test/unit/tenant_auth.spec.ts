@@ -233,6 +233,28 @@ describe('tenants authenticated by a remote authkit issuer', () => {
     expect((await fetch(`${base}/_flags/v1/ruleset`)).status).toBe(401);
   });
 
+  it('accepts wildcard capabilities on every endpoint and refuses unrelated ones', async () => {
+    const sign = (capabilities: string[]) =>
+      issuer.sign(
+        { sub: 'shop-client', client_id: 'shop-client', partition: 'shop', capabilities },
+        { audience: FLAGS_RESOURCE },
+      );
+    for (const capabilities of [['flags:*'], ['*']]) {
+      const token = await sign(capabilities);
+      expect((await get('/v1/ruleset', token)).status).toBe(200);
+      expect((await post('/v1/events', token, { events: [] })).status).toBe(202);
+      expect((await post('/v1/declarations', token, { declarations: {} })).status).toBe(204);
+      expect((await post('/v1/usage', token, { rows: [] })).status).toBe(204);
+    }
+
+    const unrelated = await sign(['config:*', 'flags:events:write']);
+    const ruleset = await get('/v1/ruleset', unrelated);
+    expect(ruleset.status).toBe(403);
+    expect(await ruleset.json()).toEqual({
+      error: 'token lacks the flags:ruleset:read capability',
+    });
+  });
+
   it('refuses a token without capabilities on every endpoint', async () => {
     const bare = await issuer.sign(
       { sub: 'shop-client', client_id: 'shop-client', partition: 'shop' },
