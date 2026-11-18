@@ -1,5 +1,11 @@
 # @adonis-agora/flags-dashboard
 
+## 0.8.2
+
+### Patch Changes
+
+- [#26](https://github.com/DavideCarvalho/adonis-agora-flags/pull/26) [`ed3bab4`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/ed3bab42615e0a788522e20f81ba4aa57161bc42) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Console: tag, owner, key, segment, prerequisite flag, layer and layer-experiment fields are now autocomplete comboboxes (the kit's new `ComboSelect` / `ComboMultiSelect`). Tags and owners suggest the ones already in use across the flags and still take new values; the audit log's key filter suggests the keys of the entity picked.
+
 ## 0.8.1
 
 ### Patch Changes
