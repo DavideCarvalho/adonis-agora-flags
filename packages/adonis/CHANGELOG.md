@@ -1,5 +1,11 @@
 # @adonis-agora/flags
 
+## 0.14.5
+
+### Patch Changes
+
+- [#27](https://github.com/DavideCarvalho/adonis-agora-flags/pull/27) [`f08109a`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/f08109a32551cc18cf0545f00faf669fc9096e28) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Console: creatable comboboxes keep the typed text when you leave the field, and server-side suggestions no longer wipe what you are typing.
+
 ## 0.14.4
 
 ### Patch Changes
