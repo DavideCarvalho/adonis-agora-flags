@@ -1,5 +1,11 @@
 # @adonis-agora/flags
 
+## 0.14.3
+
+### Patch Changes
+
+- [#24](https://github.com/DavideCarvalho/adonis-agora-flags/pull/24) [`9a7abd9`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/9a7abd97dc33846afcb7459bf755655175672733) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Accept wildcard capabilities on service tokens. The control-plane (HTTP endpoints and every tenant transport) now matches a token's `capabilities` with the Agora-wide rule, exported as `capabilityAllows(granted, required)`: a `*` segment matches one segment and a trailing `*` covers the rest, so `flags:*` grants every flags capability and `*` grants everything. A token that already holds `flags:*` or `*` (previously ignored, so refused with `403`) now gets every flags capability.
+
 ## 0.14.2
 
 ### Patch Changes
