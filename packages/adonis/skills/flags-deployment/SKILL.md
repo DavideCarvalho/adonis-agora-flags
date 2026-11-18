@@ -123,6 +123,7 @@ holds `prefix`, `ofrep` and `corsOrigins`. A config with
 `controlPlane: { verifyTenant }` fails at boot. Tenant tokens carry `partition`
 and `capabilities` claims (an authkit service-tenant client for the resource
 `urn:agora:flags`); the partition never comes from `client_id` or the request.
+Capabilities accept `*` wildcards: `flags:*` grants every flags capability.
 
 ### HIGH — CSRF refusing the flags API
 
