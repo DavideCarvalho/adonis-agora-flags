@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
+import { ComboMultiSelect, ComboSelect } from '../agora-kit/blocks/combo-field';
 import { api, type Declaration } from '../client/flags-client';
+import { useFlagFacets } from './catalogs';
 import { Notice, useEnv, useWrite } from './env';
 import { ErrorBox, Panel } from './shell';
 import { Button, Field, Input, Toggle } from './ui/form';
@@ -17,11 +19,12 @@ export function DeclarationDetails({
   declaration: Declaration;
 }) {
   const { environment } = useEnv();
+  const facets = useFlagFacets(environment);
   const initial = () => ({
     description: declaration.description ?? '',
     owner: declaration.owner ?? '',
     expiresAt: declaration.expiresAt ?? '',
-    tags: (declaration.tags ?? []).join(', '),
+    tags: declaration.tags ?? [],
     client: declaration.client === true,
   });
   const [form, setForm] = useState(initial);
@@ -32,10 +35,7 @@ export function DeclarationDetails({
       description: form.description.trim(),
       owner: form.owner.trim(),
       ...(form.expiresAt ? { expiresAt: form.expiresAt } : {}),
-      tags: form.tags
-        .split(',')
-        .map((t) => t.trim())
-        .filter((t) => t !== ''),
+      tags: form.tags,
       client: form.client,
     }),
   );
@@ -60,7 +60,15 @@ export function DeclarationDetails({
           />
         </Field>
         <Field label="Owner">
-          <Input value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })} />
+          <ComboSelect
+            aria-label="Owner"
+            options={facets.owners}
+            loading={facets.loading}
+            creatable
+            value={form.owner === '' ? null : form.owner}
+            onValueChange={(owner) => setForm({ ...form, owner: owner ?? '' })}
+            placeholder="team or person"
+          />
         </Field>
         <Field label="Expires">
           <Input
@@ -69,8 +77,16 @@ export function DeclarationDetails({
             onChange={(e) => setForm({ ...form, expiresAt: e.target.value })}
           />
         </Field>
-        <Field label="Tags" hint="Comma-separated">
-          <Input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
+        <Field label="Tags">
+          <ComboMultiSelect
+            aria-label="Tags"
+            options={facets.tags}
+            loading={facets.loading}
+            creatable
+            value={form.tags}
+            onValueChange={(tags) => setForm({ ...form, tags })}
+            placeholder="Pick or type a tag"
+          />
         </Field>
         <div className="flex items-end pb-1">
           <Toggle

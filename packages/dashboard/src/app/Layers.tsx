@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { ComboSelect } from '../agora-kit/blocks/combo-field';
 import { api, type Layer } from '../client/flags-client';
 import { Notice, useEnv, useWrite } from './env';
 import { ErrorBox, Panel, QueryState } from './shell';
-import { Button, Field, Input, Select } from './ui/form';
+import { Button, Field, Input } from './ui/form';
 
 const BUCKETS = 10_000;
 
@@ -111,24 +112,20 @@ function LayerForm({
       ))}
       <div className="flex flex-wrap items-center gap-2">
         {free.length > 0 && (
-          <Select
+          <ComboSelect
             aria-label={`Add an experiment to ${layerKey || 'the new layer'}`}
-            value=""
-            onChange={(e) => {
+            className="w-56"
+            options={free}
+            clearable={false}
+            value={null}
+            onValueChange={(flag) => {
+              if (flag === null) return;
               const used = rows.reduce((max, r) => Math.max(max, r.end), 0);
-              setRows([
-                ...rows,
-                { flag: e.target.value, start: used, end: Math.min(BUCKETS, used + 1000) },
-              ]);
+              setRows([...rows, { flag, start: used, end: Math.min(BUCKETS, used + 1000) }]);
             }}
-          >
-            <option value="">Add experiment…</option>
-            {free.map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
-            ))}
-          </Select>
+            placeholder="Add experiment…"
+            emptyText="No experiment matches"
+          />
         )}
         <Button
           variant="primary"

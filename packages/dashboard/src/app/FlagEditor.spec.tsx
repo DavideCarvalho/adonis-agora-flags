@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FlagDetail } from '../client/flags-client';
 import { clearConfig, injectConfig, stubFetch } from '../client/test-config.test-helper';
 import { FlagEditor } from './FlagEditor';
-import { META, renderScreen } from './render.test-helper';
+import { META, pickCombo, renderScreen } from './render.test-helper';
 
 const originalFetch = globalThis.fetch;
 
@@ -188,6 +188,34 @@ describe('the flag editor', () => {
       },
     });
     expect(await screen.findByText('Applied (version 4).')).toBeTruthy();
+  });
+
+  it('picks tags from the ones in use, or a new one, and saves them in the definition', async () => {
+    const { calls } = stubFetch((method, url) => {
+      if (url.includes('/preview')) return { valid: true, issues: [], serving: null };
+      if (method === 'PUT') return { status: 'applied', version: '4' };
+      if (url.startsWith('/f/api/flags?')) {
+        return {
+          environment: 'staging',
+          version: '3',
+          data: [{ key: 'checkout', tags: ['billing'], owner: null }],
+        };
+      }
+      return detail();
+    });
+    renderScreen(<FlagEditor flagKey="new_player" onClose={() => {}} />, {
+      environment: 'staging',
+      meta: META,
+    });
+    await screen.findByRole('combobox', { name: 'Tags' });
+    await pickCombo('Tags', 'bil', 'billing');
+    await pickCombo('Tags', 'video');
+    await screen.findByText(/Valid\./, {}, { timeout: 2000 });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
+    expect(calls.find((c) => c.method === 'PUT')).toMatchObject({
+      body: { definition: { tags: ['billing', 'video'] } },
+    });
   });
 
   it('shows the issues the server would refuse', async () => {

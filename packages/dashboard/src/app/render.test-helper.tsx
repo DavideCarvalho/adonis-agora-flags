@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { type RenderResult, render } from '@testing-library/react';
+import { act, fireEvent, type RenderResult, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { NuqsHashAdapter } from '../agora-kit/url-state/nuqs-hash-adapter';
 import type { Meta } from '../client/flags-client';
@@ -41,3 +41,31 @@ export const META: Meta = {
   analytics: true,
   experiments: ['checkout'],
 };
+
+/**
+ * Picks `option` in the kit combobox labelled `label`: opens it (Base UI opens on ArrowDown, not
+ * on input), types `text` to filter, then clicks the matching option. With `creatable`, the typed
+ * text itself is the option “Use “text””. Specs only.
+ */
+export async function pickCombo(
+  label: string,
+  text: string,
+  option: string | RegExp = text,
+): Promise<void> {
+  const input = screen.getByRole('combobox', { name: label });
+  await act(async () => {
+    input.focus();
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.change(input, { target: { value: text } });
+    await new Promise((r) => setTimeout(r, 20));
+  });
+  const item = await screen.findByRole('option', {
+    name: typeof option === 'string' ? new RegExp(`^(Use “)?${escapeRegExp(option)}”?$`) : option,
+  });
+  await act(async () => {
+    fireEvent.click(item);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+}
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

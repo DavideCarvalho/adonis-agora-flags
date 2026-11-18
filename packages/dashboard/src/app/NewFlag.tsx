@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import { ComboMultiSelect, ComboSelect } from '../agora-kit/blocks/combo-field';
 import { api } from '../client/flags-client';
+import { splitList, useFlagFacets } from './catalogs';
 import { Notice, useEnv, useWrite } from './env';
 import { defaultFor, EMPTY_NEW_FLAG, type NewFlagForm, toDeclaration } from './new-flag';
 import { ErrorBox } from './shell';
@@ -20,6 +22,7 @@ export function NewFlag({
   const { environment } = useEnv();
   const [form, setForm] = useState<NewFlagForm>(EMPTY_NEW_FLAG);
   const [error, setError] = useState<string | null>(null);
+  const facets = useFlagFacets(environment);
   const set = <K extends keyof NewFlagForm>(field: K, value: NewFlagForm[K]) =>
     setForm((current) => ({ ...current, [field]: value }));
   const create = useWrite(
@@ -111,9 +114,13 @@ export function NewFlag({
         <Input value={form.description} onChange={(e) => set('description', e.target.value)} />
       </Field>
       <Field label="Owner">
-        <Input
-          value={form.owner}
-          onChange={(e) => set('owner', e.target.value)}
+        <ComboSelect
+          aria-label="Owner"
+          options={facets.owners}
+          loading={facets.loading}
+          creatable
+          value={form.owner === '' ? null : form.owner}
+          onValueChange={(owner) => set('owner', owner ?? '')}
           placeholder="team or person"
         />
       </Field>
@@ -124,8 +131,16 @@ export function NewFlag({
           onChange={(e) => set('expiresAt', e.target.value)}
         />
       </Field>
-      <Field label="Tags" hint="Comma-separated">
-        <Input value={form.tags} onChange={(e) => set('tags', e.target.value)} />
+      <Field label="Tags">
+        <ComboMultiSelect
+          aria-label="Tags"
+          options={facets.tags}
+          loading={facets.loading}
+          creatable
+          value={splitList(form.tags)}
+          onValueChange={(tags) => set('tags', tags.join(', '))}
+          placeholder="Pick or type a tag"
+        />
       </Field>
       <div className="flex items-end pb-1">
         <Toggle

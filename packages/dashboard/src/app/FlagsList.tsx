@@ -1,15 +1,16 @@
-import { useQuery } from '@tanstack/react-query';
 import { parseAsString, parseAsStringLiteral, useQueryStates } from 'nuqs';
 import { useMemo, useState } from 'react';
+import { ComboSelect } from '../agora-kit/blocks/combo-field';
 import { MetricCard, MetricGrid, MetricGridSkeleton } from '../agora-kit/blocks/metric-card';
 import { api, type FlagRow } from '../client/flags-client';
 import { ConfigLockBadge } from './ConfigLock';
+import { flagFacets, useFlagRows } from './catalogs';
 import { Notice, useEnv, useWrite } from './env';
 import { NewFlag } from './NewFlag';
 import { describeServing, formatValue, STALE_LABELS, servingTone } from './serving';
 import { ErrorBox, Panel, QueryState, Table, TableSkeleton } from './shell';
 import { Badge } from './ui/badge';
-import { Button, Input, Select, Toggle } from './ui/form';
+import { Button, Input, Toggle } from './ui/form';
 import { Segmented } from './ui/segmented';
 
 const SHOWS = ['all', 'stale', 'experiments'] as const;
@@ -54,10 +55,7 @@ export function filterFlags(
  */
 export function FlagsList({ onOpen }: { onOpen: (key: string) => void }) {
   const { environment } = useEnv();
-  const query = useQuery({
-    queryKey: ['flags', environment],
-    queryFn: () => api.flags(environment),
-  });
+  const query = useFlagRows(environment);
   const [{ q: search, tag, owner, show }, setFilters] = useQueryStates(flagListParams);
   const [creating, setCreating] = useState(false);
   const kill = useWrite((input: { key: string; enabled: boolean }) =>
@@ -65,11 +63,7 @@ export function FlagsList({ onOpen }: { onOpen: (key: string) => void }) {
   );
 
   const flags = query.data?.data ?? [];
-  const tags = useMemo(() => [...new Set(flags.flatMap((f) => f.tags))].sort(), [flags]);
-  const owners = useMemo(
-    () => [...new Set(flags.map((f) => f.owner).filter((o): o is string => o !== null))].sort(),
-    [flags],
-  );
+  const { tags, owners } = useMemo(() => flagFacets(flags), [flags]);
   const visible = filterFlags(flags, { search, tag, owner, show });
 
   return (
@@ -121,30 +115,22 @@ export function FlagsList({ onOpen }: { onOpen: (key: string) => void }) {
             onChange={(e) => void setFilters({ q: e.target.value })}
             className="min-w-0 flex-1 basis-full sm:basis-auto"
           />
-          <Select
+          <ComboSelect
             aria-label="Tag"
-            value={tag}
-            onChange={(e) => void setFilters({ tag: e.target.value })}
-          >
-            <option value="">All tags</option>
-            {tags.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </Select>
-          <Select
+            className="w-40"
+            options={tags}
+            value={tag === '' ? null : tag}
+            onValueChange={(next) => void setFilters({ tag: next ?? '' })}
+            placeholder="All tags"
+          />
+          <ComboSelect
             aria-label="Owner"
-            value={owner}
-            onChange={(e) => void setFilters({ owner: e.target.value })}
-          >
-            <option value="">All owners</option>
-            {owners.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </Select>
+            className="w-40"
+            options={owners}
+            value={owner === '' ? null : owner}
+            onValueChange={(next) => void setFilters({ owner: next ?? '' })}
+            placeholder="All owners"
+          />
         </div>
         {kill.isError && <ErrorBox error={kill.error} />}
         {kill.notice !== null && (
