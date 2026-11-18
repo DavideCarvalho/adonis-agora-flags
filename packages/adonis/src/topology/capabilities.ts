@@ -14,7 +14,15 @@ export function capabilityAllows(granted: readonly string[], required: string): 
     const have = capability.split(':');
     let matched = true;
     for (let index = 0; index < have.length; index += 1) {
-      if (have[index] === '*') continue;
+      if (have[index] === '*') {
+        // A `*` before the last one stands for exactly one segment, so it needs one to consume;
+        // only the last `*` may match nothing (`a:*` covers `a`, `a:*:*` does not).
+        if (index >= want.length && index !== have.length - 1) {
+          matched = false;
+          break;
+        }
+        continue;
+      }
       if (index >= want.length || have[index] !== want[index]) {
         matched = false;
         break;
