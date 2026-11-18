@@ -19,14 +19,19 @@ describe('capabilityAllows', () => {
     expect(capabilityAllows(['flags:*'], 'flags:declarations:write')).toBe(true);
     expect(capabilityAllows(['flags:*'], 'flags:ofrep:evaluate')).toBe(true);
     expect(capabilityAllows(['flags:*'], 'config:read')).toBe(false);
-    expect(capabilityAllows(['flags:*'], 'flags')).toBe(false);
   });
 
   it('lets a trailing `*` cover deeper paths', () => {
     expect(capabilityAllows(['flags:ruleset:*'], 'flags:ruleset:read')).toBe(true);
     expect(capabilityAllows(['flags:ruleset:*'], 'flags:ruleset:read:extra')).toBe(true);
     expect(capabilityAllows(['flags:ruleset:*'], 'flags:events:write')).toBe(false);
-    expect(capabilityAllows(['flags:ruleset:*'], 'flags:ruleset')).toBe(false);
+  });
+
+  it('lets a trailing `*` match zero further segments', () => {
+    expect(capabilityAllows(['flags:ruleset:*'], 'flags:ruleset')).toBe(true);
+    expect(capabilityAllows(['flags:*'], 'flags')).toBe(true);
+    expect(capabilityAllows(['flags:ruleset:*'], 'flags')).toBe(false);
+    expect(capabilityAllows(['flags:*'], 'config')).toBe(false);
   });
 
   it('lets a middle `*` match exactly one segment', () => {
