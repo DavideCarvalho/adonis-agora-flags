@@ -1,5 +1,11 @@
 # @adonis-agora/flags
 
+## 0.14.2
+
+### Patch Changes
+
+- [#25](https://github.com/DavideCarvalho/adonis-agora-flags/pull/25) [`b02ca2a`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/b02ca2a342e952a274531bd3784964f2e9e8b17c) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Console ⌘K: arrow keys now visibly move the selection. The highlighted item was styled with a bare `data-selected:` (cmdk marks every item `true` or `false`) and with the dialog's own surface color, so moving looked like nothing happened.
+
 ## 0.14.1
 
 ### Patch Changes
