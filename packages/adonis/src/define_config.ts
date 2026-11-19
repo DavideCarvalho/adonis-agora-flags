@@ -18,6 +18,15 @@ import { ParquetSink, type ParquetSinkOptions } from './sinks/parquet_sink.js';
 import { PostHogSink, type PostHogSinkOptions } from './sinks/posthog_sink.js';
 import { CallbackSink, MemorySink, type Sink } from './sinks/sink.js';
 import type { SqlDatabase } from './sql.js';
+import {
+  describeStackUse,
+  fileUse,
+  hasLucidConnection,
+  hostOf,
+  lucidUse,
+  redisUse,
+  type StackUse,
+} from './stack.js';
 import { LucidStore } from './stores/lucid_store.js';
 import { MemoryStore } from './stores/memory_store.js';
 import type { FlagsStore } from './stores/store.js';
@@ -51,14 +60,40 @@ export interface FactoryContext {
 
 export type Factory<T> = (context: FactoryContext) => T | Promise<T>;
 
+/** Lucid-backed factories and the connection they were given (`undefined`: the default). */
+const lucidFactories = new WeakMap<object, { connection: string | undefined }>();
+
+function lucidFactory<T>(
+  connection: string | undefined,
+  purpose: string,
+  factory: Factory<T>,
+): Factory<T> {
+  lucidFactories.set(factory, { connection });
+  return describeStackUse(factory, () => lucidUse(connection, purpose));
+}
+
+function clickhouseUse(options: ClickHouseOptions, purpose: string): StackUse {
+  const host = hostOf(options.url);
+  return {
+    tech: 'clickhouse',
+    label: options.database ?? 'default',
+    ...(host ? { host } : {}),
+    purpose,
+  };
+}
+
 export const stores = {
   /** The ruleset in your database (Postgres, MySQL, SQLite). The default. */
   lucid(options: { connection?: string } = {}): Factory<FlagsStore> {
-    return async (ctx) =>
-      new LucidStore(await ctx.db(options.connection), {
-        autoCreateSchema: ctx.autoCreateSchema,
-        partitionEvents: ctx.partitionEvents,
-      });
+    return lucidFactory(
+      options.connection,
+      'ruleset',
+      async (ctx) =>
+        new LucidStore(await ctx.db(options.connection), {
+          autoCreateSchema: ctx.autoCreateSchema,
+          partitionEvents: ctx.partitionEvents,
+        }),
+    );
   },
   /** In process memory: tests and local development. */
   memory(seed?: ConstructorParameters<typeof MemoryStore>[0]): Factory<FlagsStore> {
@@ -69,16 +104,23 @@ export const stores = {
 export const transports = {
   /** The event log in your database. Transactional; the default when the store is `lucid`. */
   db(options: DbTransportOptions & { connection?: string } = {}): Factory<Transport> {
-    return async (ctx) =>
-      new DbTransport(await ctx.db(options.connection), {
-        autoCreateSchema: ctx.autoCreateSchema,
-        partitionEvents: ctx.partitionEvents,
-        ...options,
-      });
+    return describeStackUse(
+      async (ctx: FactoryContext) =>
+        new DbTransport(await ctx.db(options.connection), {
+          autoCreateSchema: ctx.autoCreateSchema,
+          partitionEvents: ctx.partitionEvents,
+          ...options,
+        }),
+      () => lucidUse(options.connection, 'event log'),
+    );
   },
   /** Redis Streams through `@adonisjs/redis`. */
   redis(options: RedisTransportOptions & { connection?: string } = {}): Factory<Transport> {
-    return async (ctx) => new RedisTransport(await ctx.redis(options.connection), options);
+    return describeStackUse(
+      async (ctx: FactoryContext) =>
+        new RedisTransport(await ctx.redis(options.connection), options),
+      () => redisUse(options.connection, 'event log'),
+    );
   },
   /**
    * Jobs on `@adonisjs/queue`: one job per batch per sink, run by your queue workers with the
@@ -112,15 +154,25 @@ export const sinks = {
   lucid(
     options: { connection?: string; batchSize?: number; intervalMs?: number } = {},
   ): Factory<Sink> {
-    return async (ctx) =>
-      new LucidSink(await ctx.db(options.connection), {
-        autoCreateSchema: ctx.autoCreateSchema,
-        ...(options.batchSize !== undefined ? { batchSize: options.batchSize } : {}),
-        ...(options.intervalMs !== undefined ? { intervalMs: options.intervalMs } : {}),
-      });
+    return lucidFactory(
+      options.connection,
+      'exposures',
+      async (ctx) =>
+        new LucidSink(await ctx.db(options.connection), {
+          autoCreateSchema: ctx.autoCreateSchema,
+          ...(options.batchSize !== undefined ? { batchSize: options.batchSize } : {}),
+          ...(options.intervalMs !== undefined ? { intervalMs: options.intervalMs } : {}),
+        }),
+    );
   },
   posthog(options: PostHogSinkOptions): Factory<Sink> {
-    return () => new PostHogSink(options);
+    const host = hostOf(options.host ?? 'https://us.i.posthog.com');
+    return describeStackUse(() => new PostHogSink(options), {
+      tech: 'posthog',
+      label: 'posthog',
+      ...(host ? { host } : {}),
+      purpose: 'exposures',
+    });
   },
   clickhouse(
     options: ClickHouseOptions & {
@@ -129,11 +181,11 @@ export const sinks = {
       autoCreateSchema?: boolean;
     },
   ): Factory<Sink> {
-    return () => new ClickHouseSink(options);
+    return describeStackUse(() => new ClickHouseSink(options), clickhouseUse(options, 'exposures'));
   },
   /** Parquet files through DuckDB (`@duckdb/node-api`); read by `analytics.duckdb()`. */
   parquet(options: ParquetSinkOptions): Factory<Sink> {
-    return () => new ParquetSink(options);
+    return describeStackUse(() => new ParquetSink(options), fileUse(options.path, 'exposures'));
   },
   /** Your function receives every batch. Must be idempotent by `event.id`. */
   callback(
@@ -149,13 +201,20 @@ export const sinks = {
 
 export const analytics = {
   lucid(options: { connection?: string } = {}): Factory<AnalyticsBackend> {
-    return async (ctx) => new LucidBackend(await ctx.db(options.connection));
+    return describeStackUse(
+      async (ctx: FactoryContext) => new LucidBackend(await ctx.db(options.connection)),
+      () => lucidUse(options.connection, 'experiments'),
+    );
   },
   duckdb(options: DuckDbOptions & { path: string }): Factory<AnalyticsBackend> {
-    return () => new DuckDbBackend(options);
+    // In-process DuckDB over the Parquet files: the files are the infrastructure.
+    return describeStackUse(() => new DuckDbBackend(options), fileUse(options.path, 'experiments'));
   },
   clickhouse(options: ClickHouseOptions): Factory<AnalyticsBackend> {
-    return () => new ClickHouseBackend(options);
+    return describeStackUse(
+      () => new ClickHouseBackend(options),
+      clickhouseUse(options, 'experiments'),
+    );
   },
 };
 
@@ -501,5 +560,32 @@ export function defineConfig<const F extends Record<string, FlagDeclaration>>(
   config: FlagsConfig<F>,
 ): FlagsConfig<F> {
   validateConfig(config as FlagsConfig);
-  return config;
+  return describeStackUse(config, () => defaultStackUses(config as FlagsConfig));
+}
+
+/**
+ * What the omitted options fall back to (see `createRuntime`): a lucid store on the default
+ * connection, the `db` transport on the store's connection, a lucid `warehouse` sink and lucid
+ * analytics on that sink. Explicit factories describe themselves.
+ */
+export function defaultStackUses(config: FlagsConfig): StackUse[] {
+  if (config.topology === 'tenant') return [];
+  const uses: StackUse[] = [];
+  const store = config.store
+    ? lucidFactories.get(config.store)
+    : hasLucidConnection()
+      ? { connection: undefined }
+      : undefined;
+  if (!config.store && store) uses.push(lucidUse(undefined, 'ruleset'));
+  if (!config.transport && store) uses.push(lucidUse(store.connection, 'event log'));
+  const sink = config.sinks
+    ? Object.values(config.sinks)
+        .map((factory) => lucidFactories.get(factory))
+        .find((meta) => meta !== undefined)
+    : store
+      ? { connection: undefined }
+      : undefined;
+  if (!config.sinks && sink) uses.push(lucidUse(undefined, 'exposures'));
+  if (!config.analytics && sink) uses.push(lucidUse(sink.connection, 'experiments'));
+  return uses;
 }
