@@ -9,7 +9,7 @@ import { splitHash, subscribeHashUrl } from '../agora-kit/url-state/hash-url';
 import { NuqsHashAdapter } from '../agora-kit/url-state/nuqs-hash-adapter';
 import { api, CONFIG_ELEMENT_ID, defaultEnvironment, type Meta } from '../client/flags-client';
 import { Activity } from './Activity';
-import { AppPicker } from './AppPicker';
+import { AppPicker, usePageSearch } from './AppPicker';
 import { Approvals } from './Approvals';
 import { Environments } from './Environments';
 import { ExperimentDetail, Experiments } from './Experiments';
@@ -210,6 +210,8 @@ function Console() {
   const environments = [...new Set([environment, ...(meta.data?.environments ?? [])])].sort();
   const approvals = meta.data?.approvals[environment] === true;
   const shell = useMemo(() => withViewer(shellConfig, meta.data), [shellConfig, meta.data]);
+  // Re-render the shell on a scope pick: its console links carry `?app=` / `?tenant=`.
+  usePageSearch();
 
   const nav = useMemo<NavSection[]>(
     () =>
