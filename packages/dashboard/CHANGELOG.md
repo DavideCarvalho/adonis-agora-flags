@@ -1,5 +1,11 @@
 # @adonis-agora/flags-dashboard
 
+## 0.8.5
+
+### Patch Changes
+
+- [#31](https://github.com/DavideCarvalho/adonis-agora-flags/pull/31) [`a4e1461`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/a4e14618b17ee0a497120fa108be1fc015c8c451) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - App picker: screen readers hear "App: shop" (not the two spans run together), search matches an option's hint, the highlight stays on a real option when the list shrinks, and focus returns to the button after a pick.
+
 ## 0.8.4
 
 ### Patch Changes
