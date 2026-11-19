@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { ScopeChip, ScopeMenu } from '../agora-kit/blocks/scope-menu';
+import { subscribeHashUrl } from '../agora-kit/url-state/hash-url';
 import { type Meta, selectedApp } from '../client/flags-client';
 
 /** Put the picked app in the URL (`?app=`, absent = all apps), keeping the hash route. */
@@ -9,6 +10,21 @@ function writeAppToUrl(app: string | undefined): void {
   if (app === undefined) url.searchParams.delete('app');
   else url.searchParams.set('app', app);
   window.history.pushState(null, '', url.toString());
+  // A pushState fires nothing: tell the shell and the URL-state adapter the URL moved.
+  window.dispatchEvent(new PopStateEvent('popstate'));
+}
+
+/**
+ * The page's query string (`?app=` / `?tenant=`), kept current: a pick writes it with
+ * `pushState` plus a `popstate`. The shell reads it so its cross-console links carry the new
+ * scope right after a pick.
+ */
+export function usePageSearch(): string {
+  return useSyncExternalStore(
+    subscribeHashUrl,
+    () => window.location.search,
+    () => '',
+  );
 }
 
 /** What the picker offers, from `meta`: nothing on a standalone app or with a single app. */

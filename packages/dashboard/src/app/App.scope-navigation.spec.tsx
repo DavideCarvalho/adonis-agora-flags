@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resetConsoleCache } from '../agora-kit/console-data';
 import { clearConfig, injectConfig, stubFetch } from '../client/test-config.test-helper';
 import { App } from './App';
 import { META } from './render.test-helper';
@@ -21,6 +22,12 @@ function renderApp() {
 beforeEach(() => {
   injectConfig({ api: '/f/api', environment: 'production' });
   stubFetch((_method, url) => {
+    if (url.includes('/consoles'))
+      return {
+        version: 1,
+        current: 'flags',
+        consoles: [{ id: 'telescope', title: 'Telescope', icon: 'telescope', href: '/telescope' }],
+      };
     if (url.includes('/meta'))
       return { ...META, topology: 'control-plane', apps: ['blog', 'shop'], appScope: '*' };
     if (url.includes('/flags')) return { environment: 'production', version: '1', data: [] };
@@ -93,5 +100,20 @@ describe('the picked app (`?app=`) survives in-console navigation', () => {
     });
     await waitFor(() => expect(window.location.hash).toBe('#/flags/new-checkout'));
     expect(window.location.search).toBe('?app=shop');
+  });
+
+  it('into the console switcher right after a pick', async () => {
+    resetConsoleCache();
+    injectConfig({ switcher: { endpoint: '/f/api/consoles', others: 1 } });
+    window.history.replaceState(null, '', '/#/flags');
+    renderApp();
+    fireEvent.click(await screen.findByRole('button', { name: /^App/ }));
+    fireEvent.mouseDown(await screen.findByRole('option', { name: 'blog' }));
+    await waitFor(() => expect(window.location.search).toBe('?app=blog'));
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('button', { name: /switch console/ }));
+    });
+    const link = (await screen.findAllByRole('menuitem')).find((el) => el.tagName === 'A');
+    expect(link?.getAttribute('href')).toBe('/telescope?app=blog');
   });
 });
