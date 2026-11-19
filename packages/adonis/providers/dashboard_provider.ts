@@ -51,6 +51,7 @@ import {
   exportRuleset,
   flagDetail,
   importRuleset,
+  listApps,
   listChangeRequests,
   listExperiments,
   listFlags,
@@ -78,9 +79,12 @@ import {
 } from '../src/dashboard/handlers.js';
 import { contentTypeFor, renderIndexHtml, type ShellFields } from '../src/dashboard/spa.js';
 import type { FlagsConfig } from '../src/define_config.js';
+import { consoleHandlerName, FederatedFlagsConsole } from '../src/federation/console.js';
+import type { RedisLike } from '../src/federation/redis_channel.js';
 import { authkitIdentity } from '../src/http/subject_resolver.js';
 import type { FlagsIdentityProvider } from '../src/identity.js';
 import { getRuntime, hasRuntime } from '../src/services/accessor.js';
+import type { SqlDatabase } from '../src/sql.js';
 import type { Actor } from '../src/stores/store.js';
 
 /**
@@ -124,6 +128,7 @@ export const CONSOLE_ID = 'flags';
  * Routes (relative to the configured `path`):
  * - `GET    /`, `/assets/:file`                        → the SPA
  * - `GET    /api/meta`                                 → environments, approvals, the acting user
+ * - `GET    /api/apps`                                 → what the App picker offers (tenants, federated apps)
  * - `GET    /api/flags`, `/api/flags/:key`             → list / one flag (definition, audit, schedules)
  * - `PUT    /api/flags/:key`  `DELETE /api/flags/:key` → save / remove a definition
  * - `POST   /api/flags/:key/{enabled,rollout,variant,overrides,schedules}`
@@ -159,6 +164,9 @@ export default class FlagsDashboardProvider {
 
   private identity: FlagsIdentityProvider | undefined;
 
+  /** The other apps of `apps` (a federated console), when there are any. */
+  private federation: FederatedFlagsConsole | undefined;
+
   async boot() {
     const config = resolveConfig(this.app.config.get<FlagsDashboardConfig>('flags_dashboard', {}));
     if (!config.enabled) return;
@@ -168,6 +176,7 @@ export default class FlagsDashboardProvider {
       return;
     }
     this.identity = flagsConfig?.identity;
+    if (Object.keys(config.apps).length > 0) this.federation = this.createFederation(config);
     this.authorizeGuard = await this.resolveGuard(config);
     await this.registerDevTools(config);
     // The console switcher: this console joins the app's `'agora.consoles'` registry so the other
@@ -188,6 +197,29 @@ export default class FlagsDashboardProvider {
     const json = (handler: Handler) => async (ctx: HttpContext) => {
       const guard = await this.enforce(config, ctx, 'api');
       if (!guard.allowed) return;
+      const federated = this.federatedPick(ctx);
+      if (federated !== undefined) {
+        // `?app=` names a federated app: answered from its tables, or by the app itself.
+        const name = consoleHandlerName(handler);
+        if (guard.apps !== undefined && guard.apps !== '*' && !guard.apps.includes(federated)) {
+          return ctx.response.status(403).json({ error: `you may not see the app "${federated}"` });
+        }
+        if (!name) return ctx.response.status(501).json({ error: 'not available for this app' });
+        try {
+          const result = await this.federation!.dispatch(
+            federated,
+            name,
+            { actor: await this.actorOf(config, ctx) },
+            toApiRequest(ctx),
+          );
+          ctx.response.header('cache-control', 'private, no-store');
+          return ctx.response.status(result.status).json(result.body);
+        } catch (error) {
+          return ctx.response
+            .status(500)
+            .json({ error: error instanceof Error ? error.message : 'internal error' });
+        }
+      }
       if (!hasRuntime()) {
         return ctx.response.status(503).json({
           error:
@@ -214,6 +246,30 @@ export default class FlagsDashboardProvider {
     const name = (suffix: string) => `flags_dashboard.${suffix}`;
 
     router.get(`${api}/meta`, json(meta)).as(name('meta'));
+    // The App picker: this app, its tenants (control-plane) and the federated apps of `apps`.
+    router
+      .get(`${api}/apps`, async (ctx: HttpContext) => {
+        const guard = await this.enforce(config, ctx, 'api');
+        if (!guard.allowed) return;
+        if (!hasRuntime()) {
+          return ctx.response.status(503).json({ error: '@adonis-agora/flags is not booted' });
+        }
+        const result = await listApps(
+          {
+            runtime: getRuntime(),
+            actor: await this.actorOf(config, ctx),
+            ...(guard.apps !== undefined ? { apps: guard.apps } : {}),
+          },
+          toApiRequest(ctx),
+          {
+            federated: this.federation?.list() ?? [],
+            ...(config.appLabel ? { label: config.appLabel } : {}),
+          },
+        );
+        ctx.response.header('cache-control', 'private, no-store');
+        return ctx.response.status(result.status).json(result.body);
+      })
+      .as(name('apps'));
 
     router.get(`${api}/flags`, json(listFlags)).as(name('flags'));
     router.get(`${api}/flags/:key`, json(flagDetail)).as(name('flags.show'));
@@ -296,6 +352,45 @@ export default class FlagsDashboardProvider {
           .json(await searchConsoles(registry, CONSOLE_ID, ctx, typeof q === 'string' ? q : ''));
       })
       .as(name('consoles.search'));
+  }
+
+  /** The federated app `?app=` names, if it names one. */
+  private federatedPick(ctx: HttpContext): string | undefined {
+    if (!this.federation) return undefined;
+    const raw = ctx.request.qs().app;
+    const app = Array.isArray(raw) ? raw[0] : raw;
+    return typeof app === 'string' && this.federation.has(app) ? app : undefined;
+  }
+
+  /** The federated console over `apps`: Lucid and Redis resolved through the container. */
+  private createFederation(config: ResolvedFlagsDashboardConfig): FederatedFlagsConsole {
+    const container = this.app.container;
+    return new FederatedFlagsConsole(config.apps, {
+      async db(connection) {
+        if (!container.hasBinding('lucid.db')) {
+          throw new Error("the federated console needs @adonisjs/lucid to read the apps' tables");
+        }
+        const db = (await container.make('lucid.db')) as unknown as {
+          connection(name?: string): SqlDatabase;
+        };
+        return db.connection(connection);
+      },
+      async redis(connection) {
+        if (!container.hasBinding('redis')) {
+          throw new Error('the federated console needs @adonisjs/redis to reach the apps');
+        }
+        const redis = (await container.make('redis')) as unknown as {
+          connection(name?: string): { ioConnection?: unknown };
+        };
+        const client = redis.connection(connection);
+        return (client.ioConnection ?? client) as RedisLike;
+      },
+      environment: () => (hasRuntime() ? getRuntime().manager.environment : 'production'),
+    });
+  }
+
+  async shutdown() {
+    await this.federation?.close();
   }
 
   /**

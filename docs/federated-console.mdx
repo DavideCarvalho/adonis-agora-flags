@@ -1,0 +1,164 @@
+---
+title: Federated console
+description: One flags console for several apps. Each app keeps its own store and evaluates its flags itself; the console reads each app's flags and sends every change to the app that owns them.
+icon: Network
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+An app can keep its flags to itself (its own store, evaluated in its own process, nothing to call at runtime) and still have them shown and edited in another app's [console](/docs/console), next to that console's own flags and, on a [control-plane](/docs/central-server), its tenants'. An **App** picker in the header chooses whose flags you see.
+
+Nothing moves. The console reads a picked app's flags, segments, history and change requests from that app's tables. Every change you make there (targeting, kill switch, rollout, variant, overrides, schedules, segments, layers, metrics, approvals, import and promote) is run by the app itself, so its own validation, approvals, audit log and ruleset refresh see it as if it had been made in its own console.
+
+## Configure the console app
+
+List the other apps under `apps` in the console app's `config/flags_dashboard.ts`. Each one names where its flags tables are (`store`) and the Redis prefix it answers on (`controlPlane`):
+
+```ts title="config/flags_dashboard.ts"
+import { defineConfig } from '@adonis-agora/flags/dashboard'
+
+export default defineConfig({
+  authorize: (ctx) => ctx.auth.user?.isAdmin === true,
+  appLabel: 'Hub',
+  apps: {
+    'entre-textos': {
+      label: 'Entre Textos',
+      store: { connection: 'pg', schema: 'flags_entretextos' },
+      controlPlane: { connection: 'main', prefix: 'entretextos' },
+    },
+    'eduliberta': {
+      label: 'EduLiberta',
+      store: { connection: 'pg', schema: 'flags_eduliberta' },
+      controlPlane: { connection: 'main', prefix: 'eduliberta' },
+      actions: false,
+    },
+  },
+})
+```
+
+| Option | Description |
+| --- | --- |
+| `apps` | The other apps, by a key of 1–64 characters (`A-Z a-z 0-9 _ . -`). The key is what the URL carries: `?app=entre-textos`. |
+| `apps.<key>.label` | The name in the picker. Defaults to the key. |
+| `apps.<key>.store.connection` | A Lucid connection of this app (`config/database.ts`) that reaches the other app's database. Default: the default connection. |
+| `apps.<key>.store.schema` | The `schema` the other app sets in its `config/flags.ts`. Omit it when that app has none. |
+| `apps.<key>.controlPlane.connection` | The `@adonisjs/redis` connection to publish on. Both apps must use the same Redis server. Default: the default connection. |
+| `apps.<key>.controlPlane.prefix` | The other app's `consoleCommands.prefix`. |
+| `apps.<key>.actions` | `false` to only browse that app here. Default `true`. |
+| `apps.<key>.timeoutMs` | How long a change waits for the app to answer. Default `15000`. |
+| `appLabel` | The name of this console's own app in the picker. Default: its flags `app` name. |
+
+The console app needs `@adonisjs/lucid` and `@adonisjs/redis`. A connection is made the first time someone picks the app, not at boot; a malformed entry fails the boot.
+
+## Configure each other app
+
+Each app the console shows must answer it. Turn that on in its `config/flags.ts`:
+
+```ts title="config/flags.ts (the other app)"
+import { defineConfig, stores } from '@adonis-agora/flags'
+
+export default defineConfig({
+  app: 'entre-textos',
+  schema: 'flags_entretextos',
+  store: stores.lucid(),
+  flags: {
+    // ...declared as usual
+  },
+  consoleCommands: { prefix: 'entretextos', connection: 'main' },
+})
+```
+
+| Option | Description |
+| --- | --- |
+| `consoleCommands: true` | Answer on the default Redis connection, with the app's name (`app`, else its package.json name) as the prefix. |
+| `consoleCommands.prefix` | The prefix the console app names in `controlPlane.prefix`. |
+| `consoleCommands.connection` | The `@adonisjs/redis` connection to listen on. |
+| `consoleCommands.actions` | `false` to answer reads only: the console shows the app, and every change is refused with `403`. Default `true`. |
+
+Every web instance of the app listens, and exactly one of them runs each change. The app logs one line per change, with who made it in the console:
+
+```
+[flags] federated console: setEnabled new_editor by 42 (ops@example.com)
+```
+
+The change lands in the app's audit log under the console's person, and the app's two-person approvals apply: in an environment that needs approval, the change becomes a change request in the app, which someone approves from either console. Anonymous people are refused there, as in the app's own console.
+
+The app reads its flags as before, from its own store:
+
+```ts title="app/controllers/editor_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import flags from '@adonis-agora/flags/services/main'
+
+export default class EditorController {
+  async show({ view, auth }: HttpContext) {
+    const useNewEditor = await flags.for(auth.user!).enabled('new_editor')
+    return view.render(useNewEditor ? 'editor/new' : 'editor/classic')
+  }
+}
+```
+
+A change made from the console reaches it the way one made in its own console does (Postgres notifications, or the next poll).
+
+<Callout type="warn">
+  `consoleCommands` does not apply to a [tenant](/docs/central-server#a-tenant): a tenant's flags are edited on its control-plane. Anything that can publish on that Redis can send these changes, so keep the Redis private to your apps.
+</Callout>
+
+## Database access
+
+The console reads the other app's tables with its own connection and never writes there. On Postgres, give that connection's role read access to the other app's flags schema, and nothing more:
+
+```sql
+GRANT USAGE ON SCHEMA flags_entretextos TO hub_role;
+GRANT SELECT ON ALL TABLES IN SCHEMA flags_entretextos TO hub_role;
+-- tables a later flags version adds:
+ALTER DEFAULT PRIVILEGES FOR ROLE entretextos_role IN SCHEMA flags_entretextos
+  GRANT SELECT ON TABLES TO hub_role;
+```
+
+If the apps live in different databases, declare a Lucid connection to the other database in the console app's `config/database.ts` and name it in `store.connection`.
+
+## Using the console
+
+With `apps` set, the header's **App** picker lists this app first (or **All apps** on a control-plane, then its tenants), then the federated apps, tagged **federated**. Picking one puts it in the URL (`?app=entre-textos`), so a link or a reload keeps it; picking this app removes it. While a federated app is picked, a notice at the top of every page says its flags come from its own store and that changes are sent to it, or that it is read-only here.
+
+For the picked app, the console shows:
+
+- its flags, segments, layers, metrics, history, change requests, schedules and the stale-flag report, read from its tables;
+- which flags its code declares, its metrics and experiments from `config/flags.ts`, and its approvals, as the app reports them;
+- its experiment results and its Ops page, asked of the app;
+- every change, run by the app.
+
+When the app does not answer (it is down, or `consoleCommands` is off), a change fails at once with `503` and a message naming the app. Its tables still read, and the console says the app is not answering: flags declared only in its code are missing from the list until it answers again.
+
+## Who sees which app
+
+An `authorize` that returns `apps` limits the picker: an app whose key is not in the list is not offered, and `?app=` naming it answers `403`. `'*'` or no `apps` shows every app.
+
+```ts title="config/flags_dashboard.ts"
+authorize: async (ctx) => {
+  const user = await ctx.auth.authenticate()
+  if (user.isAdmin) return { allowed: true, apps: '*' }
+  return { allowed: true, apps: ['eduliberta'] }
+},
+```
+
+## The API
+
+Every console API route takes `?app=<key>`. `GET <path>/api/apps` lists what the picker offers:
+
+```json
+{
+  "local": { "id": "hub", "label": "Hub" },
+  "topology": "standalone",
+  "appScope": "*",
+  "apps": [
+    { "id": "entre-textos", "label": "Entre Textos", "mode": "federated", "actions": "app" },
+    { "id": "eduliberta", "label": "EduLiberta", "mode": "federated", "actions": "none" }
+  ],
+  "selected": null
+}
+```
+
+`mode` is `control-plane` for a tenant reporting to this server and `federated` for an app of `apps`. `actions` says who runs changes on its flags: `here` (this server), `app` (they are sent to the app) or `none` (browse only). `selected` echoes `?app=` when it names one of the listed apps.
+
+`GET <path>/api/meta?app=<key>` adds `federated: { id, label, mode, actions, reachable }` for a federated app.

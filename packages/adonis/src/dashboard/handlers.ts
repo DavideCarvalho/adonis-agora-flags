@@ -398,6 +398,56 @@ export function meta(deps: Deps, _req: ApiRequest): Promise<ApiResponse> {
   });
 }
 
+/** One app the console's App picker offers. */
+export interface ConsoleApp {
+  id: string;
+  label: string;
+  /** `control-plane`: it reports to this server. `federated`: it keeps its own store. */
+  mode: 'control-plane' | 'federated';
+  /** Who runs changes on its flags: this server, the app itself, or nobody (browse only). */
+  actions: 'here' | 'app' | 'none';
+}
+
+/**
+ * `GET /api/apps` — what the App picker offers, as `{ local, apps, selected, appScope, topology }`:
+ * this app, the tenants reporting to it (control-plane), and the federated apps of
+ * `config/flags_dashboard.ts` (handed over by the provider), only the ones this person may see.
+ * `selected` echoes `?app=` when it names one of them, else `null`.
+ */
+export function listApps(
+  deps: Deps,
+  req: ApiRequest,
+  options: { federated?: ConsoleApp[]; label?: string | undefined } = {},
+): Promise<ApiResponse> {
+  return handle(deps, async (o) => {
+    const visible = canSee(deps);
+    const configured = options.federated ?? [];
+    const federatedIds = new Set(configured.map((app) => app.id));
+    const allowed = allowedApps(deps);
+    const tenants =
+      o.runtime.topology === 'control-plane'
+        ? (allowed ? [...allowed].sort() : await knownApps(o)).filter((id) => !federatedIds.has(id))
+        : [];
+    const apps: ConsoleApp[] = [
+      ...tenants.map((id) => ({
+        id,
+        label: id,
+        mode: 'control-plane' as const,
+        actions: 'here' as const,
+      })),
+      ...configured.filter((app) => visible(app.id)),
+    ];
+    const asked = first(req.query.app);
+    return ok({
+      local: { id: o.runtime.manager.app, label: options.label ?? o.runtime.manager.app },
+      topology: o.runtime.topology,
+      appScope: allowed ?? '*',
+      apps,
+      selected: asked !== undefined && apps.some((app) => app.id === asked) ? asked : null,
+    });
+  });
+}
+
 // ── Flags ───────────────────────────────────────────────────────────────────
 
 /** `GET /api/flags` — every flag in the ruleset or declared in code, with what it serves, as

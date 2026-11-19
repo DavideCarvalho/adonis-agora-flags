@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import type { ApplicationService } from '@adonisjs/core/types';
 import type { FlagsConfig } from '../src/define_config.js';
 import { type DurableEngineLike, registerDurableWorkflows } from '../src/durable.js';
+import { answerConsoleCommands, resolveConsoleCommands } from '../src/federation/console.js';
+import type { RedisConsoleChannel, RedisLike } from '../src/federation/redis_channel.js';
 import { browserSecret, registerBrowser } from '../src/http/browser.js';
 import { ControlPlane } from '../src/http/control_plane.js';
 import { registerEdgeTag } from '../src/http/edge_tag.js';
@@ -34,6 +36,7 @@ export default class FlagsProvider {
   #runtime: FlagsRuntime | undefined;
   #building: Promise<FlagsRuntime> | undefined;
   #controlPlane: ControlPlane | undefined;
+  #consoleCommands: RedisConsoleChannel | undefined;
 
   constructor(protected app: ApplicationService) {}
 
@@ -201,6 +204,7 @@ export default class FlagsProvider {
           logger.error(`[flags] tenant transports did not start: ${(error as Error).message}`);
         }
       }
+      await this.#answerConsoleCommands(runtime, config);
       if (runtime.role === 'worker') return;
       const router = await this.app.container.make('router');
       // The HTTP routes are mounted whatever tenant transports are configured: browsers, OFREP
@@ -215,6 +219,34 @@ export default class FlagsProvider {
         });
       }
     });
+  }
+
+  /**
+   * `consoleCommands`: answer another app's flags console over Redis. Not in ace commands or the
+   * REPL (they would hold a subscription open). A Redis that cannot be reached is logged, not fatal.
+   */
+  async #answerConsoleCommands(runtime: FlagsRuntime, config: FlagsConfig): Promise<void> {
+    if (config.topology === 'tenant') return;
+    const environment = this.app.getEnvironment();
+    if (environment === 'console' || environment === 'repl') return;
+    const option = resolveConsoleCommands(config.consoleCommands, runtime.manager.app);
+    if (!option) return;
+    const logger = await this.app.container.make('logger');
+    try {
+      this.#consoleCommands = await answerConsoleCommands({
+        client: (await this.#redis(option.connection)) as unknown as RedisLike,
+        prefix: option.prefix,
+        actions: option.actions,
+        runtime: () => runtime,
+        log: (line) => logger.info(line),
+        onError: (error) =>
+          logger.error(`[flags] console command failed: ${(error as Error).message}`),
+      });
+    } catch (error) {
+      logger.error(
+        `[flags] consoleCommands: not answering other consoles: ${(error as Error).message}`,
+      );
+    }
   }
 
   /**
@@ -248,6 +280,8 @@ export default class FlagsProvider {
   }
 
   async shutdown() {
+    await this.#consoleCommands?.close();
+    this.#consoleCommands = undefined;
     await this.#controlPlane?.close();
     this.#controlPlane = undefined;
     await this.#runtime?.close();

@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, type Meta, withApp } from '../client/flags-client';
+import { type AppsResponse, api, type Meta, withApp } from '../client/flags-client';
 import { AppPicker, appPickerMode } from './AppPicker';
 import { META } from './render.test-helper';
 
@@ -68,6 +68,48 @@ describe('AppPicker', () => {
     fireEvent.click(screen.getByRole('button', { name: /^App/ }));
     fireEvent.mouseDown(await screen.findByRole('option', { name: 'All apps' }));
     await waitFor(() => expect(window.location.search).toBe(''));
+  });
+});
+
+const directory = (extra: Partial<AppsResponse> = {}): AppsResponse => ({
+  local: { id: 'hub', label: 'Hub' },
+  topology: 'standalone',
+  appScope: '*',
+  apps: [{ id: 'et', label: 'Entre Textos', mode: 'federated', actions: 'app' }],
+  selected: null,
+  ...extra,
+});
+
+describe('AppPicker with federated apps', () => {
+  it('offers this app first, then the federated apps tagged "federated"', async () => {
+    expect(appPickerMode(META, directory())).toBe('pick');
+    expect(appPickerMode(META, directory({ apps: [] }))).toBe('off');
+    render(<AppPicker meta={META} directory={directory()} />, { wrapper });
+    fireEvent.click(screen.getByRole('button', { name: 'App: Hub' }));
+    const options = await screen.findAllByRole('option');
+    expect(options.map((o) => o.textContent)).toEqual(['Hub', 'Entre Textosfederated']);
+    fireEvent.mouseDown(screen.getByRole('option', { name: /Entre Textos/ }));
+    await waitFor(() => expect(window.location.search).toBe('?app=et'));
+    expect(screen.getByRole('button', { name: 'App: Entre Textos' })).toBeTruthy();
+    expect(document.querySelector('[data-app-mode="federated"]')).toBeTruthy();
+  });
+
+  it('lists tenants and federated apps together on a central server', async () => {
+    const both = directory({
+      topology: 'control-plane',
+      apps: [
+        { id: 'blog', label: 'blog', mode: 'control-plane', actions: 'here' },
+        { id: 'et', label: 'Entre Textos', mode: 'federated', actions: 'none' },
+      ],
+    });
+    render(<AppPicker meta={central()} directory={both} />, { wrapper });
+    fireEvent.click(screen.getByRole('button', { name: 'App: All apps' }));
+    const options = await screen.findAllByRole('option');
+    expect(options.map((o) => o.textContent)).toEqual([
+      'All apps',
+      'blog',
+      'Entre Textosfederated',
+    ]);
   });
 });
 

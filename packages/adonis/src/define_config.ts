@@ -10,6 +10,7 @@ import type { FlagDeclaration } from './declare.js';
 import type { Enricher } from './enrichers.js';
 import type { BufferOptions } from './events/buffer.js';
 import type { FlagEvent } from './events/event.js';
+import type { ConsoleCommandsOption } from './federation/console.js';
 import type { FlagsIdentityProvider } from './identity.js';
 import type { RelayOptions } from './relay/relay.js';
 import { type ClickHouseOptions, ClickHouseSink } from './sinks/clickhouse.js';
@@ -346,6 +347,13 @@ interface OwnedStateConfig {
   partitionEvents?: boolean;
   /** Push ruleset changes to browsers through `@adonisjs/transmit`. Default `false`. */
   realtime?: { channel?: string } | boolean;
+  /**
+   * Let another app's flags console (its `apps` in config/flags_dashboard.ts) show and change this
+   * app's flags. Every instance listens on Redis (`@adonisjs/redis`); exactly one runs each change,
+   * through this app's own admin, so validation, approvals and the audit log apply. `true` uses
+   * this app's name as the prefix and the default Redis connection. Default: off.
+   */
+  consoleCommands?: ConsoleCommandsOption;
 }
 
 export interface StandaloneConfig<F extends Record<string, FlagDeclaration>>
@@ -443,6 +451,8 @@ export interface TenantConfig<F extends Record<string, FlagDeclaration>> extends
   analytics?: never;
   approvals?: never;
   verifyTenant?: never;
+  /** FORBIDDEN on a tenant: its flags are edited on the control-plane. */
+  consoleCommands?: never;
 }
 
 export type FlagsConfig<
@@ -468,8 +478,37 @@ export function validateConfig(config: FlagsConfig): void {
       watch?: { driver?: string; canWatch?: boolean };
     };
     browser?: unknown;
+    consoleCommands?: unknown;
   };
   const topology = raw.topology ?? 'standalone';
+  if (raw.consoleCommands !== undefined && raw.consoleCommands !== false) {
+    if (topology === 'tenant') {
+      throw new Error(
+        '[flags] consoleCommands does not apply to a tenant: its flags are edited on the control-plane console',
+      );
+    }
+    const option = raw.consoleCommands;
+    if (option !== true) {
+      const value = option as { prefix?: unknown; connection?: unknown; actions?: unknown } | null;
+      if (!value || typeof value !== 'object') {
+        throw new Error('[flags] consoleCommands must be true or { prefix, connection, actions }');
+      }
+      if (value.prefix !== undefined && (typeof value.prefix !== 'string' || value.prefix === '')) {
+        throw new Error('[flags] consoleCommands.prefix must be a non-empty string');
+      }
+      if (
+        value.connection !== undefined &&
+        (typeof value.connection !== 'string' || value.connection === '')
+      ) {
+        throw new Error(
+          '[flags] consoleCommands.connection must be a connection name of config/redis.ts',
+        );
+      }
+      if (value.actions !== undefined && typeof value.actions !== 'boolean') {
+        throw new Error('[flags] consoleCommands.actions must be a boolean');
+      }
+    }
+  }
   if (raw.controlPlane && 'verifyTenant' in raw.controlPlane) {
     throw new Error(
       "[flags] controlPlane.verifyTenant moved to the top level of config/flags.ts: `verifyTenant: authkitTenantVerifier({ issuer, resource: 'urn:agora:flags' })` (from @adonis-agora/authkit-client) or `verifyTenant: sharedSecretVerifier({ partitions })`",

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { FederatedNotice } from '../agora-kit/blocks/app-mode';
 import { ErrorBoundary } from '../agora-kit/blocks/error-boundary';
 import { PageHeader } from '../agora-kit/blocks/page-header';
 import { cn } from '../agora-kit/lib/utils';
@@ -200,6 +201,14 @@ function Console() {
   const shellConfig = useMemo(() => readShellConfig(CONFIG_ELEMENT_ID), []);
   const [route, navigate] = useHashRoute();
   const meta = useQuery({ queryKey: ['meta'], queryFn: api.meta, refetchInterval: false });
+  // The App picker's choices (tenants, federated apps). A server without the route: `meta.apps`.
+  const directory = useQuery({
+    queryKey: ['apps'],
+    queryFn: api.apps,
+    refetchInterval: false,
+    retry: false,
+  });
+  const federated = meta.data?.federated;
   const appEnvironment = meta.data?.environment ?? defaultEnvironment();
   const environment = route.env ?? appEnvironment;
   const go = useCallback(
@@ -256,7 +265,10 @@ function Console() {
         searchPlaceholder="Search flags, segments, runs, users…"
         actions={
           <>
-            <AppPicker meta={meta.data} />
+            <AppPicker
+              meta={meta.data}
+              directory={Array.isArray(directory.data?.apps) ? directory.data : undefined}
+            />
             <EnvironmentPicker
               environment={environment}
               environments={environments}
@@ -270,6 +282,20 @@ function Console() {
         }
       >
         <PageBody>
+          {federated && (
+            <FederatedNotice
+              appLabel={federated.label}
+              mode={federated.mode}
+              actions={federated.actions}
+              className="mb-4"
+            />
+          )}
+          {federated && !federated.reachable && (
+            <p role="alert" className="mb-4 text-xs text-warn" data-federated-unreachable>
+              {federated.label} is not answering: its flags are read from its tables, without what
+              only it knows (flags declared in its code, its experiments), and changes will fail.
+            </p>
+          )}
           {!detail && (
             <PageHeader title={LABEL[route.screen]} description={DESCRIPTION[route.screen]} />
           )}

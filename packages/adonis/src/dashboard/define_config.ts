@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http';
+import { type FederatedFlagsApp, validateFederatedApp } from '../federation/console.js';
 import type { Actor } from '../stores/store.js';
 import type {
   AccessDeniedOption as GenericAccessDeniedOption,
@@ -88,6 +89,15 @@ export interface FlagsDashboardConfig {
    * announces on the `agora.consoles` registry, when there is one. Same-origin paths only.
    */
   signOut?: SignOutOption;
+  /**
+   * Other apps this console also shows (a federated console): each keeps its own flags store and
+   * evaluates locally; the console reads its tables and sends its changes to it over Redis. The
+   * key travels in the URL (`?app=<key>`). Each app opts in with `consoleCommands` in its
+   * config/flags.ts.
+   */
+  apps?: Record<string, FederatedFlagsApp>;
+  /** The name of this console's own app in the App picker. Default: its flags `app` name. */
+  appLabel?: string;
 }
 
 /** A fully-resolved config — every field present (defaults applied). */
@@ -101,6 +111,9 @@ export interface ResolvedFlagsDashboardConfig {
   viewer: ViewerHook | null;
   /** The host's `signOut` option, or `null` for the registry's announced one. */
   signOut: SignOutOption | null;
+  /** The federated apps (validated), empty when none. */
+  apps: Record<string, FederatedFlagsApp>;
+  appLabel: string | null;
 }
 
 /** Apply defaults to a partial config, producing a fully-resolved one. */
@@ -108,6 +121,10 @@ export function resolveConfig(config: FlagsDashboardConfig = {}): ResolvedFlagsD
   const rawPath = config.path ?? '/flags';
   // Normalize: ensure a single leading slash and no trailing slash (root stays '').
   const trimmed = `/${rawPath.replace(/^\/+/, '').replace(/\/+$/, '')}`;
+  for (const [key, entry] of Object.entries(config.apps ?? {})) validateFederatedApp(key, entry);
+  if (config.appLabel !== undefined && (typeof config.appLabel !== 'string' || !config.appLabel)) {
+    throw new Error('[@adonis-agora/flags] flags_dashboard.appLabel must be a non-empty string');
+  }
   return {
     enabled: config.enabled ?? true,
     path: trimmed === '/' ? '' : trimmed,
@@ -116,6 +133,8 @@ export function resolveConfig(config: FlagsDashboardConfig = {}): ResolvedFlagsD
     accessDenied: config.accessDenied ?? null,
     viewer: config.viewer ?? null,
     signOut: config.signOut ?? null,
+    apps: config.apps ?? {},
+    appLabel: config.appLabel ?? null,
   };
 }
 
