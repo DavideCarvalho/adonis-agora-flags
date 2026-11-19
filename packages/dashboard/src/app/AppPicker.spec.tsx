@@ -38,35 +38,36 @@ describe('AppPicker', () => {
 
   it('shows a fixed chip for someone limited to one app', () => {
     render(<AppPicker meta={central({ apps: ['shop'], appScope: ['shop'] })} />, { wrapper });
-    expect(document.querySelector('[data-app-picker="fixed"]')?.textContent).toBe('Appshop');
+    expect(document.querySelector('[data-app-chip]')?.textContent).toBe('Appshop');
+    expect(screen.queryByRole('button')).toBeNull();
   });
 
   it('lists "All apps" first, filters, and records a pick in the URL', async () => {
     window.history.replaceState(null, '', '/flags#/experiments');
     render(<AppPicker meta={central()} />, { wrapper });
-    const trigger = screen.getByRole('button', { name: 'App' });
+    const trigger = screen.getByRole('button', { name: /^App/ });
     expect(trigger.textContent).toBe('AppAll apps');
+    expect(trigger.getAttribute('aria-haspopup')).toBe('listbox');
     fireEvent.click(trigger);
     const options = await screen.findAllByRole('option');
     expect(options.map((o) => o.textContent)).toEqual(['All apps', 'blog', 'shop']);
 
-    fireEvent.change(screen.getByLabelText('search apps'), { target: { value: 'sh' } });
-    expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual([
-      'All apps',
-      'shop',
-    ]);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Search apps' }), {
+      target: { value: 'sh' },
+    });
+    expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual(['shop']);
 
-    fireEvent.click(screen.getByRole('option', { name: 'shop' }));
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'shop' }));
     await waitFor(() => expect(window.location.search).toBe('?app=shop'));
     expect(window.location.hash).toBe('#/experiments');
-    expect(screen.getByRole('button', { name: 'App' }).textContent).toBe('Appshop');
+    expect(screen.getByRole('button', { name: /^App/ }).textContent).toBe('Appshop');
   });
 
   it('goes back to every app with "All apps"', async () => {
     window.history.replaceState(null, '', '/flags?app=blog');
     render(<AppPicker meta={central()} />, { wrapper });
-    fireEvent.click(screen.getByRole('button', { name: 'App' }));
-    fireEvent.click(await screen.findByRole('option', { name: 'All apps' }));
+    fireEvent.click(screen.getByRole('button', { name: /^App/ }));
+    fireEvent.mouseDown(await screen.findByRole('option', { name: 'All apps' }));
     await waitFor(() => expect(window.location.search).toBe(''));
   });
 });
