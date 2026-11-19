@@ -1,5 +1,11 @@
 # @adonis-agora/flags-dashboard
 
+## 0.8.4
+
+### Patch Changes
+
+- [#30](https://github.com/DavideCarvalho/adonis-agora-flags/pull/30) [`37cf718`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/37cf7183aa48f3698c5ebc1d80a236ca8b2b52d1) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The App picker uses the console kit's shared `ScopeMenu` / `ScopeChip`, the same searchable picker as telescope's ("All apps" first, a chip for someone limited to one app). Going to another console, a sidebar page or a ⌘K command keeps `?app=` / `?tenant=`.
+
 ## 0.8.3
 
 ### Patch Changes
