@@ -45,8 +45,7 @@ describe('AppPicker', () => {
   it('lists "All apps" first, filters, and records a pick in the URL', async () => {
     window.history.replaceState(null, '', '/flags#/experiments');
     render(<AppPicker meta={central()} />, { wrapper });
-    const trigger = screen.getByRole('button', { name: /^App/ });
-    expect(trigger.textContent).toBe('AppAll apps');
+    const trigger = screen.getByRole('button', { name: 'App: All apps' });
     expect(trigger.getAttribute('aria-haspopup')).toBe('listbox');
     fireEvent.click(trigger);
     const options = await screen.findAllByRole('option');
@@ -60,7 +59,7 @@ describe('AppPicker', () => {
     fireEvent.mouseDown(screen.getByRole('option', { name: 'shop' }));
     await waitFor(() => expect(window.location.search).toBe('?app=shop'));
     expect(window.location.hash).toBe('#/experiments');
-    expect(screen.getByRole('button', { name: /^App/ }).textContent).toBe('Appshop');
+    expect(screen.getByRole('button', { name: 'App: shop' })).toBeTruthy();
   });
 
   it('goes back to every app with "All apps"', async () => {
