@@ -1,5 +1,11 @@
 # @adonis-agora/flags
 
+## 0.14.6
+
+### Patch Changes
+
+- [#29](https://github.com/DavideCarvalho/adonis-agora-flags/pull/29) [`2bef3ad`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/2bef3ad9c47f1e43b8856de923bbbef743711ae3) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Stores, transports, sinks and analytics backends now describe the infrastructure they use (`Symbol.for('@adonis-agora/stack')`), and the `defineConfig` result describes the defaults it falls back to, so telescope's Architecture page shows "flags: exposures → ClickHouse" without any app code.
+
 ## 0.14.5
 
 ### Patch Changes
