@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Ruleset } from '@adonis-agora/flags-core';
+import { describeStackUse, redisUse } from '../stack.js';
 import { consume, sleep } from './common.js';
 import {
   byteLength,
@@ -375,7 +376,7 @@ export class RedisControlPlaneLink implements ControlPlaneLink {
  * plus pub/sub. Needs `@adonisjs/redis` (or `client`).
  */
 export function redisTransport(options: RedisTenantTransportOptions = {}): WatchTransport {
-  return {
+  const transport: WatchTransport = {
     driver: 'redis',
     canWatch: true,
     async push(ctx) {
@@ -390,4 +391,8 @@ export function redisTransport(options: RedisTenantTransportOptions = {}): Watch
       return link;
     },
   };
+  // A ready `client` names no connection: nothing to describe.
+  return options.client
+    ? transport
+    : describeStackUse(transport, () => redisUse(options.connection, 'tenant link'));
 }
