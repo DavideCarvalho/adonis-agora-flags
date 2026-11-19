@@ -1,5 +1,11 @@
 # @adonis-agora/flags
 
+## 0.14.7
+
+### Patch Changes
+
+- [#32](https://github.com/DavideCarvalho/adonis-agora-flags/pull/32) [`591d4a4`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/591d4a4b940f69fd97a1ba1787f595b0d58cf41f) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Ship the console with the shared App/Organization picker: the dashboard is bundled into this package at build time, and the picker changesets only bumped the dashboard package, so this release carries it to apps.
+
 ## 0.14.6
 
 ### Patch Changes

@@ -1,4 +1,4 @@
-export const VERSION = '0.14.6';
+export const VERSION = '0.14.7';
 
 export type {
   EvaluationContext,
