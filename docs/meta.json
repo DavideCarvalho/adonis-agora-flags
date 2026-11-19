@@ -15,6 +15,7 @@
     "deployment",
     "central-server",
     "console",
+    "federated-console",
     "operations",
     "openfeature",
     "react",

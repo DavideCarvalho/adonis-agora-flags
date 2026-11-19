@@ -1,3 +1,11 @@
+// The federated console: other apps' own flags, shown and edited here (`apps`).
+export type {
+  ConsoleCommandsOption,
+  FederatedAppInfo,
+  FederatedFlagsApp,
+  FlagsConsoleProfile,
+} from '../federation/console.js';
+export { RedisConsoleChannel } from '../federation/redis_channel.js';
 export type {
   AccessDeniedInfo,
   AccessDeniedPageOptions,
@@ -79,7 +87,14 @@ export type {
   FlagsDevToolsOptions,
 } from './dev_tools.js';
 export { DEV_TOOLS_BINDING, flagsDevTools, registerFlagsDevTools } from './dev_tools.js';
-export type { ApiRequest, ApiResponse, DeclaredFlag, Deps, Serving } from './handlers.js';
+export type {
+  ApiRequest,
+  ApiResponse,
+  ConsoleApp,
+  DeclaredFlag,
+  Deps,
+  Serving,
+} from './handlers.js';
 export * as handlers from './handlers.js';
 export { errorResponse, HttpError, servingSummary } from './handlers.js';
 export type { InjectedConfig, ShellFields, SwitcherConfig } from './spa.js';

@@ -10,7 +10,8 @@ description: >-
   sharedSecretVerifier), topology 'tenant' with authkitTenantToken or a shared
   secret and snapshotPath, and OFREP. Use for "run flags work in a
   separate worker", "share flags across apps", "approval required for
-  production", or "tenant keeps serving defaults".
+  production", "tenant keeps serving defaults", or "show another app's own
+  flags in this console" (federated console: apps + consoleCommands).
 metadata:
   type: core
   library: "@adonis-agora/flags"
@@ -22,6 +23,7 @@ sources:
   - 'DavideCarvalho/adonis-agora-flags:docs/central-server.mdx'
   - 'DavideCarvalho/adonis-agora-flags:docs/operations.mdx'
   - 'DavideCarvalho/adonis-agora-flags:docs/console.mdx'
+  - 'DavideCarvalho/adonis-agora-flags:docs/federated-console.mdx'
 ---
 
 # @adonis-agora/flags — deployment
@@ -106,6 +108,37 @@ browser: {},
 Tenants fetch their signing key from the control-plane over the tenant
 connection (needs the `flags:events:write` capability); keys derive from the
 control-plane's `browser.secret` (default `APP_KEY`), per app and environment.
+
+### Pattern 4 — one console, apps that keep their own flags (federated)
+
+```ts
+// console app: config/flags_dashboard.ts
+import { defineConfig } from '@adonis-agora/flags/dashboard'
+
+export default defineConfig({
+  apps: {
+    'entre-textos': {
+      label: 'Entre Textos',
+      store: { connection: 'pg', schema: 'flags_entretextos' }, // read-only (GRANT SELECT)
+      controlPlane: { connection: 'main', prefix: 'entretextos' },
+    },
+  },
+})
+```
+
+```ts
+// the other app: config/flags.ts (standalone or control-plane, never a tenant)
+import { defineConfig } from '@adonis-agora/flags'
+
+export default defineConfig({
+  flags: {},
+  consoleCommands: { prefix: 'entretextos', connection: 'main' },
+})
+```
+
+Reads come from the app's tables; every change is sent over the shared Redis
+and run once by the app itself (its approvals and audit apply). `?app=<key>`
+picks the app; `authorize` returning `apps` limits who sees it.
 
 ## Common mistakes
 

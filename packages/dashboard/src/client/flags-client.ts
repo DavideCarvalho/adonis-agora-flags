@@ -174,6 +174,25 @@ export interface FlagRow {
   stale: StaleReason[];
 }
 
+/** One app the App picker offers (`GET /api/apps`). */
+export interface ConsoleApp {
+  id: string;
+  label: string;
+  /** `control-plane`: it reports to this server. `federated`: it keeps its own store. */
+  mode: 'control-plane' | 'federated';
+  /** Who runs changes on its flags: this server, the app itself, or nobody (browse only). */
+  actions: 'here' | 'app' | 'none';
+}
+
+/** `GET /api/apps`: this app, and the apps the picker offers besides it. */
+export interface AppsResponse {
+  local: { id: string; label: string };
+  topology: string;
+  appScope: '*' | string[];
+  apps: ConsoleApp[];
+  selected: string | null;
+}
+
 export interface Meta {
   app: string;
   /**
@@ -191,6 +210,8 @@ export interface Meta {
   operators: string[];
   analytics: boolean;
   experiments: string[];
+  /** Set when the picked app is a federated one: whose flags these are, and whether it answers. */
+  federated?: ConsoleApp & { reachable: boolean };
 }
 
 export interface AuditEntry {
@@ -554,6 +575,7 @@ type Paged<T, Extra = Record<never, never>> = CursorPageResponse<T> & {
 
 export const api = {
   meta: () => http<Meta>('/meta'),
+  apps: () => http<AppsResponse>('/apps'),
 
   flags: (environment: string) =>
     http<Catalog<FlagRow, { version: string }>>(`/flags${buildQuery({ environment })}`),
