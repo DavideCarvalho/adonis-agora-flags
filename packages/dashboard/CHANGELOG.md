@@ -1,5 +1,11 @@
 # @adonis-agora/flags-dashboard
 
+## 1.0.0-rc.1
+
+### Minor Changes
+
+- [#35](https://github.com/DavideCarvalho/adonis-agora-flags/pull/35) [`d6c7517`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/d6c7517c9f61324e27610812737b5f868819a3ae) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The console shows when things were created and changed: an "Updated" column on the flags list, "Created" on scheduled changes, and created / updated dates on a flag's detail, each segment, layer, console metric, the global holdout and change requests (`—` when unknown, the full timestamp on hover).
+
 ## 1.0.0-rc.0
 
 ### Major Changes
