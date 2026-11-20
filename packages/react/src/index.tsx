@@ -20,7 +20,7 @@ export {
   type TokenOptions,
 } from './remote.js';
 
-export const VERSION = '0.1.2';
+export const VERSION = '1.0.0-rc.0';
 
 /** The flag values available to the tree. */
 export type FlagValues = Record<string, unknown>;

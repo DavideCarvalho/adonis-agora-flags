@@ -1,4 +1,4 @@
-export const VERSION = '0.2.0';
+export const VERSION = '1.0.0-rc.0';
 
 export { BUCKET_COUNT, bucketOf, murmur3, pickVariant } from './bucket.js';
 export {

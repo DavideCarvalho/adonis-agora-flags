@@ -1,5 +1,11 @@
 # @adonis-agora/flags-dashboard
 
+## 1.0.0-rc.0
+
+### Major Changes
+
+- [#34](https://github.com/DavideCarvalho/adonis-agora-flags/pull/34) [`698c07c`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/698c07cbd1d8ca6557cedeba91b19aa007936c70) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - 1.0 release candidate: flags joins the rest of the Agora libraries on the 1.x line. No API changes from 0.15.
+
 ## 0.9.0
 
 ### Minor Changes
