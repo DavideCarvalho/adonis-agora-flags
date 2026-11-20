@@ -72,8 +72,5 @@
   },
   "engines": {
     "node": ">=24"
-  },
-  "agora": {
-    "versioning": "independent"
   }
 }
