@@ -9,6 +9,7 @@ import {
   type ChangeRequest,
   currentValue,
   type DeclarationRow,
+  type EntityTimestamps,
   type FlagsStore,
   type RulesetChange,
   type ScheduledChange,
@@ -27,6 +28,8 @@ export class MemoryStore implements FlagsStore {
   #schedules = new Map<string, ScheduledChange>();
   #usage = new Map<string, UsageRow>();
   #declarations = new Map<string, DeclarationRow>();
+  /** environment → `entity\0key` → when created / last changed. */
+  #stamps = new Map<string, Map<string, EntityTimestamps>>();
 
   /** Seed environments with a ruleset (`{ production: { flags: {…} } }`). */
   constructor(seed: Record<string, Partial<Omit<Ruleset, 'version'>>> = {}) {
@@ -59,8 +62,10 @@ export class MemoryStore implements FlagsStore {
     const current = this.#rulesets.get(environment) ?? emptyRuleset('0');
     const before = currentValue(current, change);
     const version = (this.#versions.get(environment) ?? 0) + 1;
-    this.#rulesets.set(environment, { ...applyChange(current, change), version: String(version) });
+    const next = applyChange(current, change);
+    this.#rulesets.set(environment, { ...next, version: String(version) });
     this.#versions.set(environment, version);
+    this.#stamp(environment, change, next);
     this.#audit.push({
       id: randomUUID(),
       environment,
@@ -75,6 +80,30 @@ export class MemoryStore implements FlagsStore {
       at: new Date(),
     });
     return { version: String(version) };
+  }
+
+  /** Keeps `createdAt` of entities that survive the change, stamps the written ones. */
+  #stamp(environment: string, change: RulesetChange, next: Ruleset) {
+    const now = new Date();
+    const previous = this.#stamps.get(environment) ?? new Map<string, EntityTimestamps>();
+    const stamps = new Map<string, EntityTimestamps>();
+    const written = new Set<string>();
+    if (change.entity === 'ruleset') {
+      for (const id of entityIds(next)) written.add(id);
+    } else if (change.value !== null) {
+      written.add(`${change.entity}\u0000${change.key ?? HOLDOUT_KEY}`);
+    }
+    for (const id of entityIds(next)) {
+      const before = previous.get(id);
+      const [entity, key] = id.split('\u0000') as [EntityTimestamps['entity'], string];
+      if (!written.has(id) && before) stamps.set(id, before);
+      else stamps.set(id, { entity, key, createdAt: before?.createdAt ?? now, updatedAt: now });
+    }
+    this.#stamps.set(environment, stamps);
+  }
+
+  async entityTimestamps(environment: string): Promise<EntityTimestamps[]> {
+    return [...(this.#stamps.get(environment)?.values() ?? [])].map((s) => ({ ...s }));
   }
 
   async environments(): Promise<string[]> {
@@ -97,11 +126,14 @@ export class MemoryStore implements FlagsStore {
   async createChangeRequest(
     request: Omit<ChangeRequest, 'id' | 'status' | 'requestedAt'>,
   ): Promise<ChangeRequest> {
+    const now = new Date();
     const created: ChangeRequest = {
       ...structuredClone(request),
       id: randomUUID(),
       status: 'pending',
-      requestedAt: new Date(),
+      requestedAt: now,
+      createdAt: now,
+      updatedAt: now,
     };
     this.#requests.set(created.id, created);
     return structuredClone(created);
@@ -132,15 +164,18 @@ export class MemoryStore implements FlagsStore {
   ): Promise<ChangeRequest> {
     const found = this.#requests.get(id);
     if (!found) throw new Error(`change request ${id} not found`);
-    Object.assign(found, structuredClone(patch));
+    Object.assign(found, structuredClone(patch), { updatedAt: new Date() });
     return structuredClone(found);
   }
 
   async createSchedule(schedule: Omit<ScheduledChange, 'id' | 'status'>): Promise<ScheduledChange> {
+    const now = new Date();
     const created: ScheduledChange = {
       ...structuredClone(schedule),
       id: randomUUID(),
       status: 'pending',
+      createdAt: now,
+      updatedAt: now,
     };
     this.#schedules.set(created.id, created);
     return structuredClone(created);
@@ -173,7 +208,7 @@ export class MemoryStore implements FlagsStore {
   ): Promise<ScheduledChange> {
     const found = this.#schedules.get(id);
     if (!found) throw new Error(`schedule ${id} not found`);
-    Object.assign(found, structuredClone(patch));
+    Object.assign(found, structuredClone(patch), { updatedAt: new Date() });
     return structuredClone(found);
   }
 
@@ -181,6 +216,7 @@ export class MemoryStore implements FlagsStore {
     const found = this.#schedules.get(id);
     if (found?.status !== 'pending') return false;
     found.status = 'running';
+    found.updatedAt = new Date();
     return true;
   }
 
@@ -224,11 +260,17 @@ export class MemoryStore implements FlagsStore {
   ): Promise<void> {
     const now = new Date();
     for (const [key, declaration] of Object.entries(declarations)) {
+      const before = this.#declarations.get(`${app}\u0000${key}`);
+      const changed = !before || JSON.stringify(before.declaration) !== JSON.stringify(declaration);
+      const createdAt = before ? before.createdAt : now;
+      const updatedAt = changed ? now : before.updatedAt;
       this.#declarations.set(`${app}\u0000${key}`, {
         app,
         key,
         declaration: structuredClone(declaration),
         lastSeenAt: now,
+        ...(createdAt ? { createdAt } : {}),
+        ...(updatedAt ? { updatedAt } : {}),
       });
     }
   }
@@ -238,4 +280,17 @@ export class MemoryStore implements FlagsStore {
       .filter((row) => app === undefined || row.app === app)
       .map((row) => structuredClone(row));
   }
+}
+
+const HOLDOUT_KEY = '__holdout__';
+
+/** `entity\0key` of every entity a ruleset stores, as the SQL store keys its rows. */
+function entityIds(ruleset: Ruleset): string[] {
+  return [
+    ...Object.keys(ruleset.flags).map((k) => `flag\u0000${k}`),
+    ...Object.keys(ruleset.segments ?? {}).map((k) => `segment\u0000${k}`),
+    ...Object.keys(ruleset.layers ?? {}).map((k) => `layer\u0000${k}`),
+    ...Object.keys(ruleset.metrics ?? {}).map((k) => `metric\u0000${k}`),
+    ...(ruleset.holdout ? [`holdout\u0000${HOLDOUT_KEY}`] : []),
+  ];
 }

@@ -1,10 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { type AttributeCondition, api, type Segment } from '../client/flags-client';
+import {
+  type AttributeCondition,
+  api,
+  type Segment,
+  type Stamps as StampFields,
+} from '../client/flags-client';
 import { AttributeFields } from './editor-parts';
 import { Notice, useEnv, useWrite } from './env';
 import { newAttributeCondition } from './flag-model';
-import { ErrorBox, Panel, QueryState } from './shell';
+import { ErrorBox, Panel, QueryState, Stamps } from './shell';
 import { Badge } from './ui/badge';
 import { Button, Field, Input, TextArea } from './ui/form';
 
@@ -28,12 +33,14 @@ function SegmentForm({
   usedBy,
   isNew,
   onDone,
+  stamps,
 }: {
   segmentKey: string;
   initial: Segment;
   usedBy: string[];
   isNew: boolean;
   onDone?: () => void;
+  stamps?: StampFields;
 }) {
   const { environment, meta } = useEnv();
   const [key, setKey] = useState(segmentKey);
@@ -63,6 +70,7 @@ function SegmentForm({
         ) : (
           <span className="mono text-sm text-fg">{segmentKey}</span>
         )}
+        {!isNew && <Stamps createdAt={stamps?.createdAt} updatedAt={stamps?.updatedAt} />}
         {usedBy.length > 0 && (
           <span className="text-[11px] text-dim">
             used by{' '}
@@ -169,6 +177,7 @@ export function Segments() {
             initial={s.segment}
             usedBy={s.usedBy}
             isNew={false}
+            stamps={s}
           />
         ))}
       </QueryState>

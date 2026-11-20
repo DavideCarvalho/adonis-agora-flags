@@ -176,3 +176,43 @@ export function formatTime(iso: string | null | undefined): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
+
+/** "20 Nov 2026" in the viewer's locale, `—` when unknown — the date columns of the lists. */
+export function formatDate(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** A short date with the full timestamp on hover; `—` when unknown. */
+export function DateText({
+  iso,
+  className,
+}: {
+  iso: string | null | undefined;
+  className?: string;
+}) {
+  return (
+    <span className={className} title={iso ? new Date(iso).toLocaleString() : undefined}>
+      {formatDate(iso)}
+    </span>
+  );
+}
+
+/** "Created … · Updated …" under an entity's name: what every detail view shows. */
+export function Stamps({
+  createdAt,
+  updatedAt,
+  className,
+}: {
+  createdAt?: string | null | undefined;
+  updatedAt?: string | null | undefined;
+  className?: string;
+}) {
+  return (
+    <span className={cn('text-[11px] text-faint', className)} data-testid="stamps">
+      Created <DateText iso={createdAt} /> · Updated <DateText iso={updatedAt} />
+    </span>
+  );
+}

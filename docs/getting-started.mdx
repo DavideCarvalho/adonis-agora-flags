@@ -42,6 +42,21 @@ node ace configure @adonis-agora/flags
 
 The tables are created at boot. If you prefer migrations to own the schema, keep the published migration and set `autoCreateSchema: false`.
 
+With `autoCreateSchema: false`, an upgrade that adds columns needs a migration of its own. `createFlagsTables` adds whatever an existing table lacks (as `NULL`-able columns, without rewriting the table), so a new migration calling it is enough. `node ace agora:doctor` lists missing columns (`flags.schema-columns`).
+
+```ts title="database/migrations/1763600000000_update_flags_tables.ts"
+import { BaseSchema } from '@adonisjs/lucid/schema'
+import { createFlagsTables } from '@adonis-agora/flags'
+
+export default class extends BaseSchema {
+  async up() {
+    this.defer(async (db) => {
+      await createFlagsTables(db as never /* , { schema: 'flags' } */)
+    })
+  }
+}
+```
+
 To keep them out of your own tables, put them in a schema of their own (Postgres; on MySQL, a database):
 
 ```ts title="config/flags.ts"

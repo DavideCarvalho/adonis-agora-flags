@@ -157,9 +157,18 @@ export type Serving =
   | { kind: 'rollout'; percent: number }
   | { kind: 'split'; arms: Array<{ variant: string; percent: number }>; bucketBy?: string };
 
+/**
+ * When an entity was created and last changed: ISO 8601, `null` when unknown (stored before the
+ * server kept dates). Absent from servers that predate them.
+ */
+export interface Stamps {
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
 export type StaleReason = 'unused' | 'expired' | 'static' | 'undeclared' | 'missing';
 
-export interface FlagRow {
+export interface FlagRow extends Stamps {
   key: string;
   declaration: Declaration | null;
   inRuleset: boolean;
@@ -234,7 +243,7 @@ export interface RulesetChange {
   value: unknown;
 }
 
-export interface ChangeRequest {
+export interface ChangeRequest extends Stamps {
   id: string;
   environment: string;
   change: RulesetChange;
@@ -248,7 +257,7 @@ export interface ChangeRequest {
   baseVersion: string;
 }
 
-export interface ScheduledChange {
+export interface ScheduledChange extends Stamps {
   id: string;
   environment: string;
   flag: string;
@@ -261,7 +270,7 @@ export interface ScheduledChange {
   executedAt?: string;
 }
 
-export interface FlagDetail {
+export interface FlagDetail extends Stamps {
   environment: string;
   version: string;
   key: string;
@@ -619,7 +628,7 @@ export const api = {
     ),
 
   segments: (environment: string) =>
-    http<Catalog<{ key: string; segment: Segment; usedBy: string[] }>>(
+    http<Catalog<{ key: string; segment: Segment; usedBy: string[] } & Stamps>>(
       `/segments${buildQuery({ environment })}`,
     ),
   saveSegment: (environment: string, key: string, segment: Segment) =>
@@ -630,9 +639,10 @@ export const api = {
   layers: (environment: string) =>
     http<
       Catalog<
-        { key: string; layer: Layer; allocatedPercent: number },
+        { key: string; layer: Layer; allocatedPercent: number } & Stamps,
         {
           holdout: Holdout | null;
+          holdoutStamps?: Stamps;
           experiments: Array<{
             flag: string;
             experiment: string;
@@ -651,14 +661,16 @@ export const api = {
 
   metrics: (environment: string) =>
     http<
-      Catalog<{
-        name: string;
-        metric: MetricDefinition;
-        source: DefinitionSource;
-        usedBy: string[];
-        /** On a config metric: the console metric of the same name it overrides. */
-        overriddenConsole?: MetricDefinition;
-      }>
+      Catalog<
+        {
+          name: string;
+          metric: MetricDefinition;
+          source: DefinitionSource;
+          usedBy: string[];
+          /** On a config metric: the console metric of the same name it overrides. */
+          overriddenConsole?: MetricDefinition;
+        } & Stamps
+      >
     >(`/metrics${buildQuery({ environment })}`),
   saveMetric: (environment: string, key: string, metric: MetricDefinition) =>
     send<WriteResult>('PUT', `/metrics/${seg(key)}`, { environment, metric }),

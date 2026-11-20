@@ -4,7 +4,7 @@ import { flag } from '../../src/declare.js';
 import { defineConfig, sinks } from '../../src/define_config.js';
 import { Relay } from '../../src/relay/relay.js';
 import { createRuntime, type FlagsRuntime, lucidContext } from '../../src/runtime.js';
-import { createFlagsTables, FLAGS_TABLES } from '../../src/schema.js';
+import { createFlagsTables, FLAGS_TABLES, missingFlagsColumns } from '../../src/schema.js';
 import { MemorySink } from '../../src/sinks/sink.js';
 import { query } from '../../src/sql.js';
 import { DbTransport } from '../../src/transports/db_transport.js';
@@ -32,6 +32,28 @@ describe('MySQL', () => {
       "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name LIKE 'flags\\_%'",
     );
     expect(Number(tables[0]!.n)).toBe(FLAGS_TABLES.length);
+  });
+
+  it('adds the timestamp columns to tables an older version created, in the configured schema only', async () => {
+    const own = `${db.schema}_legacy`;
+    const legacy = (table: string) =>
+      `CREATE TABLE ${table} (environment VARCHAR(191) NOT NULL, entity VARCHAR(16) NOT NULL, entity_key VARCHAR(191) NOT NULL, definition TEXT NOT NULL, updated_at BIGINT NOT NULL, updated_by VARCHAR(191) NOT NULL, PRIMARY KEY (environment, entity, entity_key))`;
+    try {
+      await db.db.rawQuery(`CREATE DATABASE IF NOT EXISTS \`${own}\``);
+      await db.db.rawQuery(legacy(`\`${own}\`.flags_entities`));
+      // The same table, also old, outside the configured schema: must be left alone.
+      await db.db.rawQuery(legacy('flags_entities'));
+      expect(await missingFlagsColumns(db.db, { schema: own })).toEqual([
+        'flags_entities.created_at',
+      ]);
+
+      await createFlagsTables(db.db, { schema: own });
+      expect(await missingFlagsColumns(db.db, { schema: own })).toEqual([]);
+      expect(await missingFlagsColumns(db.db)).toEqual(['flags_entities.created_at']);
+      await createFlagsTables(db.db, { schema: own }); // idempotent
+    } finally {
+      await db.db.rawQuery(`DROP DATABASE IF EXISTS \`${own}\``);
+    }
   });
 
   it('keeps every table in the configured database', async () => {

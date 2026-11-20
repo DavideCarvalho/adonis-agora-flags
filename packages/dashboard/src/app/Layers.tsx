@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { ComboSelect } from '../agora-kit/blocks/combo-field';
-import { api, type Layer } from '../client/flags-client';
+import { api, type Layer, type Stamps as StampFields } from '../client/flags-client';
 import { Notice, useEnv, useWrite } from './env';
-import { ErrorBox, Panel, QueryState } from './shell';
+import { ErrorBox, Panel, QueryState, Stamps } from './shell';
 import { Button, Field, Input } from './ui/form';
 
 const BUCKETS = 10_000;
@@ -37,6 +37,7 @@ function LayerForm({
   experiments,
   isNew,
   onDone,
+  stamps,
 }: {
   layerKey: string;
   initial: Layer;
@@ -44,6 +45,7 @@ function LayerForm({
   experiments: string[];
   isNew: boolean;
   onDone?: () => void;
+  stamps?: StampFields;
 }) {
   const { environment } = useEnv();
   const [key, setKey] = useState(layerKey);
@@ -73,7 +75,10 @@ function LayerForm({
           onChange={(e) => setKey(e.target.value)}
         />
       ) : (
-        <span className="mono text-sm text-fg">{layerKey}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="mono text-sm text-fg">{layerKey}</span>
+          <Stamps createdAt={stamps?.createdAt} updatedAt={stamps?.updatedAt} />
+        </div>
       )}
       <AllocationBar allocations={allocations} />
       {rows.map((row, i) => (
@@ -151,7 +156,7 @@ function LayerForm({
   );
 }
 
-function HoldoutForm({ percent }: { percent: number | null }) {
+function HoldoutForm({ percent, stamps }: { percent: number | null; stamps?: StampFields }) {
   const { environment } = useEnv();
   const [value, setValue] = useState(percent ?? 0);
   const save = useWrite((holdout: { percent: number } | null) =>
@@ -185,6 +190,13 @@ function HoldoutForm({ percent }: { percent: number | null }) {
         <Button variant="danger" disabled={save.isPending} onClick={() => save.mutate(null)}>
           Remove holdout
         </Button>
+      )}
+      {percent !== null && (
+        <Stamps
+          className="self-center"
+          createdAt={stamps?.createdAt}
+          updatedAt={stamps?.updatedAt}
+        />
       )}
       {save.isError && <ErrorBox error={save.error} />}
       <Notice text={save.notice} />
@@ -232,6 +244,7 @@ export function Layers() {
               initial={l.layer}
               experiments={inLayer(l.key)}
               isNew={false}
+              stamps={l}
             />
           ))}
         </QueryState>
@@ -241,6 +254,7 @@ export function Layers() {
           <HoldoutForm
             key={String(data?.holdout?.percent ?? 'none')}
             percent={data?.holdout?.percent ?? null}
+            {...(data?.holdoutStamps ? { stamps: data.holdoutStamps } : {})}
           />
           <ul className="border-t border-line px-4 py-2 text-[11px] text-dim">
             {(data?.experiments ?? []).map((e) => (

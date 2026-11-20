@@ -129,6 +129,8 @@ Everything the console does goes through JSON endpoints under `<path>/api`, behi
 
 The catalogs (`/api/flags`, `/api/segments`, `/api/layers`, `/api/metrics`, `/api/experiments`, `/api/stale`) return the whole environment as `{ data, … }`.
 
+Flags (list and detail), segments, layers, console metrics, change requests and schedules carry `createdAt` and `updatedAt`: ISO 8601 strings, or `null` when unknown (stored before these dates were kept, or a metric defined in `config/flags.ts`). A flag only declared in code takes them from its declaration: when an app first declared it, and when that declaration last changed. `GET /api/layers` also returns `holdoutStamps: { createdAt, updatedAt }` for the global holdout. The console shows when each flag last changed in the list, and both dates on a flag, segment, layer, metric and change request.
+
 The history, change requests and schedules speak the [filter](/docs/filter) list format: `filter[field]=value` to narrow, `first` for the page size, and `{ data, meta: { nextCursor, prevCursor, hasNext, hasPrev } }` back. An unknown filter field, a value it does not accept, or a `sort` other than the list's own order answers `400`.
 
 | List | Filters | Order | `first` |

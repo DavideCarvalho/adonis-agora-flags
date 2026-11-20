@@ -150,6 +150,31 @@ export function toDate(value: unknown): Date {
   return new Date(toNumber(value));
 }
 
+/**
+ * A nullable timestamp column (or a value from a custom store) as a `Date`: epoch milliseconds,
+ * numeric strings, ISO strings, `Date` and Luxon `DateTime` all work. `undefined` when unknown.
+ */
+export function toOptionalDate(value: unknown): Date | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value;
+  if (
+    typeof value === 'object' &&
+    typeof (value as { toJSDate?: unknown }).toJSDate === 'function'
+  ) {
+    return toOptionalDate((value as { toJSDate(): Date }).toJSDate());
+  }
+  const date =
+    typeof value === 'string' && !/^-?\d+(\.\d+)?$/.test(value)
+      ? new Date(value)
+      : new Date(toNumber(value));
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+/** `Date | undefined` as the console's JSON wants it: an ISO 8601 string, or `null`. */
+export function isoOrNull(value: unknown): string | null {
+  return toOptionalDate(value)?.toISOString() ?? null;
+}
+
 /** `INSERT … ON CONFLICT DO NOTHING` in each dialect. */
 export function insertIgnore(dialect: Dialect, table: string, columns: string[], rows: number) {
   const placeholders = `(${columns.map(() => '?').join(', ')})`;

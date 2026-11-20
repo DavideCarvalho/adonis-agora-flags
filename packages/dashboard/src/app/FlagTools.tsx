@@ -9,7 +9,7 @@ import {
 } from '../client/flags-client';
 import { localInputToIso, rolloutSteps } from './flag-model';
 import { formatValue } from './serving';
-import { ErrorBox, formatTime, Table } from './shell';
+import { DateText, ErrorBox, formatTime, Table } from './shell';
 import { Badge } from './ui/badge';
 import { Button, Field, Input, Select, TextArea } from './ui/form';
 
@@ -168,7 +168,7 @@ export function SchedulesPanel({
       {schedules.length === 0 ? (
         <p className="text-[11px] text-dim">Nothing scheduled.</p>
       ) : (
-        <Table head={['When', 'Change', 'Status', 'By', '']}>
+        <Table head={['When', 'Change', 'Status', 'By', 'Created', '']}>
           {schedules.map((s) => (
             <tr key={s.id}>
               <td className="px-4 py-1.5 mono">{formatTime(s.runAt)}</td>
@@ -180,6 +180,9 @@ export function SchedulesPanel({
                 {s.error && <span className="block text-[10px] text-bad">{s.error}</span>}
               </td>
               <td className="px-4 py-1.5 text-dim">{s.createdBy.name ?? s.createdBy.id}</td>
+              <td className="whitespace-nowrap px-4 py-1.5 text-dim">
+                <DateText iso={s.createdAt} />
+              </td>
               <td className="px-4 py-1.5 text-right">
                 {s.status === 'pending' && (
                   <Button variant="ghost" onClick={() => cancel.mutate(s.id)}>

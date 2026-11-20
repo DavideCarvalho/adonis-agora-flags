@@ -3,7 +3,7 @@ import { parseAsStringLiteral, useQueryState } from 'nuqs';
 import { useState } from 'react';
 import { api, type ChangeRequest } from '../client/flags-client';
 import { useEnv } from './env';
-import { ErrorBox, formatTime, Panel, QueryState } from './shell';
+import { ErrorBox, Panel, QueryState, Stamps } from './shell';
 import { Badge } from './ui/badge';
 import { Button, Input } from './ui/form';
 import { Segmented } from './ui/segmented';
@@ -40,9 +40,12 @@ function RequestRow({ request, me }: { request: ChangeRequest; me: string }) {
         <span className="text-fg">{describeChange(request)}</span>
         <span className={`s-${request.status}`}>{request.status}</span>
         <span className="text-dim">
-          by {request.requestedBy.name ?? request.requestedBy.id} ·{' '}
-          {formatTime(request.requestedAt)} · base v{request.baseVersion}
+          by {request.requestedBy.name ?? request.requestedBy.id} · base v{request.baseVersion}
         </span>
+        <Stamps
+          createdAt={request.createdAt ?? request.requestedAt}
+          updatedAt={request.updatedAt}
+        />
         {mine && <Badge>yours</Badge>}
       </div>
       {request.note && <p className="text-xs text-fg-2">“{request.note}”</p>}
