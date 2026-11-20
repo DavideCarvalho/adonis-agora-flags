@@ -21,6 +21,7 @@ import {
   type SqlDatabase,
   toDate,
   toNumber,
+  toOptionalDate,
 } from '../sql.js';
 import {
   type Actor,
@@ -30,6 +31,7 @@ import {
   type ChangeRequest,
   currentValue,
   type DeclarationRow,
+  type EntityTimestamps,
   type EntityType,
   type FlagsStore,
   type RulesetChange,
@@ -237,8 +239,13 @@ export class LucidStore implements FlagsStore {
 
   async #ensureEnvironment(trx: SqlClient, environment: string, now: number) {
     await trx.rawQuery(
-      insertIgnore(this.dialect, 'flags_environments', ['name', 'version', 'updated_at'], 1),
-      [environment, 0, now],
+      insertIgnore(
+        this.dialect,
+        'flags_environments',
+        ['name', 'version', 'updated_at', 'created_at'],
+        1,
+      ),
+      [environment, 0, now, now],
     );
   }
 
@@ -249,15 +256,30 @@ export class LucidStore implements FlagsStore {
     actor: Actor,
     now: number,
   ) {
+    // A rewrite keeps each entity's creation time: a row that existed keeps its `created_at` (NULL
+    // when it predates the column), a new one gets `now`.
+    const created = new Map<string, number | null>();
+    for (const row of await query<{ entity: string; entity_key: string; created_at: unknown }>(
+      trx,
+      'SELECT entity, entity_key, created_at FROM flags_entities WHERE environment = ?',
+      [environment],
+    )) {
+      created.set(
+        `${row.entity}\u0000${row.entity_key}`,
+        row.created_at === null || row.created_at === undefined ? null : toNumber(row.created_at),
+      );
+    }
     const upsert = async (entity: EntityType, key: string, value: unknown) => {
       await trx.rawQuery(
         'DELETE FROM flags_entities WHERE environment = ? AND entity = ? AND entity_key = ?',
         [environment, entity, key],
       );
       if (value === null) return;
+      const id = `${entity}\u0000${key}`;
+      const createdAt = created.has(id) ? created.get(id)! : now;
       await trx.rawQuery(
-        'INSERT INTO flags_entities (environment, entity, entity_key, definition, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?)',
-        [environment, entity, key, jsonValue(value), now, actor.id],
+        'INSERT INTO flags_entities (environment, entity, entity_key, definition, updated_at, updated_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [environment, entity, key, jsonValue(value), now, actor.id, createdAt],
       );
     };
     switch (change.entity) {
@@ -283,6 +305,25 @@ export class LucidStore implements FlagsStore {
         if (value.holdout) await upsert('holdout', HOLDOUT_KEY, value.holdout);
       }
     }
+  }
+
+  async entityTimestamps(environment: string): Promise<EntityTimestamps[]> {
+    // `SELECT *`: a federated console may read an app whose tables predate `created_at`.
+    const rows = await query<Record<string, unknown>>(
+      this.db,
+      'SELECT * FROM flags_entities WHERE environment = ?',
+      [environment],
+    );
+    return rows.map((row) => {
+      const createdAt = toOptionalDate(row.created_at);
+      const updatedAt = toOptionalDate(row.updated_at);
+      return {
+        entity: row.entity as EntityTimestamps['entity'],
+        key: String(row.entity_key),
+        ...(createdAt ? { createdAt } : {}),
+        ...(updatedAt ? { updatedAt } : {}),
+      };
+    });
   }
 
   async environments(): Promise<string[]> {
@@ -330,8 +371,8 @@ export class LucidStore implements FlagsStore {
     const id = randomUUID();
     const now = Date.now();
     await this.db.rawQuery(
-      `INSERT INTO flags_change_requests (id, environment, change_value, note, requested_by, requested_at, status, base_version)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
+      `INSERT INTO flags_change_requests (id, environment, change_value, note, requested_by, requested_at, status, base_version, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
       [
         id,
         request.environment,
@@ -340,6 +381,7 @@ export class LucidStore implements FlagsStore {
         jsonValue(request.requestedBy),
         now,
         request.baseVersion,
+        now,
       ],
     );
     return (await this.getChangeRequest(id))!;
@@ -384,6 +426,7 @@ export class LucidStore implements FlagsStore {
     if (patch.reviewNote !== undefined)
       sets.push('review_note = ?') && bindings.push(patch.reviewNote);
     if (sets.length > 0) {
+      sets.push('updated_at = ?') && bindings.push(Date.now());
       await this.db.rawQuery(`UPDATE flags_change_requests SET ${sets.join(', ')} WHERE id = ?`, [
         ...bindings,
         id,
@@ -396,9 +439,10 @@ export class LucidStore implements FlagsStore {
 
   async createSchedule(schedule: Omit<ScheduledChange, 'id' | 'status'>): Promise<ScheduledChange> {
     const id = randomUUID();
+    const now = Date.now();
     await this.db.rawQuery(
-      `INSERT INTO flags_schedules (id, environment, flag, kind, payload, run_at, status, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
+      `INSERT INTO flags_schedules (id, environment, flag, kind, payload, run_at, status, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
       [
         id,
         schedule.environment,
@@ -407,6 +451,8 @@ export class LucidStore implements FlagsStore {
         jsonValue(schedule.payload),
         schedule.runAt.getTime(),
         jsonValue(schedule.createdBy),
+        now,
+        now,
       ],
     );
     return (await this.#schedule(id))!;
@@ -458,6 +504,7 @@ export class LucidStore implements FlagsStore {
     if (patch.executedAt !== undefined)
       sets.push('executed_at = ?') && bindings.push(patch.executedAt.getTime());
     if (sets.length > 0) {
+      sets.push('updated_at = ?') && bindings.push(Date.now());
       await this.db.rawQuery(`UPDATE flags_schedules SET ${sets.join(', ')} WHERE id = ?`, [
         ...bindings,
         id,
@@ -473,8 +520,8 @@ export class LucidStore implements FlagsStore {
     // token it writes tells it apart from a replica that lost the race.
     const token = `claim:${randomUUID()}`;
     await this.db.rawQuery(
-      "UPDATE flags_schedules SET status = 'running', error = ? WHERE id = ? AND status = 'pending'",
-      [token, id],
+      "UPDATE flags_schedules SET status = 'running', error = ?, updated_at = ? WHERE id = ? AND status = 'pending'",
+      [token, Date.now(), id],
     );
     const rows = await query<{ error: string | null }>(
       this.db,
@@ -548,11 +595,25 @@ export class LucidStore implements FlagsStore {
   ): Promise<void> {
     const now = Date.now();
     await this.db.transaction(async (trx) => {
+      // `SELECT *`: tolerate a table that predates `created_at` / `updated_at` mid-upgrade.
+      const existing = new Map<string, Record<string, unknown>>();
+      for (const row of await query<Record<string, unknown>>(
+        trx,
+        'SELECT * FROM flags_declarations WHERE app = ?',
+        [app],
+      )) {
+        existing.set(String(row.flag), row);
+      }
       for (const [key, declaration] of Object.entries(declarations)) {
+        const before = existing.get(key);
+        const changed =
+          !before || stableJson(parseJson(before.declaration)) !== stableJson(declaration);
+        const createdAt = before ? (toOptionalDate(before.created_at)?.getTime() ?? null) : now;
+        const updatedAt = changed ? now : (toOptionalDate(before?.updated_at)?.getTime() ?? null);
         await trx.rawQuery('DELETE FROM flags_declarations WHERE app = ? AND flag = ?', [app, key]);
         await trx.rawQuery(
-          'INSERT INTO flags_declarations (app, flag, declaration, last_seen_at) VALUES (?, ?, ?, ?)',
-          [app, key, jsonValue(declaration), now],
+          'INSERT INTO flags_declarations (app, flag, declaration, last_seen_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+          [app, key, jsonValue(declaration), now, createdAt, updatedAt],
         );
       }
     });
@@ -564,16 +625,32 @@ export class LucidStore implements FlagsStore {
       `SELECT * FROM flags_declarations ${app !== undefined ? 'WHERE app = ?' : ''} ORDER BY app, flag`,
       app !== undefined ? [app] : [],
     );
-    return rows.map((row) => ({
-      app: String(row.app),
-      key: String(row.flag),
-      declaration: parseJson<FlagDeclaration>(row.declaration),
-      lastSeenAt: toDate(row.last_seen_at),
-    }));
+    return rows.map((row) => {
+      const createdAt = toOptionalDate(row.created_at);
+      const updatedAt = toOptionalDate(row.updated_at);
+      return {
+        app: String(row.app),
+        key: String(row.flag),
+        declaration: parseJson<FlagDeclaration>(row.declaration),
+        lastSeenAt: toDate(row.last_seen_at),
+        ...(createdAt ? { createdAt } : {}),
+        ...(updatedAt ? { updatedAt } : {}),
+      };
+    });
   }
 }
 
+/** JSON with sorted keys: JSONB reorders them, so a plain stringify would see a change every time. */
+function stableJson(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b)))
+      : v,
+  );
+}
+
 function toChangeRequest(row: Record<string, unknown>): ChangeRequest {
+  const updatedAt = toOptionalDate(row.updated_at);
   return {
     id: String(row.id),
     environment: String(row.environment),
@@ -588,10 +665,14 @@ function toChangeRequest(row: Record<string, unknown>): ChangeRequest {
       : {}),
     ...(row.review_note ? { reviewNote: String(row.review_note) } : {}),
     baseVersion: String(row.base_version),
+    createdAt: toDate(row.requested_at),
+    ...(updatedAt ? { updatedAt } : {}),
   };
 }
 
 function toSchedule(row: Record<string, unknown>): ScheduledChange {
+  const createdAt = toOptionalDate(row.created_at);
+  const updatedAt = toOptionalDate(row.updated_at);
   return {
     id: String(row.id),
     environment: String(row.environment),
@@ -605,5 +686,7 @@ function toSchedule(row: Record<string, unknown>): ScheduledChange {
     ...(row.executed_at !== null && row.executed_at !== undefined
       ? { executedAt: toDate(row.executed_at) }
       : {}),
+    ...(createdAt ? { createdAt } : {}),
+    ...(updatedAt ? { updatedAt } : {}),
   };
 }

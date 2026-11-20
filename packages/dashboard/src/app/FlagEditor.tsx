@@ -26,7 +26,7 @@ import { Notice, useEnv, useWrite } from './env';
 import { EvaluateTester, HistoryPanel, SchedulesPanel } from './FlagTools';
 import { cleanDefinition, isOnOff } from './flag-model';
 import { describeServing, formatValue } from './serving';
-import { ErrorBox, IssueList, Panel, QueryState } from './shell';
+import { DateText, ErrorBox, IssueList, Panel, QueryState } from './shell';
 import { Badge } from './ui/badge';
 import { Button, Field, Input, Toggle } from './ui/form';
 
@@ -209,6 +209,12 @@ function EditorBody({
           )}
           <span>
             serving now <span className="text-fg-2">{describeServing(detail.serving)}</span>
+          </span>
+          <span>
+            created <DateText className="text-fg-2" iso={detail.createdAt} />
+          </span>
+          <span>
+            updated <DateText className="text-fg-2" iso={detail.updatedAt} />
           </span>
           {!detail.stored && (
             <Badge variant="type">not in the ruleset yet — saving creates it</Badge>

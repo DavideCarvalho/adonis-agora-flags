@@ -22,6 +22,7 @@ import type { ExperimentConfig } from '../define_config.js';
 import { knownTenants } from '../http/control_plane.js';
 import type { FlagsRuntime } from '../runtime.js';
 import { getRuntime } from '../services/accessor.js';
+import { isoOrNull } from '../sql.js';
 import {
   type Actor,
   applyChange,
@@ -258,6 +259,77 @@ function proposed(result: ProposeResult): ApiResponse {
   return { status: result.status === 'applied' ? 200 : 202, body: result };
 }
 
+// ── Timestamps ──────────────────────────────────────────────────────────────
+
+/** When an entity was created and last changed, as the console's JSON carries them. */
+export interface Stamps {
+  /** ISO 8601, or `null` when unknown (stored before the column existed, or never stored). */
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+const NO_STAMPS: Stamps = { createdAt: null, updatedAt: null };
+
+/** `createdAt` / `updatedAt` of a store record as ISO strings or `null` (never missing). */
+function withStamps<T extends { createdAt?: unknown; updatedAt?: unknown }>(
+  record: T,
+): Omit<T, 'createdAt' | 'updatedAt'> & Stamps {
+  return {
+    ...record,
+    createdAt: isoOrNull(record.createdAt),
+    updatedAt: isoOrNull(record.updatedAt),
+  };
+}
+
+/**
+ * `entity\0key` → stamps of every stored entity of an environment. A store without
+ * `entityTimestamps` (or a federated app's older tables) yields none: the console shows `—`.
+ */
+async function entityStamps(o: Owned, environment: string): Promise<Map<string, Stamps>> {
+  const out = new Map<string, Stamps>();
+  try {
+    for (const row of (await o.store.entityTimestamps?.(environment)) ?? []) {
+      out.set(`${row.entity}\u0000${row.key}`, {
+        createdAt: isoOrNull(row.createdAt),
+        updatedAt: isoOrNull(row.updatedAt),
+      });
+    }
+  } catch {
+    // Dates are informative: a store that cannot answer must not break the catalog.
+  }
+  return out;
+}
+
+function stampsOf(stamps: Map<string, Stamps>, entity: string, key: string): Stamps {
+  return stamps.get(`${entity}\u0000${key}`) ?? NO_STAMPS;
+}
+
+/**
+ * A flag's stamps: its stored targeting; for a flag only declared in code, when an app first
+ * declared it and last changed that declaration.
+ */
+async function flagStamps(o: Owned, environment: string): Promise<(key: string) => Stamps> {
+  const [stored, rows] = await Promise.all([entityStamps(o, environment), o.store.declarations()]);
+  const declared = new Map<string, { created?: number; updated?: number }>();
+  for (const row of rows) {
+    const entry = declared.get(row.key) ?? {};
+    const created = row.createdAt?.getTime();
+    const updated = row.updatedAt?.getTime();
+    if (created !== undefined) entry.created = Math.min(entry.created ?? created, created);
+    if (updated !== undefined) entry.updated = Math.max(entry.updated ?? updated, updated);
+    declared.set(row.key, entry);
+  }
+  return (key) => {
+    const own = stored.get(`flag\u0000${key}`);
+    if (own) return own;
+    const entry = declared.get(key);
+    return {
+      createdAt: isoOrNull(entry?.created),
+      updatedAt: isoOrNull(entry?.updated),
+    };
+  };
+}
+
 // ── Declarations and summaries ──────────────────────────────────────────────
 
 /** A declaration as the console shows it: what the code says, and which apps say it. */
@@ -464,7 +536,10 @@ export function listFlags(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
         ...(apps !== undefined ? { apps } : {}),
       }),
     ]);
-    const declared = await declarationsOf(o, ruleset, canSee(deps));
+    const [declared, stampsFor] = await Promise.all([
+      declarationsOf(o, ruleset, canSee(deps)),
+      flagStamps(o, environment),
+    ]);
     const staleByKey = new Map(stale.map((s) => [s.key, s.reasons]));
     const keys = [...new Set([...Object.keys(ruleset.flags), ...declared.keys()])].sort();
     const flags = keys.map((key) => {
@@ -483,6 +558,7 @@ export function listFlags(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
         rules: definition?.rules?.length ?? 0,
         overrides: Object.keys(definition?.overrides ?? {}).length,
         stale: staleByKey.get(key) ?? [],
+        ...stampsFor(key),
       };
     });
     return ok({ environment, version: ruleset.version, data: flags });
@@ -502,22 +578,26 @@ export function flagDetail(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
     if (!stored && !declaration) {
       throw new HttpError(404, `flag "${key}" is neither in the ruleset nor declared in code`);
     }
-    const [audit, schedules, pending] = await Promise.all([
+    const [audit, schedules, pending, stampsFor] = await Promise.all([
       o.store.audit({ environment, entity: 'flag', key, limit: 50 }),
       o.store.listSchedules({ environment, flag: key, limit: 100 }),
       o.store.listChangeRequests({ environment, status: 'pending', limit: 200 }),
+      flagStamps(o, environment),
     ]);
     return ok({
       environment,
       version: ruleset.version,
       key,
+      ...stampsFor(key),
       declaration: declaration ?? null,
       stored: stored ?? null,
       definition: stored ?? (await o.admin.definition(key, environment)),
       serving: servingSummary(stored, declaration),
       audit,
-      schedules,
-      pendingRequests: pending.filter((r) => r.change.entity === 'flag' && r.change.key === key),
+      schedules: schedules.map(withStamps),
+      pendingRequests: pending
+        .filter((r) => r.change.entity === 'flag' && r.change.key === key)
+        .map(withStamps),
       requiresApproval: o.admin.requiresApproval(environment),
       segments: Object.keys(ruleset.segments ?? {}).sort(),
       layers: Object.keys(ruleset.layers ?? {}).sort(),
@@ -855,10 +935,18 @@ function referencingFlags(ruleset: Ruleset, segment: string): string[] {
 export function listSegments(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) => {
     const environment = environmentOf(req, o.runtime);
-    const ruleset = await o.store.readRuleset(environment);
+    const [ruleset, stamps] = await Promise.all([
+      o.store.readRuleset(environment),
+      entityStamps(o, environment),
+    ]);
     const segments = Object.entries(ruleset.segments ?? {})
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, segment]) => ({ key, segment, usedBy: referencingFlags(ruleset, key) }));
+      .map(([key, segment]) => ({
+        key,
+        segment,
+        usedBy: referencingFlags(ruleset, key),
+        ...stampsOf(stamps, 'segment', key),
+      }));
     return ok({ environment, version: ruleset.version, data: segments });
   });
 }
@@ -900,7 +988,10 @@ export function deleteSegment(deps: Deps, req: ApiRequest): Promise<ApiResponse>
 export function listLayers(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) => {
     const environment = environmentOf(req, o.runtime);
-    const ruleset = await o.store.readRuleset(environment);
+    const [ruleset, stamps] = await Promise.all([
+      o.store.readRuleset(environment),
+      entityStamps(o, environment),
+    ]);
     const layers = Object.entries(ruleset.layers ?? {})
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, layer]) => {
@@ -908,7 +999,12 @@ export function listLayers(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
           (sum, [start, end]) => sum + Math.max(0, end - start),
           0,
         );
-        return { key, layer, allocatedPercent: round(used / 100) };
+        return {
+          key,
+          layer,
+          allocatedPercent: round(used / 100),
+          ...stampsOf(stamps, 'layer', key),
+        };
       });
     const experiments = Object.entries(ruleset.flags)
       .filter(([, flag]) => flag.experiment !== undefined)
@@ -924,6 +1020,7 @@ export function listLayers(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
       version: ruleset.version,
       data: layers,
       holdout: ruleset.holdout ?? null,
+      holdoutStamps: ruleset.holdout ? stampsOf(stamps, 'holdout', '__holdout__') : NO_STAMPS,
       experiments,
     });
   });
@@ -1015,7 +1112,10 @@ function analysisForFlag(runtime: FlagsRuntime, ruleset: Ruleset, flag: string) 
 export function listMetrics(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) => {
     const environment = environmentOf(req, o.runtime);
-    const ruleset = await o.store.readRuleset(environment);
+    const [ruleset, stamps] = await Promise.all([
+      o.store.readRuleset(environment),
+      entityStamps(o, environment),
+    ]);
     const analysis = analysisOf(o.runtime, ruleset);
     const usedBy = (name: string) =>
       Object.entries(analysis.experiments)
@@ -1034,6 +1134,8 @@ export function listMetrics(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
           source,
           usedBy: usedBy(name),
           ...(overridden ? { overriddenConsole: overridden } : {}),
+          // A config metric lives in code: no dates. A console metric: its stored row's.
+          ...(source === 'console' ? stampsOf(stamps, 'metric', name) : NO_STAMPS),
         };
       });
     return ok({ environment, version: ruleset.version, data: metrics });
@@ -1259,7 +1361,7 @@ export function listChangeRequests(deps: Deps, req: ApiRequest): Promise<ApiResp
     const size = firstOnly(req.query, { defaultSize: 100, maxSize: 500 });
     const requests = await o.store.listChangeRequests({ environment, ...filter, limit: size + 1 });
     return ok({
-      ...unseekablePage(requests, size),
+      ...unseekablePage(requests.map(withStamps), size),
       environment,
       requiresApproval: o.admin.requiresApproval(environment),
       actor: deps.actor,
@@ -1277,14 +1379,16 @@ export function approveChangeRequest(deps: Deps, req: ApiRequest): Promise<ApiRe
 /** `POST /api/change-requests/:id/reject` `{ note? }`. */
 export function rejectChangeRequest(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) =>
-    ok({ request: await o.admin.reject(keyParam(req, 'id'), deps.actor, noteOf(req)) }),
+    ok({
+      request: withStamps(await o.admin.reject(keyParam(req, 'id'), deps.actor, noteOf(req))),
+    }),
   );
 }
 
 /** `POST /api/change-requests/:id/cancel` — only the requester can withdraw their request. */
 export function cancelChangeRequest(deps: Deps, req: ApiRequest): Promise<ApiResponse> {
   return handle(deps, async (o) =>
-    ok({ request: await o.admin.cancel(keyParam(req, 'id'), deps.actor) }),
+    ok({ request: withStamps(await o.admin.cancel(keyParam(req, 'id'), deps.actor)) }),
   );
 }
 
@@ -1336,7 +1440,7 @@ export function listSchedules(deps: Deps, req: ApiRequest): Promise<ApiResponse>
     fixedSort(req.query, 'runAt');
     const size = firstOnly(req.query, { defaultSize: 100, maxSize: 500 });
     const schedules = await o.store.listSchedules({ environment, ...filter, limit: size + 1 });
-    return ok({ ...unseekablePage(schedules, size), environment });
+    return ok({ ...unseekablePage(schedules.map(withStamps), size), environment });
   });
 }
 

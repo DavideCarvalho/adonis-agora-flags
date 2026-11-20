@@ -88,6 +88,7 @@ export {
   dropFlagsTables,
   ensureEventPartitions,
   FLAGS_TABLES,
+  missingFlagsColumns,
   pruneEvents,
 } from './schema.js';
 export { ClickHouseSink } from './sinks/clickhouse.js';
@@ -101,6 +102,8 @@ export type {
   Actor,
   AuditEntry,
   ChangeRequest,
+  DeclarationRow,
+  EntityTimestamps,
   FlagsStore,
   RulesetChange,
   ScheduledChange,

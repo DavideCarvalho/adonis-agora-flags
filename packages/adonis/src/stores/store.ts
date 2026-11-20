@@ -65,6 +65,10 @@ export interface ChangeRequest {
   reviewNote?: string;
   /** The ruleset version the request was made against; applying on a newer one warns. */
   baseVersion: string;
+  /** When it was requested (the same instant as `requestedAt`). */
+  createdAt?: Date;
+  /** The last time it changed (review, cancel, applied). Unknown on requests older than the column. */
+  updatedAt?: Date;
 }
 
 export type ScheduleKind = 'enable' | 'disable' | 'rollout' | 'change';
@@ -82,6 +86,10 @@ export interface ScheduledChange {
   createdBy: Actor;
   error?: string;
   executedAt?: Date;
+  /** Set when scheduled, never changes. Unknown on schedules older than the column. */
+  createdAt?: Date;
+  /** The last status change (claimed, done, failed, cancelled). */
+  updatedAt?: Date;
 }
 
 /** Evaluations of a flag on one day, for stale-flag detection. */
@@ -99,6 +107,20 @@ export interface DeclarationRow {
   key: string;
   declaration: FlagDeclaration;
   lastSeenAt: Date;
+  /** When the app first pushed this declaration. */
+  createdAt?: Date;
+  /** When the app last pushed a different declaration (not every push: see `lastSeenAt`). */
+  updatedAt?: Date;
+}
+
+/** When a stored flag, segment, layer, metric or the holdout was created and last changed. */
+export interface EntityTimestamps {
+  entity: Exclude<EntityType, 'ruleset'>;
+  /** The entity key (`__holdout__` for the holdout). */
+  key: string;
+  /** Unknown on entities stored before the column existed. */
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 /**
@@ -120,6 +142,11 @@ export interface FlagsStore {
     options?: { changeRequestId?: string },
   ): Promise<{ version: string }>;
   environments(): Promise<string[]>;
+  /**
+   * Created / last-changed times of every stored entity of an environment. Optional: a store
+   * without it shows no dates in the console.
+   */
+  entityTimestamps?(environment: string): Promise<EntityTimestamps[]>;
   audit(query: {
     environment?: string;
     entity?: EntityType;

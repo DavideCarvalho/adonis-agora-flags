@@ -1,5 +1,7 @@
 import type { ApplicationService } from '@adonisjs/core/types';
 import type { FlagsRuntime } from '../runtime.js';
+import { missingFlagsColumns } from '../schema.js';
+import { LucidStore } from '../stores/lucid_store.js';
 
 /** Structural copy of the agora doctor contract (v1); `node ace agora:doctor` reads it. */
 export type AgoraDoctorStatus = 'ok' | 'warn' | 'error' | 'skip';
@@ -89,6 +91,27 @@ export const agoraDoctorChecks: AgoraDoctorCheck[] = [
           docs: DOCS,
         };
       }
+    },
+  },
+  {
+    id: 'flags.schema-columns',
+    lib: 'flags',
+    title: 'Flags tables have every column this version writes',
+    cost: 'cheap',
+    async run(app) {
+      if (!app.container.hasBinding('flags.runtime'))
+        return { status: 'skip', message: 'the flags provider is not registered' };
+      const runtime = (await app.container.make('flags.runtime')) as FlagsRuntime;
+      if (!(runtime.store instanceof LucidStore))
+        return { status: 'skip', message: 'the ruleset is not in a Lucid store' };
+      const missing = await missingFlagsColumns(runtime.store.db);
+      if (missing.length === 0) return { status: 'ok', message: 'the flags tables are current' };
+      return {
+        status: 'error',
+        message: `missing columns: ${missing.join(', ')}`,
+        fix: 'Turn autoCreateSchema back on, or add a migration that calls createFlagsTables (it adds missing columns)',
+        docs: 'https://davidecarvalho.github.io/agora/docs/flags/getting-started',
+      };
     },
   },
 ];

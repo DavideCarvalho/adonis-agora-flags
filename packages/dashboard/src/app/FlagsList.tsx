@@ -8,7 +8,7 @@ import { flagFacets, useFlagRows } from './catalogs';
 import { Notice, useEnv, useWrite } from './env';
 import { NewFlag } from './NewFlag';
 import { describeServing, formatValue, STALE_LABELS, servingTone } from './serving';
-import { ErrorBox, Panel, QueryState, Table, TableSkeleton } from './shell';
+import { DateText, ErrorBox, Panel, QueryState, Table, TableSkeleton } from './shell';
 import { Badge } from './ui/badge';
 import { Button, Input, Toggle } from './ui/form';
 import { Segmented } from './ui/segmented';
@@ -140,7 +140,7 @@ export function FlagsList({ onOpen }: { onOpen: (key: string) => void }) {
         )}
         <QueryState
           query={query}
-          skeleton={<TableSkeleton columns={6} />}
+          skeleton={<TableSkeleton columns={8} />}
           emptyTitle={flags.length === 0 ? 'No flags yet' : 'No match'}
           empty={visible.length === 0}
           emptyMessage={
@@ -198,7 +198,7 @@ export function FlagMetrics({ flags, version }: { flags: FlagRow[]; version: str
   );
 }
 
-/** The flag rows: kill switch, key + description + tags, type, serving, owner, expiry. Pure. */
+/** The flag rows: kill switch, key + description + tags, type, serving, owner, expiry, last change. Pure. */
 export function FlagsTable({
   flags,
   onOpen,
@@ -212,7 +212,7 @@ export function FlagsTable({
 }) {
   const visible = flags;
   return (
-    <Table head={['On', 'Flag', 'Type', 'Serving', 'Owner', 'Expires', '']}>
+    <Table head={['On', 'Flag', 'Type', 'Serving', 'Owner', 'Expires', 'Updated', '']}>
       {visible.map((flag) => (
         <tr key={flag.key} className="hover:bg-hover">
           <td className="px-4 py-2">
@@ -288,6 +288,9 @@ export function FlagsTable({
           </td>
           <td className="px-4 py-2 text-dim">{flag.owner ?? '—'}</td>
           <td className="px-4 py-2 text-dim">{flag.expiresAt ?? '—'}</td>
+          <td className="whitespace-nowrap px-4 py-2 text-dim">
+            <DateText iso={flag.updatedAt} />
+          </td>
           <td className="px-4 py-2 text-right">
             <button
               type="button"

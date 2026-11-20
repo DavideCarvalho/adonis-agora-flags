@@ -67,7 +67,8 @@ function statements(dialect: Dialect, options: SchemaOptions): string[] {
     `CREATE TABLE IF NOT EXISTS flags_environments (
       name ${K} PRIMARY KEY,
       version BIGINT NOT NULL DEFAULT 0,
-      updated_at BIGINT NOT NULL
+      updated_at BIGINT NOT NULL,
+      created_at BIGINT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS flags_entities (
       environment ${K} NOT NULL,
@@ -76,6 +77,7 @@ function statements(dialect: Dialect, options: SchemaOptions): string[] {
       definition ${t.json} NOT NULL,
       updated_at BIGINT NOT NULL,
       updated_by ${K} NOT NULL,
+      created_at BIGINT NULL,
       PRIMARY KEY (environment, entity, entity_key)
     )`,
     `CREATE TABLE IF NOT EXISTS flags_audit (
@@ -103,7 +105,8 @@ function statements(dialect: Dialect, options: SchemaOptions): string[] {
       reviewed_by ${t.json} NULL,
       reviewed_at BIGINT NULL,
       review_note ${t.text} NULL,
-      base_version VARCHAR(32) NOT NULL
+      base_version VARCHAR(32) NOT NULL,
+      updated_at BIGINT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS flags_schedules (
       id VARCHAR(36) PRIMARY KEY,
@@ -115,7 +118,9 @@ function statements(dialect: Dialect, options: SchemaOptions): string[] {
       status VARCHAR(16) NOT NULL,
       created_by ${t.json} NOT NULL,
       error ${t.text} NULL,
-      executed_at BIGINT NULL
+      executed_at BIGINT NULL,
+      created_at BIGINT NULL,
+      updated_at BIGINT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS flags_usage (
       environment ${K} NOT NULL,
@@ -137,6 +142,8 @@ function statements(dialect: Dialect, options: SchemaOptions): string[] {
       flag ${K} NOT NULL,
       declaration ${t.json} NOT NULL,
       last_seen_at BIGINT NOT NULL,
+      created_at BIGINT NULL,
+      updated_at BIGINT NULL,
       PRIMARY KEY (app, flag)
     )`,
     `CREATE TABLE IF NOT EXISTS flags_events (
@@ -201,6 +208,74 @@ function statements(dialect: Dialect, options: SchemaOptions): string[] {
       PRIMARY KEY (environment, experiment)
     )`,
   ];
+}
+
+/**
+ * Columns added after a table first shipped: `CREATE TABLE IF NOT EXISTS` leaves an older table
+ * alone, so {@link createFlagsTables} adds whichever are missing. Always NULL-able with no default —
+ * an instant `ADD COLUMN`, no rewrite and no backfill (older rows read as unknown).
+ */
+const ADDED_COLUMNS: Array<[table: string, column: string]> = [
+  ['flags_environments', 'created_at'],
+  ['flags_entities', 'created_at'],
+  ['flags_change_requests', 'updated_at'],
+  ['flags_schedules', 'created_at'],
+  ['flags_schedules', 'updated_at'],
+  ['flags_declarations', 'created_at'],
+  ['flags_declarations', 'updated_at'],
+];
+
+/** The {@link ADDED_COLUMNS} missing from existing tables (a table that does not exist is skipped). */
+async function missingColumns(
+  client: SqlClient,
+  dialect: Dialect,
+  schema?: string,
+): Promise<Array<[table: string, column: string]>> {
+  const tables = [...new Set(ADDED_COLUMNS.map(([table]) => table))];
+  const present = new Set<string>();
+  if (dialect === 'sqlite') {
+    for (const table of tables) {
+      for (const row of await query<{ name: string }>(client, `PRAGMA table_info(${table})`)) {
+        present.add(`${table}.${row.name}`);
+      }
+    }
+  } else {
+    const placeholders = tables.map(() => '?').join(', ');
+    // `current_schema()` becomes the configured schema's literal under `inSchema`.
+    const rows = await query<Record<string, string>>(
+      client,
+      dialect === 'postgres'
+        ? `SELECT table_name AS t, column_name AS c FROM information_schema.columns WHERE table_schema = current_schema() AND table_name IN (${placeholders})`
+        : `SELECT TABLE_NAME AS t, COLUMN_NAME AS c FROM information_schema.columns WHERE TABLE_SCHEMA = COALESCE(?, DATABASE()) AND TABLE_NAME IN (${placeholders})`,
+      dialect === 'postgres' ? tables : [schema ?? null, ...tables],
+    );
+    for (const row of rows) present.add(`${row.t ?? row.T}.${row.c ?? row.C}`);
+  }
+  const existing = new Set([...present].map((entry) => entry.split('.')[0]));
+  return ADDED_COLUMNS.filter(
+    ([table, column]) => existing.has(table) && !present.has(`${table}.${column}`),
+  );
+}
+
+/** Adds the {@link ADDED_COLUMNS} an existing table lacks. Looks first, so a current schema takes no lock. */
+async function addMissingColumns(client: SqlClient, dialect: Dialect, schema?: string) {
+  for (const [table, column] of await missingColumns(client, dialect, schema)) {
+    await client.rawQuery(`ALTER TABLE ${table} ADD COLUMN ${column} BIGINT NULL`);
+  }
+}
+
+/**
+ * Columns a newer version added that the existing tables still lack, as `table.column` — what an
+ * app with `autoCreateSchema: false` must migrate (a migration calling {@link createFlagsTables}
+ * adds them). Empty when the schema is current.
+ */
+export async function missingFlagsColumns(
+  db: SqlClient,
+  options: Pick<SchemaOptions, 'schema'> = {},
+): Promise<string[]> {
+  db = inSchema(db, options.schema);
+  const missing = await missingColumns(db, dialectOf(db), schemaOf(db));
+  return missing.map(([table, column]) => `${table}.${column}`);
 }
 
 const INDEXES: Array<[name: string, table: string, columns: string]> = [
@@ -283,6 +358,7 @@ export async function createFlagsTables(
       );
     }
     for (const sql of statements(dialect, options)) await client.rawQuery(sql);
+    await addMissingColumns(client, dialect, schema);
     for (const [name, table, columns] of INDEXES) {
       // A BRIN index fits an append-only log ordered by time far better than a B-tree.
       if (name === 'flags_events_ts_idx' && dialect === 'postgres') {

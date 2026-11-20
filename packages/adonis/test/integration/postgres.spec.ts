@@ -10,6 +10,7 @@ import {
   ensureEventPartitions,
   eventsArePartitioned,
   FLAGS_TABLES,
+  missingFlagsColumns,
   pruneEvents,
 } from '../../src/schema.js';
 import { MemorySink } from '../../src/sinks/sink.js';
@@ -56,6 +57,28 @@ describe('Postgres', () => {
       "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = current_schema() AND table_name LIKE 'flags_%'",
     );
     expect(Number(tables[0]!.n)).toBe(FLAGS_TABLES.length);
+  });
+
+  it('adds the timestamp columns to tables an older version created, in the configured schema only', async () => {
+    const own = `${db.schema}_legacy`;
+    const legacy = (table: string) =>
+      `CREATE TABLE ${table} (environment VARCHAR(191) NOT NULL, entity VARCHAR(16) NOT NULL, entity_key VARCHAR(191) NOT NULL, definition TEXT NOT NULL, updated_at BIGINT NOT NULL, updated_by VARCHAR(191) NOT NULL, PRIMARY KEY (environment, entity, entity_key))`;
+    try {
+      await db.db.rawQuery(`CREATE SCHEMA IF NOT EXISTS "${own}"`);
+      await db.db.rawQuery(legacy(`"${own}".flags_entities`));
+      // The same table, also old, outside the configured schema: must be left alone.
+      await db.db.rawQuery(legacy('flags_entities'));
+      expect(await missingFlagsColumns(db.db, { schema: own })).toEqual([
+        'flags_entities.created_at',
+      ]);
+
+      await createFlagsTables(db.db, { schema: own });
+      expect(await missingFlagsColumns(db.db, { schema: own })).toEqual([]);
+      expect(await missingFlagsColumns(db.db)).toEqual(['flags_entities.created_at']);
+      await createFlagsTables(db.db, { schema: own }); // idempotent
+    } finally {
+      await db.db.rawQuery(`DROP SCHEMA IF EXISTS "${own}" CASCADE`);
+    }
   });
 
   it('keeps every table in the configured schema, with no search_path involved', async () => {

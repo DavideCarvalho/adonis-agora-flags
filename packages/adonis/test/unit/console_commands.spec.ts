@@ -277,7 +277,13 @@ describe('console commands', () => {
     );
     const list = await json(FlagsSegmentsList, []);
     expect(list.data).toEqual([
-      { key: 'staff', segment: { included: ['u1'] }, usedBy: ['new_player'] },
+      {
+        key: 'staff',
+        segment: { included: ['u1'] },
+        usedBy: ['new_player'],
+        createdAt: expect.any(String),
+        updatedAt: expect.any(String),
+      },
     ]);
     (await run(FlagsSegmentsList, [])).assertSucceeded();
 
@@ -305,7 +311,13 @@ describe('console commands', () => {
     (await run(FlagsLayersSave, ['checkout', '--layer={"allocations":{}}'])).assertSucceeded();
     const list = await json(FlagsLayersList, []);
     expect(list.data).toEqual([
-      { key: 'checkout', layer: { allocations: {} }, allocatedPercent: 0 },
+      {
+        key: 'checkout',
+        layer: { allocations: {} },
+        allocatedPercent: 0,
+        createdAt: expect.any(String),
+        updatedAt: expect.any(String),
+      },
     ]);
     (await run(FlagsHoldoutSave, ['--holdout={"percent":5}'])).assertSucceeded();
     expect((await ruleset()).holdout).toEqual({ percent: 5 });

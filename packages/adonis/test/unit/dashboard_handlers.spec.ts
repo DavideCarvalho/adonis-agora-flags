@@ -508,6 +508,8 @@ describe('dashboard API handlers', () => {
         metric: { kind: 'conversion', event: 'purchase' },
         source: 'config',
         usedBy: ['checkout'],
+        createdAt: null,
+        updatedAt: null,
       },
     ]);
 

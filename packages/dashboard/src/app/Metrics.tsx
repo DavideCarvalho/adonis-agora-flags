@@ -1,9 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { api, type DefinitionSource, type MetricDefinition } from '../client/flags-client';
+import {
+  api,
+  type DefinitionSource,
+  type MetricDefinition,
+  type Stamps as StampFields,
+} from '../client/flags-client';
 import { ConfigLockBadge, ConfigLockNote, OverriddenNotice } from './ConfigLock';
 import { Notice, useEnv, useWrite } from './env';
-import { ErrorBox, Panel, QueryState } from './shell';
+import { ErrorBox, Panel, QueryState, Stamps } from './shell';
 import { Badge } from './ui/badge';
 import { Button, Field, Input, Select } from './ui/form';
 
@@ -63,12 +68,14 @@ function MetricForm({
   usedBy,
   isNew,
   onDone,
+  stamps,
 }: {
   metricKey: string;
   initial: MetricDefinition;
   usedBy: string[];
   isNew: boolean;
   onDone?: () => void;
+  stamps?: StampFields;
 }) {
   const { environment } = useEnv();
   const [key, setKey] = useState(metricKey);
@@ -102,6 +109,7 @@ function MetricForm({
         ) : (
           <span className="mono text-sm text-fg">{metricKey}</span>
         )}
+        {!isNew && <Stamps createdAt={stamps?.createdAt} updatedAt={stamps?.updatedAt} />}
         <UsedBy usedBy={usedBy} />
       </div>
       <div className="flex flex-wrap items-end gap-3">
@@ -286,6 +294,7 @@ export function Metrics() {
             initial={m.metric}
             usedBy={m.usedBy}
             isNew={false}
+            stamps={m}
           />
         ))}
         {bySource('config').map((m) => (
