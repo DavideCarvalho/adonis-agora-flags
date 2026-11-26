@@ -15,6 +15,9 @@ import { LucidStore } from '../stores/lucid_store.js';
 import type { Actor, FlagsStore } from '../stores/store.js';
 import {
   APP_UNREACHABLE,
+  CONSOLE_SECRET_REQUIRED,
+  type ConsoleSecret,
+  consoleSecretOf,
   FLAGS_CONSOLE_TIMEOUT_MS,
   FlagsConsoleChannelError,
   type FlagsConsoleCommand,
@@ -48,9 +51,12 @@ export interface FederatedFlagsApp {
   store: { connection?: string | undefined; schema?: string | undefined } | FlagsStore;
   /**
    * Where that app answers commands (`consoleCommands` in its config/flags.ts): the
-   * `@adonisjs/redis` connection to publish on and that app's `prefix`.
+   * `@adonisjs/redis` connection to publish on, that app's `prefix`, and the `secret` it set as
+   * `consoleCommands.secret` (16+ characters; every command and answer is authenticated with it).
    */
-  controlPlane: { connection?: string | undefined; prefix: string } | RedisConsoleChannel;
+  controlPlane:
+    | { connection?: string | undefined; prefix: string; secret: ConsoleSecret }
+    | RedisConsoleChannel;
   /** Whether this console may change that app's flags. Default `true`; `false` browses only. */
   actions?: boolean | undefined;
   /** How long a command waits for the app to answer, in ms. Default 15 000. */
@@ -107,6 +113,11 @@ export function validateFederatedApp(key: string, entry: FederatedFlagsApp): voi
       (typeof plane.connection !== 'string' || plane.connection === '')
     ) {
       fail('`controlPlane.connection` must be a connection name of config/redis.ts');
+    }
+    if (consoleSecretOf((plane as { secret?: unknown }).secret) === undefined) {
+      fail(
+        "`controlPlane.secret` is required: the same secret (16+ characters) as the other app's `consoleCommands.secret`, so console commands are authenticated",
+      );
     }
   }
   if (entry.actions !== undefined && typeof entry.actions !== 'boolean') {
@@ -318,8 +329,14 @@ export function flagsConsoleCommandHandler(options: {
 
 /** `consoleCommands` in config/flags.ts. */
 export type ConsoleCommandsOption =
-  | boolean
+  | false
   | {
+      /**
+       * The secret every command and answer is authenticated with (HMAC-SHA256), at least 16
+       * characters: the console app sets the same value as `controlPlane.secret` in its `apps`
+       * entry for this app. Required: commands are never accepted unauthenticated.
+       */
+      secret: ConsoleSecret;
       /**
        * The channel prefix the console app names in `controlPlane.prefix`. Default: this app's
        * name (`app` in config/flags.ts, else its package.json name).
@@ -335,14 +352,24 @@ export type ConsoleCommandsOption =
 export function resolveConsoleCommands(
   option: ConsoleCommandsOption | undefined,
   app: string,
-): { prefix: string; connection: string | undefined; actions: boolean } | undefined {
+):
+  | { prefix: string; connection: string | undefined; actions: boolean; secret: ConsoleSecret }
+  | undefined {
   if (!option) return undefined;
-  const value = option === true ? {} : option;
+  if ((option as unknown) === true || consoleSecretOf(option.secret) === undefined) {
+    throw new Error(CONSOLE_SECRET_REQUIRED);
+  }
+  const value = option;
   const prefix = value.prefix ?? app;
   if (typeof prefix !== 'string' || prefix.trim() === '') {
     throw new Error('[flags] consoleCommands.prefix must not be empty');
   }
-  return { prefix, connection: value.connection, actions: value.actions !== false };
+  return {
+    prefix,
+    connection: value.connection,
+    actions: value.actions !== false,
+    secret: value.secret,
+  };
 }
 
 // ── The console app's side ──────────────────────────────────────────────────
@@ -486,6 +513,7 @@ class FederatedApp {
       return new RedisConsoleChannel({
         client: await this.#context.redis(plane.connection),
         prefix: plane.prefix,
+        secret: plane.secret,
       });
     })();
     this.#channel.catch(() => {
@@ -721,12 +749,18 @@ export class FederatedFlagsConsole {
 export async function answerConsoleCommands(options: {
   client: RedisLike;
   prefix: string;
+  /** `consoleCommands.secret`: commands not authenticated with it are dropped. */
+  secret: ConsoleSecret;
   actions: boolean;
   runtime: () => FlagsRuntime;
   log?: ((line: string) => void) | undefined;
   onError?: ((error: unknown) => void) | undefined;
 }): Promise<RedisConsoleChannel> {
-  const channel = new RedisConsoleChannel({ client: options.client, prefix: options.prefix });
+  const channel = new RedisConsoleChannel({
+    client: options.client,
+    prefix: options.prefix,
+    secret: options.secret,
+  });
   await channel.answer(
     flagsConsoleCommandHandler({
       runtime: options.runtime,

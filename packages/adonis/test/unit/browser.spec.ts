@@ -45,11 +45,16 @@ function collect() {
 
 const urlOf = (server: Server) => `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
-async function controlPlane(db: TestDb) {
+async function controlPlane(
+  db: TestDb,
+  flags: Record<string, ReturnType<typeof flag.boolean>> = {
+    internal_flag: flag.boolean({ default: true }),
+  },
+) {
   const runtime = await createRuntime(
     defineConfig({
       topology: 'control-plane',
-      flags: { internal_flag: flag.boolean({ default: true }) },
+      flags,
       sinks: { mem: sinks.memory() },
       subject,
       attributes: async () => ({ country: 'BR' }),
@@ -191,6 +196,73 @@ describe('browser API', () => {
       body: JSON.stringify({ events: [{ type: 'track', name: 'x' }] }),
     });
     expect(await events.json()).toEqual({ accepted: 0 });
+  });
+
+  it("serves a tenant's code-declared client flags to that tenant's browsers only", async () => {
+    // `billing` declares `client: true` for a key `shop` owns (it may write its own declarations
+    // over the tenant channel, for any key): shop's browsers must not get billing's say-so.
+    await runtime.store!.saveDeclarations('shop', {
+      beta: { type: 'boolean', default: false } as never,
+    });
+    await runtime.store!.saveDeclarations('billing', {
+      beta: { type: 'boolean', default: false, client: true } as never,
+    });
+    await runtime.admin!.saveFlag(
+      'beta',
+      {
+        variants: { on: true, off: false },
+        enabled: true,
+        offVariant: 'off',
+        fallthrough: { variant: 'on' },
+      },
+      { id: 'alice' },
+    );
+    await runtime.manager.refresh();
+    const tokenOf = (app: string) =>
+      signBrowserToken(
+        { id: 'u1' },
+        {
+          key: browserKey(SECRET, app, runtime.manager.environment),
+          app,
+          environment: runtime.manager.environment,
+        },
+      ).token;
+    const shop = await (await evaluate(tokenOf('shop'))).json();
+    expect(shop.values).not.toHaveProperty('beta');
+    expect(shop.values).toHaveProperty('banner');
+    const billing = await (await evaluate(tokenOf('billing'))).json();
+    expect(billing.values.beta).toBe(true);
+  });
+
+  it("the control plane's own code declarations reach every app's browsers (its operator's, like the console)", async () => {
+    // A second server whose own code declares a client flag; a tenant (`shop`) declared nothing.
+    const other = await sqliteDb();
+    const cp = await controlPlane(other, {
+      promo: flag.boolean({ default: true, client: true }),
+      internal_flag: flag.boolean({ default: true }),
+    });
+    try {
+      const token = signBrowserToken(
+        { id: 'u1' },
+        {
+          key: browserKey(SECRET, 'shop', cp.runtime.manager.environment),
+          app: 'shop',
+          environment: cp.runtime.manager.environment,
+        },
+      ).token;
+      const response = await fetch(`${cp.origin}/_flags/v1/client/evaluate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: '{}',
+      });
+      const body = await response.json();
+      expect(body.values.promo).toBe(true);
+      expect(body.values).not.toHaveProperty('internal_flag');
+    } finally {
+      await cp.runtime.close();
+      await close(cp.server);
+      await other.close();
+    }
   });
 
   it('never lets browser attributes override the token', async () => {

@@ -15,6 +15,7 @@ Nothing moves. The console reads a picked app's flags, segments, history and cha
 List the other apps under `apps` in the console app's `config/flags_dashboard.ts`. Each one names where its flags tables are (`store`) and the Redis prefix it answers on (`controlPlane`):
 
 ```ts title="config/flags_dashboard.ts"
+import env from '#start/env'
 import { defineConfig } from '@adonis-agora/flags/dashboard'
 
 export default defineConfig({
@@ -24,12 +25,20 @@ export default defineConfig({
     'entre-textos': {
       label: 'Entre Textos',
       store: { connection: 'pg', schema: 'flags_entretextos' },
-      controlPlane: { connection: 'main', prefix: 'entretextos' },
+      controlPlane: {
+        connection: 'main',
+        prefix: 'entretextos',
+        secret: env.get('FLAGS_CONSOLE_SECRET_ENTRETEXTOS'),
+      },
     },
     'eduliberta': {
       label: 'EduLiberta',
       store: { connection: 'pg', schema: 'flags_eduliberta' },
-      controlPlane: { connection: 'main', prefix: 'eduliberta' },
+      controlPlane: {
+        connection: 'main',
+        prefix: 'eduliberta',
+        secret: env.get('FLAGS_CONSOLE_SECRET_EDULIBERTA'),
+      },
       actions: false,
     },
   },
@@ -44,6 +53,7 @@ export default defineConfig({
 | `apps.<key>.store.schema` | The `schema` the other app sets in its `config/flags.ts`. Omit it when that app has none. |
 | `apps.<key>.controlPlane.connection` | The `@adonisjs/redis` connection to publish on. Both apps must use the same Redis server. Default: the default connection. |
 | `apps.<key>.controlPlane.prefix` | The other app's `consoleCommands.prefix`. |
+| `apps.<key>.controlPlane.secret` | Required. The other app's `consoleCommands.secret` (the same value, at least 16 characters, a string or an AdonisJS `Secret`). Every command and answer is authenticated with it. |
 | `apps.<key>.actions` | `false` to only browse that app here. Default `true`. |
 | `apps.<key>.timeoutMs` | How long a change waits for the app to answer. Default `15000`. |
 | `appLabel` | The name of this console's own app in the picker. Default: its flags `app` name. |
@@ -55,6 +65,7 @@ The console app needs `@adonisjs/lucid` and `@adonisjs/redis`. A connection is m
 Each app the console shows must answer it. Turn that on in its `config/flags.ts`:
 
 ```ts title="config/flags.ts (the other app)"
+import env from '#start/env'
 import { defineConfig, stores } from '@adonis-agora/flags'
 
 export default defineConfig({
@@ -64,14 +75,18 @@ export default defineConfig({
   flags: {
     // ...declared as usual
   },
-  consoleCommands: { prefix: 'entretextos', connection: 'main' },
+  consoleCommands: {
+    prefix: 'entretextos',
+    connection: 'main',
+    secret: env.get('FLAGS_CONSOLE_SECRET'),
+  },
 })
 ```
 
 | Option | Description |
 | --- | --- |
-| `consoleCommands: true` | Answer on the default Redis connection, with the app's name (`app`, else its package.json name) as the prefix. |
-| `consoleCommands.prefix` | The prefix the console app names in `controlPlane.prefix`. |
+| `consoleCommands.secret` | Required. A random secret of at least 16 characters (e.g. `openssl rand -base64 32`), shared with the console app as `controlPlane.secret`. Commands are authenticated with it (HMAC-SHA256): a command without a valid MAC, older than 60 seconds or already run is dropped, and the console ignores answers it cannot authenticate. Without it the app refuses to boot. |
+| `consoleCommands.prefix` | The prefix the console app names in `controlPlane.prefix`. Default: the app's name (`app`, else its package.json name). |
 | `consoleCommands.connection` | The `@adonisjs/redis` connection to listen on. |
 | `consoleCommands.actions` | `false` to answer reads only: the console shows the app, and every change is refused with `403`. Default `true`. |
 
@@ -100,7 +115,7 @@ export default class EditorController {
 A change made from the console reaches it the way one made in its own console does (Postgres notifications, or the next poll).
 
 <Callout type="warn">
-  `consoleCommands` does not apply to a [tenant](/docs/central-server#a-tenant): a tenant's flags are edited on its control-plane. Anything that can publish on that Redis can send these changes, so keep the Redis private to your apps.
+  `consoleCommands` does not apply to a [tenant](/docs/central-server#a-tenant): a tenant's flags are edited on its control-plane. Commands are authenticated with `consoleCommands.secret`; still keep the Redis private to your apps and keep the secret out of source control.
 </Callout>
 
 ## Database access

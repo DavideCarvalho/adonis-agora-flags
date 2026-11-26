@@ -16,6 +16,8 @@ import { quietLogger } from '../helpers.js';
  * The federated console over HTTP: a real AdonisJS app ("hub") whose flags console lists another
  * app ("et") and serves `?app=et` from et's store and et's answers over a shared (fake) Redis.
  */
+const SECRET = 'test-console-secret-0123456789';
+
 describe('federated console over HTTP', () => {
   let hub: ApplicationService;
   let http: Server;
@@ -39,6 +41,7 @@ describe('federated console over HTTP', () => {
     answering = await answerConsoleCommands({
       client: redis.duplicate(),
       prefix: 'entretextos',
+      secret: SECRET,
       actions: true,
       runtime: () => et,
     });
@@ -68,7 +71,11 @@ describe('federated console over HTTP', () => {
                 label: 'Entre Textos',
                 // A store instance and a channel: no Lucid or Redis binding needed here.
                 store: et.store!,
-                controlPlane: new RedisConsoleChannel({ client: redis, prefix: 'entretextos' }),
+                controlPlane: new RedisConsoleChannel({
+                  client: redis,
+                  prefix: 'entretextos',
+                  secret: SECRET,
+                }),
                 timeoutMs: 2000,
               },
             },
@@ -155,7 +162,7 @@ describe('consoleCommands in config/flags.ts', () => {
             store: stores.memory({ production: { flags: {} } }),
             transport: transports.memory(),
             dispatcher: 'in-process',
-            consoleCommands: { prefix: 'entretextos' },
+            consoleCommands: { prefix: 'entretextos', secret: SECRET },
           }),
         },
       })
@@ -171,7 +178,11 @@ describe('consoleCommands in config/flags.ts', () => {
     );
     await app.boot();
     await app.start(() => {});
-    const channel = new RedisConsoleChannel({ client: redis, prefix: 'entretextos' });
+    const channel = new RedisConsoleChannel({
+      client: redis,
+      prefix: 'entretextos',
+      secret: SECRET,
+    });
     try {
       const reply = await channel.send(
         { id: 'c1', verb: 'profile', args: [] },
@@ -186,7 +197,7 @@ describe('consoleCommands in config/flags.ts', () => {
       await app.terminate();
     }
     // Once the app stopped, nobody answers: the command fails fast.
-    const after = new RedisConsoleChannel({ client: redis, prefix: 'entretextos' });
+    const after = new RedisConsoleChannel({ client: redis, prefix: 'entretextos', secret: SECRET });
     await expect(after.send({ id: 'c2', verb: 'profile', args: [] })).rejects.toThrow(/listens/);
     await after.close();
   });

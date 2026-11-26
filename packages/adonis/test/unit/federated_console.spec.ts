@@ -51,6 +51,7 @@ const etConfig = (extra: Record<string, unknown> = {}) =>
   } as never);
 
 const ops = { id: 'ops-1', name: 'ops@hub.example' };
+const SECRET = 'test-console-secret-0123456789';
 
 describe('federated console (two apps, one Redis)', () => {
   let dir: string;
@@ -75,6 +76,7 @@ describe('federated console (two apps, one Redis)', () => {
       await answerConsoleCommands({
         client: redis.duplicate(),
         prefix: 'entretextos',
+        secret: SECRET,
         actions,
         runtime: () => et,
         log: (line) => logs.push(line),
@@ -88,7 +90,7 @@ describe('federated console (two apps, one Redis)', () => {
         et: {
           label: 'Entre Textos',
           store: { connection: 'et' },
-          controlPlane: { prefix: 'entretextos' },
+          controlPlane: { prefix: 'entretextos', secret: SECRET },
           timeoutMs: 1000,
           ...entry,
         },
@@ -288,15 +290,21 @@ describe('federated console (two apps, one Redis)', () => {
 });
 
 describe('federation config', () => {
-  const plane = { prefix: 'et' };
+  const plane = { prefix: 'et', secret: SECRET };
   it('validates an apps entry', () => {
     expect(() => validateFederatedApp('et', { store: {}, controlPlane: plane })).not.toThrow();
+    expect(() =>
+      validateFederatedApp('et', { store: {}, controlPlane: { prefix: 'et' } as never }),
+    ).toThrow(/controlPlane\.secret/);
+    expect(() =>
+      validateFederatedApp('et', { store: {}, controlPlane: { prefix: 'et', secret: 'short' } }),
+    ).toThrow(/controlPlane\.secret/);
     expect(() => validateFederatedApp('bad key!', { store: {}, controlPlane: plane })).toThrow(
       /key/,
     );
-    expect(() => validateFederatedApp('et', { store: {}, controlPlane: { prefix: '' } })).toThrow(
-      /prefix/,
-    );
+    expect(() =>
+      validateFederatedApp('et', { store: {}, controlPlane: { prefix: '', secret: SECRET } }),
+    ).toThrow(/prefix/);
     expect(() =>
       validateFederatedApp('et', { store: { schema: 'a;b' }, controlPlane: plane }),
     ).toThrow(/schema/);
@@ -310,12 +318,19 @@ describe('federation config', () => {
 
   it('resolves consoleCommands', () => {
     expect(resolveConsoleCommands(undefined, 'shop')).toBeUndefined();
-    expect(resolveConsoleCommands(true, 'shop')).toEqual({
+    expect(resolveConsoleCommands({ secret: SECRET }, 'shop')).toEqual({
       prefix: 'shop',
       connection: undefined,
       actions: true,
+      secret: SECRET,
     });
-    expect(resolveConsoleCommands({ prefix: 'et', actions: false }, 'shop')).toMatchObject({
+    expect(() => resolveConsoleCommands(true as never, 'shop')).toThrow(/consoleCommands\.secret/);
+    expect(() => resolveConsoleCommands({ prefix: 'et' } as never, 'shop')).toThrow(
+      /consoleCommands\.secret/,
+    );
+    expect(
+      resolveConsoleCommands({ prefix: 'et', actions: false, secret: SECRET }, 'shop'),
+    ).toMatchObject({
       prefix: 'et',
       actions: false,
     });
@@ -327,11 +342,20 @@ describe('federation config', () => {
         topology: 'tenant',
         flags: {},
         tenant: { url: 'http://cp', token: 't', partition: 'shop' },
-        consoleCommands: true,
+        consoleCommands: { secret: SECRET },
       } as never),
     ).toThrow(/tenant/);
-    expect(() => defineConfig({ flags: {}, consoleCommands: { prefix: '' } })).toThrow(/prefix/);
-    expect(() => defineConfig({ flags: {}, consoleCommands: true })).not.toThrow();
+    expect(() =>
+      defineConfig({ flags: {}, consoleCommands: { prefix: '', secret: SECRET } }),
+    ).toThrow(/prefix/);
+    // Fails closed: no secret, no console commands.
+    expect(() => defineConfig({ flags: {}, consoleCommands: true } as never)).toThrow(
+      /consoleCommands\.secret is required/,
+    );
+    expect(() => defineConfig({ flags: {}, consoleCommands: { prefix: 'et' } } as never)).toThrow(
+      /consoleCommands\.secret is required/,
+    );
+    expect(() => defineConfig({ flags: {}, consoleCommands: { secret: SECRET } })).not.toThrow();
   });
 
   it('names every routed console handler', () => {

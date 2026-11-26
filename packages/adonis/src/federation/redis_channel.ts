@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 
 /**
  * The Redis channel the federated console talks to another app over: the console publishes a
@@ -6,7 +6,45 @@ import { randomUUID } from 'node:crypto';
  * `SET <prefix>-flags-console-claim:<id> NX PX` runs it, and the answer comes back on
  * `<prefix>-flags-console-reply`. Same design as `@adonis-agora/durable`'s console commands, on
  * channels of its own (`-flags-`), so both can share an app's prefix.
+ *
+ * Every message is authenticated with a secret both apps share (`consoleCommands.secret` on the
+ * owning app, `controlPlane.secret` on the console's `apps` entry): an HMAC-SHA256 over the exact
+ * payload and the channel it travels on. A command or an answer without a valid MAC is dropped, a
+ * command older than {@link COMMAND_MAX_AGE_MS} is refused, and a command id runs once (the claim
+ * key), so whoever can publish on the Redis but lacks the secret can neither run nor replay a
+ * command, nor forge an answer.
  */
+
+/** The shortest shared secret accepted. */
+export const CONSOLE_SECRET_MIN_LENGTH = 16;
+/** How old (or how far in the future) a command or answer may be. */
+export const COMMAND_MAX_AGE_MS = 60_000;
+
+/** The boot error of a `consoleCommands` without a usable secret. */
+export const CONSOLE_SECRET_REQUIRED =
+  '[flags] consoleCommands.secret is required (at least 16 characters, e.g. env.get("FLAGS_CONSOLE_SECRET")): console commands are authenticated with it. Set the same value as controlPlane.secret in the console app\'s flags_dashboard.ts apps entry.';
+
+/** A secret given as a string or as an AdonisJS `Secret` (`.release()`). */
+export type ConsoleSecret = string | { release(): unknown };
+
+/** The secret as a string, or `undefined` when missing or shorter than the minimum. */
+export function consoleSecretOf(value: unknown): string | undefined {
+  let secret: unknown = value;
+  if (
+    value &&
+    typeof value === 'object' &&
+    typeof (value as { release?: unknown }).release === 'function'
+  ) {
+    try {
+      secret = (value as { release(): unknown }).release();
+    } catch {
+      return undefined;
+    }
+  }
+  return typeof secret === 'string' && secret.length >= CONSOLE_SECRET_MIN_LENGTH
+    ? secret
+    : undefined;
+}
 
 /** One command sent to the owning app. Arguments and answer are plain JSON. */
 export interface FlagsConsoleCommand {
@@ -88,14 +126,64 @@ export class RedisConsoleChannel {
   readonly #pending = new Map<string, (reply: FlagsConsoleReply) => void>();
   #subscriber: IoredisSubscriberLike | undefined;
   #replies: Promise<void> | undefined;
+  readonly #secret: string;
   #answering = false;
   #closed = false;
 
-  constructor(options: { client: RedisLike; prefix: string }) {
+  constructor(options: { client: RedisLike; prefix: string; secret: ConsoleSecret }) {
     if (!options.prefix)
       throw new Error('[@adonis-agora/flags] console channel: prefix is required');
+    const secret = consoleSecretOf(options.secret);
+    if (secret === undefined) {
+      throw new Error(
+        `[@adonis-agora/flags] console channel "${options.prefix}": a shared secret of at least ${CONSOLE_SECRET_MIN_LENGTH} characters is required (\`consoleCommands.secret\` in the app's config/flags.ts, and the same value as \`controlPlane.secret\` in the console's flags_dashboard.ts apps entry)`,
+      );
+    }
     this.#client = options.client;
     this.prefix = options.prefix;
+    this.#secret = secret;
+  }
+
+  #mac(channel: string, payload: string): Buffer {
+    return createHmac('sha256', this.#secret).update(`${channel}\n${payload}`).digest();
+  }
+
+  /** `body` with a timestamp, MAC'd for `channel`. */
+  #seal(channel: string, body: Record<string, unknown>): string {
+    const p = JSON.stringify({ ...body, ts: Date.now() });
+    return JSON.stringify({ v: 1, p, mac: this.#mac(channel, p).toString('base64') });
+  }
+
+  /**
+   * The body of a message sealed for `channel` with this secret and still fresh, or a reason it is
+   * not. Never throws.
+   */
+  #open(channel: string, message: string): { body: Record<string, unknown> } | { refused: string } {
+    try {
+      const envelope = JSON.parse(message) as { v?: unknown; p?: unknown; mac?: unknown };
+      if (
+        !envelope ||
+        typeof envelope !== 'object' ||
+        typeof envelope.p !== 'string' ||
+        typeof envelope.mac !== 'string'
+      ) {
+        return { refused: 'not authenticated' };
+      }
+      const expected = this.#mac(channel, envelope.p);
+      const given = Buffer.from(envelope.mac, 'base64');
+      if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
+        return { refused: 'bad MAC (is the secret the same on both apps?)' };
+      }
+      const body = JSON.parse(envelope.p) as Record<string, unknown>;
+      if (!body || typeof body !== 'object' || Array.isArray(body)) return { refused: 'malformed' };
+      const ts = body.ts;
+      if (typeof ts !== 'number' || Math.abs(Date.now() - ts) > COMMAND_MAX_AGE_MS) {
+        return { refused: 'stale or replayed' };
+      }
+      return { body };
+    } catch {
+      return { refused: 'malformed' };
+    }
   }
 
   get commandChannel(): string {
@@ -134,13 +222,13 @@ export class RedisConsoleChannel {
     if (this.#closed) throw new FlagsConsoleChannelError('console channel closed', APP_UNREACHABLE);
     if (!this.#replies) {
       const replies = this.#subscribe(this.replyChannel, (payload) => {
-        let reply: FlagsConsoleReply;
-        try {
-          reply = JSON.parse(payload) as FlagsConsoleReply;
-        } catch {
-          return;
-        }
-        this.#pending.get(reply?.id)?.(reply);
+        // An answer that is not sealed with the shared secret is ignored: a forged reply cannot
+        // settle a pending command.
+        const opened = this.#open(this.replyChannel, payload);
+        if (!('body' in opened)) return;
+        const { ts: _ts, ...reply } = opened.body;
+        if (typeof reply.id !== 'string') return;
+        this.#pending.get(reply.id)?.(reply as unknown as FlagsConsoleReply);
       });
       this.#replies = replies;
       // A failed subscribe (a Redis blip) is retried by the next send, not kept for good.
@@ -176,7 +264,13 @@ export class RedisConsoleChannel {
         this.#pending.delete(command.id);
         resolve(reply);
       });
-      this.#client.publish(this.commandChannel, JSON.stringify(command)).then(
+      const sealed = this.#seal(this.commandChannel, {
+        id: command.id,
+        verb: command.verb,
+        args: command.args,
+        ...(command.actor !== undefined ? { actor: command.actor } : {}),
+      });
+      this.#client.publish(this.commandChannel, sealed).then(
         (receivers) => {
           // Redis says how many subscribers got it: none means no instance answers commands.
           if (receivers === 0) {
@@ -220,13 +314,13 @@ export class RedisConsoleChannel {
     claim: (key: string, value: string) => Promise<unknown>,
     handler: (command: FlagsConsoleCommand) => Promise<unknown>,
   ): Promise<void> {
-    let command: FlagsConsoleCommand;
-    try {
-      command = JSON.parse(payload) as FlagsConsoleCommand;
-    } catch {
-      return;
+    const opened = this.#open(this.commandChannel, payload);
+    if (!('body' in opened)) {
+      throw new Error(`dropped a flags console command on "${this.prefix}": ${opened.refused}`);
     }
-    if (typeof command?.id !== 'string' || typeof command.verb !== 'string') return;
+    const { ts: _ts, ...body } = opened.body;
+    const command = body as unknown as FlagsConsoleCommand;
+    if (typeof command.id !== 'string' || typeof command.verb !== 'string') return;
     if ((await claim(`${this.prefix}-flags-console-claim:${command.id}`, instance)) !== 'OK')
       return;
     let reply: FlagsConsoleReply;
@@ -249,7 +343,10 @@ export class RedisConsoleChannel {
         },
       };
     }
-    await this.#client.publish(this.replyChannel, JSON.stringify(reply));
+    await this.#client.publish(
+      this.replyChannel,
+      this.#seal(this.replyChannel, reply as unknown as Record<string, unknown>),
+    );
   }
 
   /** Stop listening and fail the commands still waiting for an answer. */

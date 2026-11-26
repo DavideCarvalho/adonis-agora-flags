@@ -236,6 +236,7 @@ export default class FlagsProvider {
       this.#consoleCommands = await answerConsoleCommands({
         client: (await this.#redis(option.connection)) as unknown as RedisLike,
         prefix: option.prefix,
+        secret: option.secret,
         actions: option.actions,
         runtime: () => runtime,
         log: (line) => logger.info(line),

@@ -11,6 +11,7 @@ import type { Enricher } from './enrichers.js';
 import type { BufferOptions } from './events/buffer.js';
 import type { FlagEvent } from './events/event.js';
 import type { ConsoleCommandsOption } from './federation/console.js';
+import { CONSOLE_SECRET_REQUIRED, consoleSecretOf } from './federation/redis_channel.js';
 import type { FlagsIdentityProvider } from './identity.js';
 import type { RelayOptions } from './relay/relay.js';
 import { type ClickHouseOptions, ClickHouseSink } from './sinks/clickhouse.js';
@@ -488,11 +489,20 @@ export function validateConfig(config: FlagsConfig): void {
       );
     }
     const option = raw.consoleCommands;
-    if (option !== true) {
-      const value = option as { prefix?: unknown; connection?: unknown; actions?: unknown } | null;
+    if (option === true) throw new Error(CONSOLE_SECRET_REQUIRED);
+    {
+      const value = option as {
+        prefix?: unknown;
+        connection?: unknown;
+        actions?: unknown;
+        secret?: unknown;
+      } | null;
       if (!value || typeof value !== 'object') {
-        throw new Error('[flags] consoleCommands must be true or { prefix, connection, actions }');
+        throw new Error(
+          '[flags] consoleCommands must be false or { secret, prefix, connection, actions }',
+        );
       }
+      if (consoleSecretOf(value.secret) === undefined) throw new Error(CONSOLE_SECRET_REQUIRED);
       if (value.prefix !== undefined && (typeof value.prefix !== 'string' || value.prefix === '')) {
         throw new Error('[flags] consoleCommands.prefix must be a non-empty string');
       }
