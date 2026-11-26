@@ -10,6 +10,17 @@ export const TENANT_SCOPES = {
 } as const;
 
 /**
+ * What a federated console's token (token mode of `consoleCommands`) must hold for each kind of
+ * command it sends an app: `read` for the app's profile, experiment results and ops; `write` for
+ * every change; `approve` to approve or reject a change request. `flags:console:*` grants all three.
+ */
+export const CONSOLE_SCOPES = {
+  read: 'flags:console:read',
+  write: 'flags:console:write',
+  approve: 'flags:console:approve',
+} as const;
+
+/**
  * The bearer token a tenant presents to the control-plane (`tenant.token`): a fixed secret, a
  * function returning a token (`authkitTenantToken(...)` from `@adonis-agora/authkit-client`), or an
  * object with `get()`.

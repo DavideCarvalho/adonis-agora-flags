@@ -350,8 +350,10 @@ interface OwnedStateConfig {
   /**
    * Let another app's flags console (its `apps` in config/flags_dashboard.ts) show and change this
    * app's flags. Every instance listens on Redis (`@adonisjs/redis`); exactly one runs each change,
-   * through this app's own admin, so validation, approvals and the audit log apply. `true` uses
-   * this app's name as the prefix and the default Redis connection. Default: off.
+   * through this app's own admin, so validation, approvals and the audit log apply. Commands are
+   * authenticated: with `@adonis-agora/crypto` booted in this app, automatically (key
+   * `console-flags`); otherwise set `secret` or `verifyTenant` (the boot fails without one).
+   * Changes are taken only with `actions: true`. Default: off.
    */
   consoleCommands?: ConsoleCommandsOption;
 }
@@ -484,28 +486,56 @@ export function validateConfig(config: FlagsConfig): void {
   if (raw.consoleCommands !== undefined && raw.consoleCommands !== false) {
     if (topology === 'tenant') {
       throw new Error(
-        '[flags] consoleCommands does not apply to a tenant: its flags are edited on the control-plane console',
+        '[@adonis-agora/flags] consoleCommands does not apply to a tenant: its flags are edited on the control-plane console',
       );
     }
     const option = raw.consoleCommands;
     if (option !== true) {
       const value = option as { prefix?: unknown; connection?: unknown; actions?: unknown } | null;
       if (!value || typeof value !== 'object') {
-        throw new Error('[flags] consoleCommands must be true or { prefix, connection, actions }');
+        throw new Error(
+          '[@adonis-agora/flags] consoleCommands must be true or { prefix, connection, actions }',
+        );
       }
       if (value.prefix !== undefined && (typeof value.prefix !== 'string' || value.prefix === '')) {
-        throw new Error('[flags] consoleCommands.prefix must be a non-empty string');
+        throw new Error('[@adonis-agora/flags] consoleCommands.prefix must be a non-empty string');
       }
       if (
         value.connection !== undefined &&
         (typeof value.connection !== 'string' || value.connection === '')
       ) {
         throw new Error(
-          '[flags] consoleCommands.connection must be a connection name of config/redis.ts',
+          '[@adonis-agora/flags] consoleCommands.connection must be a connection name of config/redis.ts',
         );
       }
       if (value.actions !== undefined && typeof value.actions !== 'boolean') {
-        throw new Error('[flags] consoleCommands.actions must be a boolean');
+        throw new Error('[@adonis-agora/flags] consoleCommands.actions must be a boolean');
+      }
+      const auth = value as { secret?: unknown; crypto?: unknown };
+      if (auth.secret !== undefined) {
+        const secret =
+          typeof auth.secret === 'string'
+            ? auth.secret
+            : typeof (auth.secret as { release?: unknown } | null)?.release === 'function'
+              ? (auth.secret as { release(): unknown }).release()
+              : undefined;
+        if (typeof secret !== 'string' || secret.length < 16) {
+          throw new Error(
+            '[@adonis-agora/flags] consoleCommands.secret must be at least 16 characters',
+          );
+        }
+      }
+      if (
+        auth.crypto !== undefined &&
+        auth.crypto !== false &&
+        (!auth.crypto ||
+          typeof auth.crypto !== 'object' ||
+          !('cipher' in auth.crypto) ||
+          !(auth.crypto as { cipher?: unknown }).cipher)
+      ) {
+        throw new Error(
+          '[@adonis-agora/flags] consoleCommands.crypto must be { cipher, key? }, or false to turn the automatic crypto mode off',
+        );
       }
     }
   }

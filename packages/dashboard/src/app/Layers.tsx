@@ -134,7 +134,7 @@ function LayerForm({
         )}
         <Button
           variant="primary"
-          disabled={key === '' || save.isPending}
+          disabled={key === '' || save.blocked}
           onClick={() => save.mutate(undefined, { onSuccess: () => onDone?.() })}
         >
           Save layer
@@ -142,7 +142,7 @@ function LayerForm({
         {!isNew && (
           <Button
             variant="danger"
-            disabled={remove.isPending}
+            disabled={remove.blocked}
             onClick={() => remove.mutate(undefined)}
           >
             Delete
@@ -181,13 +181,13 @@ function HoldoutForm({ percent, stamps }: { percent: number | null; stamps?: Sta
       </Field>
       <Button
         variant="primary"
-        disabled={save.isPending}
+        disabled={save.blocked}
         onClick={() => save.mutate({ percent: value })}
       >
         Save holdout
       </Button>
       {percent !== null && (
-        <Button variant="danger" disabled={save.isPending} onClick={() => save.mutate(null)}>
+        <Button variant="danger" disabled={save.blocked} onClick={() => save.mutate(null)}>
           Remove holdout
         </Button>
       )}

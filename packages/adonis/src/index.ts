@@ -63,6 +63,7 @@ export {
   type FlagsDiagnosticEvent,
 } from './enrichers.js';
 export { EVENT_SCHEMA_VERSION, exposureId, type FlagEvent, uuidv7 } from './events/event.js';
+export { ConsoleAuthConfigError } from './federation/console_auth.js';
 export { browserToken, registerBrowser } from './http/browser.js';
 export type { BrowserTokenResponse } from './http/browser_tokens.js';
 export { flagsCsrfExceptions } from './http/csrf.js';
@@ -124,7 +125,12 @@ export {
   type WatchTransport,
 } from './tenant_transports/index.js';
 export { capabilityAllows } from './topology/capabilities.js';
-export { FLAGS_RESOURCE, TENANT_SCOPES, type TenantTokenSource } from './topology/token.js';
+export {
+  CONSOLE_SCOPES,
+  FLAGS_RESOURCE,
+  TENANT_SCOPES,
+  type TenantTokenSource,
+} from './topology/token.js';
 export type { LazyTenantUrl, TenantUrl } from './topology/url.js';
 export {
   type AuthkitUserVerifierOptions,

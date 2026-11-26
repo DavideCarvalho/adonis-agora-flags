@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MetricCard, MetricGrid, MetricGridSkeleton } from '../agora-kit/blocks/metric-card';
 import { api, type ExperimentResults, type MetricResult } from '../client/flags-client';
 import { ConfigLockBadge } from './ConfigLock';
-import { useEnv } from './env';
+import { CAN_WRITE, useCan, useEnv } from './env';
 import { formatMean, formatP, formatPercent } from './serving';
 import { ErrorBox, formatTime, Panel, QueryState, Table } from './shell';
 import { Badge } from './ui/badge';
@@ -252,6 +252,7 @@ export function ExperimentDetail({
     queryKey: ['experiment', experimentKey, environment],
     queryFn: () => api.experiment(experimentKey, environment),
   });
+  const canWrite = useCan(CAN_WRITE);
   const recompute = useMutation({
     mutationFn: () => api.recompute(experimentKey, environment),
     onSuccess: (data) => {
@@ -277,7 +278,7 @@ export function ExperimentDetail({
         actions={
           <Button
             variant="primary"
-            disabled={recompute.isPending || detail?.analytics === false}
+            disabled={recompute.isPending || !canWrite || detail?.analytics === false}
             onClick={() => recompute.mutate()}
           >
             {recompute.isPending ? 'Computing…' : 'Recompute now'}

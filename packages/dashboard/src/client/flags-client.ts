@@ -221,6 +221,11 @@ export interface Meta {
   experiments: string[];
   /** Set when the picked app is a federated one: whose flags these are, and whether it answers. */
   federated?: ConsoleApp & { reachable: boolean };
+  /**
+   * What this viewer may do (`flags:console:read`, `:write`, `:approve`), when the console's
+   * `authorize` narrows it. Absent: everything.
+   */
+  capabilities?: string[];
 }
 
 export interface AuditEntry {

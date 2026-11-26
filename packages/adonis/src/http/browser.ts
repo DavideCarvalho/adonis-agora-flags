@@ -28,12 +28,89 @@ export function browserSecret(runtime: FlagsRuntime, appKey: unknown): string | 
   return secret;
 }
 
-function releaseSecret(value: unknown): string | undefined {
+export function releaseSecret(value: unknown): string | undefined {
   if (typeof value === 'string') return value || undefined;
   if (value && typeof (value as { release?: unknown }).release === 'function') {
     return String((value as { release(): unknown }).release()) || undefined;
   }
   return undefined;
+}
+
+interface AppLike {
+  config?: { get?(key: string, fallback?: unknown): unknown };
+}
+
+/** A non-empty string, or a `Secret` releasing one. */
+const present = (value: unknown): boolean => {
+  try {
+    return releaseSecret(value) !== undefined;
+  } catch {
+    return false;
+  }
+};
+
+/** A config value that may be an AdonisJS config provider (`{ resolver(app) }`), resolved. */
+async function resolved(value: unknown, app: unknown): Promise<unknown> {
+  if (value === null || typeof value !== 'object') return value;
+  const resolver = (value as { resolver?: unknown }).resolver;
+  if (typeof resolver !== 'function') return value;
+  try {
+    return await (resolver as (app: unknown) => unknown).call(value, app);
+  } catch {
+    return undefined;
+  }
+}
+
+/** The first key of an encryption config entry, whatever its shape (`keys[0]`, `key`). */
+function keyOfEntry(entry: unknown): unknown {
+  if (entry === null || typeof entry !== 'object') return undefined;
+  const { keys, key } = entry as { keys?: unknown; key?: unknown };
+  if (Array.isArray(keys)) return keys.find((k) => present(k));
+  return key;
+}
+
+/**
+ * The key of `config/encryption.ts` (AdonisJS 7): the first key of its default entry
+ * (`list[default]`, else the first entry), resolving the lazy config providers `defineConfig` and
+ * `drivers.*` return. A flat `{ keys }` / `{ key }` config is read as is.
+ */
+async function encryptionKeyOf(app: unknown): Promise<unknown> {
+  let raw: unknown;
+  try {
+    raw = (app as AppLike)?.config?.get?.('encryption');
+  } catch {
+    return undefined;
+  }
+  const config = await resolved(raw, app);
+  if (config === null || typeof config !== 'object') return undefined;
+  const { list, default: name } = config as { list?: unknown; default?: unknown };
+  if (list !== null && typeof list === 'object') {
+    const entries = list as Record<string, unknown>;
+    const chosen =
+      typeof name === 'string' && Object.hasOwn(entries, name) ? name : Object.keys(entries)[0];
+    return chosen === undefined ? undefined : keyOfEntry(await resolved(entries[chosen], app));
+  }
+  return keyOfEntry(config);
+}
+
+/**
+ * The app's `APP_KEY` (SECURITY-UNIFORM-SPEC §13c, identical in every lib): `config/app.ts`'s
+ * `appKey`, else the default entry of `config/encryption.ts` (AdonisJS 7), else the `APP_KEY`
+ * environment variable. A `Secret` (`.release()`) or a string; never logged. A source that throws
+ * counts as "no key here". Pass the result through {@link releaseSecret}.
+ */
+export async function appKeyOf(app: unknown): Promise<unknown> {
+  let fromApp: unknown;
+  try {
+    fromApp = (app as AppLike)?.config?.get?.('app.appKey');
+  } catch {
+    fromApp = undefined;
+  }
+  if (present(fromApp)) return fromApp;
+  const fromEncryption = await encryptionKeyOf(app);
+  if (present(fromEncryption)) return fromEncryption;
+  const fromEnv = process.env.APP_KEY;
+  return present(fromEnv) ? fromEnv : undefined;
 }
 
 /**

@@ -52,7 +52,8 @@ function browserAttributes(input: unknown): Record<string, string | number | boo
  * underneath the token's, so they can never change who the user is or what the token says.
  */
 export class BrowserApi {
-  #clientFlags: { at: number; keys: Set<string> } | undefined;
+  /** Per browser app: the keys its code declarations (and this server's) mark `client: true`. */
+  readonly #clientFlags = new Map<string, { at: number; keys: Set<string> }>();
   #diagnostics = flagsDiagnostics();
 
   constructor(
@@ -112,20 +113,32 @@ export class BrowserApi {
     return user.environment ?? this.runtime.manager.environment;
   }
 
-  /** Keys the browser may see: declared `client: true` in the console, in code, or by a tenant. */
-  async #clientKeys(ruleset: Ruleset): Promise<Set<string>> {
+  /**
+   * Keys the browser may see: declared `client: true` in the console, or in code by the browser's
+   * own app (this server's code, or the declarations a tenant reported for itself). Another app's
+   * code declarations never expose a flag to this app's browsers: a tenant may only declare what
+   * its own frontend sees.
+   */
+  async #clientKeys(ruleset: Ruleset, user: VerifiedUser): Promise<Set<string>> {
     const now = Date.now();
-    if (!this.#clientFlags || now - this.#clientFlags.at > 30_000) {
+    // A token without an app (an identity provider's) is this server's own frontend.
+    const app = user.app ?? this.runtime.manager.app;
+    let cached = this.#clientFlags.get(app);
+    if (!cached || now - cached.at > 30_000) {
       const keys = new Set<string>();
-      for (const [key, declaration] of Object.entries(this.runtime.manager.declarations)) {
-        if (declaration.client) keys.add(key);
+      if (app === this.runtime.manager.app) {
+        for (const [key, declaration] of Object.entries(this.runtime.manager.declarations)) {
+          if (declaration.client) keys.add(key);
+        }
       }
-      for (const row of (await this.runtime.store?.declarations()) ?? []) {
-        if (row.declaration.client) keys.add(row.key);
+      for (const row of (await this.runtime.store?.declarations(app)) ?? []) {
+        // The store filters by app; checked again so a store that ignores the filter leaks nothing.
+        if (row.app === app && row.declaration.client) keys.add(row.key);
       }
-      this.#clientFlags = { at: now, keys };
+      cached = { at: now, keys };
+      this.#clientFlags.set(app, cached);
     }
-    const keys = new Set(this.#clientFlags.keys);
+    const keys = new Set(cached.keys);
     for (const [key, definition] of Object.entries(ruleset.flags)) {
       if (definition.declaration?.client) keys.add(key);
       else if (definition.declaration && definition.declaration.client !== true) keys.delete(key);
@@ -156,7 +169,7 @@ export class BrowserApi {
     const values: Record<string, JsonValue> = {};
     const variants: Record<string, string> = {};
     const experiments: string[] = [];
-    for (const key of [...(await this.#clientKeys(ruleset))].sort()) {
+    for (const key of [...(await this.#clientKeys(ruleset, user))].sort()) {
       const details = evaluate(ruleset, key, this.#defaultOf(ruleset, key), context);
       values[key] = details.value;
       if (details.variant !== undefined) variants[key] = details.variant;
@@ -226,7 +239,7 @@ export class BrowserApi {
     }
     const environment = this.#environment(user);
     const ruleset = await this.rulesetOf(environment);
-    const clientKeys = await this.#clientKeys(ruleset);
+    const clientKeys = await this.#clientKeys(ruleset, user);
     // Anonymous visitors have no targeting key: nothing to attribute.
     if (!user.subject) return ctx.response.status(202).send({ accepted: 0 });
     const app = user.app ?? 'browser';

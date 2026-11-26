@@ -1,5 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createContext, type ReactNode, useContext, useState } from 'react';
+import {
+  type ConsoleCapabilityTable,
+  consoleCapabilityAllows,
+} from '../client/console_capabilities';
 import type { Meta, WriteResult } from '../client/flags-client';
 
 /**
@@ -21,6 +25,26 @@ export function useEnv(): EnvState {
   return useContext(EnvContext);
 }
 
+/** The console capabilities the UI gates on (the server refuses the same with `403`). */
+export const CAN_WRITE = 'flags:console:write';
+export const CAN_APPROVE = 'flags:console:approve';
+
+/** flags' console capabilities for the shared matcher (approve is in neither list on purpose). */
+const TABLE: ConsoleCapabilityTable = {
+  'flags:console:read': 'read',
+  [CAN_WRITE]: 'write',
+};
+
+/** Whether the viewer may do `capability`: everything when the server sent no capabilities. */
+export function canDo(meta: Meta | undefined, capability: string): boolean {
+  const capabilities = meta?.capabilities;
+  return capabilities === undefined || consoleCapabilityAllows(capabilities, capability, TABLE);
+}
+
+export function useCan(capability: string): boolean {
+  return canDo(useEnv().meta, capability);
+}
+
 /** What the operator is told after a write: applied, or waiting for someone else. */
 export function describeWrite(result: WriteResult): string {
   if (result.status === 'applied') return `Applied (version ${result.version}).`;
@@ -37,9 +61,13 @@ export function useWrite<TInput>(
   onNotice?: (notice: string) => void,
 ) {
   const client = useQueryClient();
+  const allowed = useCan(CAN_WRITE);
   const [notice, setNotice] = useState<string | null>(null);
   const mutation = useMutation({
-    mutationFn: run,
+    mutationFn: (input: TInput) => {
+      if (!allowed) throw new Error(`You lack ${CAN_WRITE}: this console is read-only for you.`);
+      return run(input);
+    },
     onSuccess: async (result) => {
       setNotice(describeWrite(result));
       onNotice?.(describeWrite(result));
@@ -47,7 +75,15 @@ export function useWrite<TInput>(
     },
     onError: () => setNotice(null),
   });
-  return { ...mutation, notice, clearNotice: () => setNotice(null) };
+  return {
+    ...mutation,
+    /** Whether the viewer may make this change at all. */
+    allowed,
+    /** Disable the control: the write is running, or the viewer may not make it. */
+    blocked: mutation.isPending || !allowed,
+    notice,
+    clearNotice: () => setNotice(null),
+  };
 }
 
 /** The outcome line under a form. */

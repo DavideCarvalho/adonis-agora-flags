@@ -14,7 +14,7 @@ import { AppPicker, usePageSearch } from './AppPicker';
 import { Approvals } from './Approvals';
 import { Environments } from './Environments';
 import { ExperimentDetail, Experiments } from './Experiments';
-import { EnvProvider } from './env';
+import { CAN_WRITE, canDo, EnvProvider } from './env';
 import { FlagEditor } from './FlagEditor';
 import { FlagsList } from './FlagsList';
 import { Hygiene } from './Hygiene';
@@ -294,6 +294,11 @@ function Console() {
             <p role="alert" className="mb-4 text-xs text-warn" data-federated-unreachable>
               {federated.label} is not answering: its flags are read from its tables, without what
               only it knows (flags declared in its code, its experiments), and changes will fail.
+            </p>
+          )}
+          {meta.data && !canDo(meta.data, CAN_WRITE) && (
+            <p role="note" className="mb-4 text-xs text-dim" data-read-only>
+              You can look around: your access does not include changes here.
             </p>
           )}
           {!detail && (

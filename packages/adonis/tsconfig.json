@@ -16,5 +16,5 @@
     "configure.ts",
     "stubs/main.ts"
   ],
-  "exclude": ["test/**", "dist/**"]
+  "exclude": ["test/**", "dist/**", "src/crypto-kit/*.cases.ts"]
 }

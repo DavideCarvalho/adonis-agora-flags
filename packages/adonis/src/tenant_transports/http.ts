@@ -165,6 +165,8 @@ export class HttpRulesetChannel implements RulesetChannel {
     return (listener) => {
       let stopped = false;
       let controller: AbortController | undefined;
+      /** Ends the backoff wait at once when the subscription is closed. */
+      let wake: (() => void) | undefined;
       void (async () => {
         let backoff = 1000;
         while (!stopped) {
@@ -189,7 +191,15 @@ export class HttpRulesetChannel implements RulesetChannel {
           }
           if (stopped) break;
           // The server closes the stream when the token expires; reconnect fetches a fresh one.
-          await new Promise((resolve) => setTimeout(resolve, backoff).unref());
+          await new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, backoff);
+            timer.unref();
+            wake = () => {
+              clearTimeout(timer);
+              resolve();
+            };
+          });
+          wake = undefined;
           backoff = Math.min(backoff * 2, 30_000);
           listener.changed();
         }
@@ -197,6 +207,7 @@ export class HttpRulesetChannel implements RulesetChannel {
       return () => {
         stopped = true;
         controller?.abort();
+        wake?.();
       };
     };
   }

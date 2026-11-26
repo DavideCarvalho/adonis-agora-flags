@@ -43,6 +43,25 @@ describe('approvals', () => {
     expect(theirs.textContent).toContain('Reject');
   });
 
+  it('disables what the viewer’s capabilities do not allow', async () => {
+    stubFetch(() => ({
+      requiresApproval: true,
+      actor: { id: 'alice' },
+      data: [request('mine', 'alice'), request('theirs', 'bob')],
+      meta: { nextCursor: null, prevCursor: null, hasNext: false, hasPrev: false },
+    }));
+    // A writer without flags:console:approve: may withdraw their own, not decide others'.
+    renderScreen(<Approvals />, {
+      meta: { ...META, capabilities: ['flags:console:read', 'flags:console:write'] },
+    });
+    await screen.findByRole('listitem', { name: 'Change request mine' });
+    expect(screen.getByRole('button', { name: 'Withdraw' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Approve and apply' }).hasAttribute('disabled')).toBe(
+      true,
+    );
+    expect(screen.getByRole('button', { name: 'Reject' }).hasAttribute('disabled')).toBe(true);
+  });
+
   it('approves with a note', async () => {
     const { calls } = stubFetch((method) =>
       method === 'POST'

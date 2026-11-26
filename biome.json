@@ -14,6 +14,7 @@
       "!**/.turbo",
       "!**/coverage",
       "!**/*.stub",
+      "!**/crypto-kit",
       "!examples"
     ]
   },

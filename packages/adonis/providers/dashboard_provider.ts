@@ -79,13 +79,21 @@ import {
 } from '../src/dashboard/handlers.js';
 import { contentTypeFor, renderIndexHtml, type ShellFields } from '../src/dashboard/spa.js';
 import type { FlagsConfig } from '../src/define_config.js';
-import { consoleHandlerName, FederatedFlagsConsole } from '../src/federation/console.js';
+import {
+  consoleCapabilityOf,
+  consoleHandlerName,
+  FederatedFlagsConsole,
+  flagsConsoleCapabilityAllows,
+  viewerConsoleCapabilities,
+} from '../src/federation/console.js';
+import { authkitClientOf, cryptoRuntimeOf } from '../src/federation/console_auth.js';
 import type { RedisLike } from '../src/federation/redis_channel.js';
 import { authkitIdentity } from '../src/http/subject_resolver.js';
 import type { FlagsIdentityProvider } from '../src/identity.js';
 import { getRuntime, hasRuntime } from '../src/services/accessor.js';
 import type { SqlDatabase } from '../src/sql.js';
 import type { Actor } from '../src/stores/store.js';
+import { CONSOLE_SCOPES } from '../src/topology/token.js';
 
 /**
  * Directory of the built SPA (`dist/assets/spa`, copied in by `copy:spa`), relative to this
@@ -185,6 +193,7 @@ export default class FlagsDashboardProvider {
 
     // The router is committed only after every provider's `boot()`: register in `booted`.
     await this.app.booted(async () => {
+      await this.authenticateFederation();
       const router = await this.app.container.make('router');
       this.registerRoutes(router, config);
     });
@@ -197,6 +206,24 @@ export default class FlagsDashboardProvider {
     const json = (handler: Handler) => async (ctx: HttpContext) => {
       const guard = await this.enforce(config, ctx, 'api');
       if (!guard.allowed) return;
+      // The viewer's capabilities apply here as on another app: a narrowed viewer cannot change
+      // this app's flags either. `authorize` without capabilities (or `access`): everything.
+      const narrowed = guard.capabilities !== undefined || guard.access !== undefined;
+      const viewer = viewerConsoleCapabilities(guard.capabilities, guard.access);
+      const verb = consoleHandlerName(handler);
+      const required = verb === undefined ? undefined : consoleCapabilityOf(verb);
+      if (narrowed && required !== undefined && required !== CONSOLE_SCOPES.read) {
+        if (!flagsConsoleCapabilityAllows(viewer, required)) {
+          return ctx.response
+            .status(403)
+            .json({ error: `[@adonis-agora/flags] the viewer lacks ${required}` });
+        }
+      }
+      // The UI disables what the viewer cannot do.
+      const withViewer = (result: { status: number; body: unknown }) =>
+        narrowed && handler === meta && result.status === 200
+          ? { ...result, body: { ...(result.body as object), capabilities: viewer } }
+          : result;
       const federated = this.federatedPick(ctx);
       if (federated !== undefined) {
         // `?app=` names a federated app: answered from its tables, or by the app itself.
@@ -209,9 +236,14 @@ export default class FlagsDashboardProvider {
           const result = await this.federation!.dispatch(
             federated,
             name,
-            { actor: await this.actorOf(config, ctx) },
+            {
+              actor: await this.actorOf(config, ctx),
+              // What the viewer may do there, narrowed to flags' console set (all of it when
+              // `authorize` does not say).
+              capabilities: viewer,
+            },
             toApiRequest(ctx),
-          );
+          ).then(withViewer);
           ctx.response.header('cache-control', 'private, no-store');
           return ctx.response.status(result.status).json(result.body);
         } catch (error) {
@@ -228,13 +260,15 @@ export default class FlagsDashboardProvider {
       }
       try {
         const actor = await this.actorOf(config, ctx);
-        const result = await handler(
-          {
-            runtime: getRuntime(),
-            actor,
-            ...(guard.apps !== undefined ? { apps: guard.apps } : {}),
-          },
-          toApiRequest(ctx),
+        const result = withViewer(
+          await handler(
+            {
+              runtime: getRuntime(),
+              actor,
+              ...(guard.apps !== undefined ? { apps: guard.apps } : {}),
+            },
+            toApiRequest(ctx),
+          ),
         );
         return ctx.response.status(result.status).json(result.body);
       } catch (error) {
@@ -352,6 +386,30 @@ export default class FlagsDashboardProvider {
           .json(await searchConsoles(registry, CONSOLE_ID, ctx, typeof q === 'string' ? q : ''));
       })
       .as(name('consoles.search'));
+  }
+
+  /**
+   * How this console authenticates to each federated app, decided once the other providers booted
+   * (`@adonis-agora/crypto`, authkit): logged per app. A misconfigured app fails the boot of a web
+   * server only; elsewhere (tests, workers) it is logged. Not in ace commands or the REPL, which
+   * send no commands.
+   */
+  private async authenticateFederation(): Promise<void> {
+    if (!this.federation) return;
+    const environment = this.app.getEnvironment();
+    if (environment === 'console' || environment === 'repl') return;
+    const logger = (await this.app.container.make('logger')) as {
+      info(message: string): void;
+      warn(message: string): void;
+    };
+    const lines = await this.federation.authenticate({
+      crypto: await cryptoRuntimeOf(this.app.container),
+      authkit: await authkitClientOf(this.app.container),
+      warn: (line) => logger.warn(line),
+      info: (line) => logger.info(line),
+      strict: environment === 'web',
+    });
+    for (const line of lines) logger.info(line);
   }
 
   /** The federated app `?app=` names, if it names one. */
@@ -507,6 +565,23 @@ export default class FlagsDashboardProvider {
           if (!hasRuntime()) {
             return { status: 503, body: { error: '@adonis-agora/flags is not booted' } };
           }
+          // The viewer's capabilities narrow the tools as they narrow the JSON API.
+          const verb = consoleHandlerName(handler);
+          const required = verb === undefined ? undefined : consoleCapabilityOf(verb);
+          if (
+            (decision.capabilities !== undefined || decision.access !== undefined) &&
+            required !== undefined &&
+            required !== CONSOLE_SCOPES.read &&
+            !flagsConsoleCapabilityAllows(
+              viewerConsoleCapabilities(decision.capabilities, decision.access),
+              required,
+            )
+          ) {
+            return {
+              status: 403,
+              body: { error: `[@adonis-agora/flags] the viewer lacks ${required}` },
+            };
+          }
           const actor = mcpActor(await this.actorOf(config, ctx), caller);
           return (handler as Handler)(
             {
@@ -658,13 +733,21 @@ export default class FlagsDashboardProvider {
     config: ResolvedFlagsDashboardConfig,
     ctx: HttpContext,
     mode: 'page' | 'api',
-  ): Promise<{ allowed: boolean; apps?: '*' | string[] }> {
+  ): Promise<{
+    allowed: boolean;
+    apps?: '*' | string[];
+    capabilities?: string[];
+    access?: 'read' | 'write';
+  }> {
     // Never `if (!(await authorize(ctx)))`: a `{ allowed: false }` decision is truthy.
     const decision = await this.authorizeGuard(ctx);
     if (decision.allowed) {
-      return decision.apps !== undefined
-        ? { allowed: true, apps: decision.apps }
-        : { allowed: true };
+      return {
+        allowed: true,
+        ...(decision.apps !== undefined ? { apps: decision.apps } : {}),
+        ...(decision.capabilities !== undefined ? { capabilities: decision.capabilities } : {}),
+        ...(decision.access !== undefined ? { access: decision.access } : {}),
+      };
     }
     if (decision.status === 403 && decision.error !== undefined) {
       await this.warnAuthorizeThrow(decision.error);
