@@ -3,7 +3,7 @@
 '@adonis-agora/flags-dashboard': minor
 ---
 
-Security: the federated console channel is authenticated (reported privately; same contract as every Agora lib).
+Security: the federated console channel is authenticated (found in an internal security audit; same contract as every Agora lib).
 
 **Breaking:** commands are always authenticated, and a side that cannot authenticate fails its boot (web environment only; ace commands never fail):
 
