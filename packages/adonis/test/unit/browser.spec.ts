@@ -45,11 +45,16 @@ function collect() {
 
 const urlOf = (server: Server) => `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
-async function controlPlane(db: TestDb) {
+async function controlPlane(
+  db: TestDb,
+  flags: Record<string, ReturnType<typeof flag.boolean>> = {
+    internal_flag: flag.boolean({ default: true }),
+  },
+) {
   const runtime = await createRuntime(
     defineConfig({
       topology: 'control-plane',
-      flags: { internal_flag: flag.boolean({ default: true }) },
+      flags,
       sinks: { mem: sinks.memory() },
       subject,
       attributes: async () => ({ country: 'BR' }),
@@ -227,6 +232,37 @@ describe('browser API', () => {
     expect(shop.values).toHaveProperty('banner');
     const billing = await (await evaluate(tokenOf('billing'))).json();
     expect(billing.values.beta).toBe(true);
+  });
+
+  it("the control plane's own code declarations reach every app's browsers (its operator's, like the console)", async () => {
+    // A second server whose own code declares a client flag; a tenant (`shop`) declared nothing.
+    const other = await sqliteDb();
+    const cp = await controlPlane(other, {
+      promo: flag.boolean({ default: true, client: true }),
+      internal_flag: flag.boolean({ default: true }),
+    });
+    try {
+      const token = signBrowserToken(
+        { id: 'u1' },
+        {
+          key: browserKey(SECRET, 'shop', cp.runtime.manager.environment),
+          app: 'shop',
+          environment: cp.runtime.manager.environment,
+        },
+      ).token;
+      const response = await fetch(`${cp.origin}/_flags/v1/client/evaluate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: '{}',
+      });
+      const body = await response.json();
+      expect(body.values.promo).toBe(true);
+      expect(body.values).not.toHaveProperty('internal_flag');
+    } finally {
+      await cp.runtime.close();
+      await close(cp.server);
+      await other.close();
+    }
   });
 
   it('never lets browser attributes override the token', async () => {

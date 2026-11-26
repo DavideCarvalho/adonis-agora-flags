@@ -229,15 +229,31 @@ export async function createRuntime(
       ...(config.attributes ? { attributes: config.attributes } : {}),
       ...(logger ? { logger } : {}),
     });
+    let closed = false;
+    let retry: NodeJS.Timeout | undefined;
     if (start) {
       await source.start();
       buffer.start();
       usage?.start();
-      // Tell the control-plane what this app declares, so its console knows the flags exist.
-      void post('declarations', { declarations: serializeDeclarations(declarations) }).catch(
-        (error) =>
-          logger?.warn(`[flags] publishing declarations failed: ${(error as Error).message}`),
-      );
+      // Tell the control-plane what this app declares, so its console knows the flags exist (and
+      // which flags this app's browsers may see). Retried with a backoff until it lands: a tenant
+      // that boots before its control plane must not stay undeclared.
+      const publish = (delay: number) => {
+        if (closed) return;
+        void post('declarations', { declarations: serializeDeclarations(declarations) }).catch(
+          (error) => {
+            if (closed) return;
+            if (delay === 1000) {
+              logger?.warn(
+                `[flags] publishing declarations failed (retrying): ${(error as Error).message}`,
+              );
+            }
+            retry = setTimeout(() => publish(Math.min(delay * 2, 60_000)), delay);
+            retry.unref?.();
+          },
+        );
+      };
+      publish(1000);
     }
     return {
       config,
@@ -254,6 +270,8 @@ export async function createRuntime(
       ...(controlPlaneUrl ? { controlPlaneUrl } : {}),
       tenantLinks: links,
       async close() {
+        closed = true;
+        if (retry) clearTimeout(retry);
         await source.stop();
         await buffer.close();
         await usage?.close();

@@ -114,10 +114,10 @@ export class BrowserApi {
   }
 
   /**
-   * Keys the browser may see: declared `client: true` in the console, or in code by the browser's
-   * own app (this server's code, or the declarations a tenant reported for itself). Another app's
-   * code declarations never expose a flag to this app's browsers: a tenant may only declare what
-   * its own frontend sees.
+   * Keys the browser may see: declared `client: true` in the console or in this server's own code
+   * (both its operator's), or by the browser's own app (the declarations a tenant reported for
+   * itself). Another tenant's declarations never expose a flag to this app's browsers: a tenant
+   * may only declare what its own frontend sees.
    */
   async #clientKeys(ruleset: Ruleset, user: VerifiedUser): Promise<Set<string>> {
     const now = Date.now();
@@ -126,10 +126,9 @@ export class BrowserApi {
     let cached = this.#clientFlags.get(app);
     if (!cached || now - cached.at > 30_000) {
       const keys = new Set<string>();
-      if (app === this.runtime.manager.app) {
-        for (const [key, declaration] of Object.entries(this.runtime.manager.declarations)) {
-          if (declaration.client) keys.add(key);
-        }
+      // This server's own code is its operator's, like its console: trusted for every app.
+      for (const [key, declaration] of Object.entries(this.runtime.manager.declarations)) {
+        if (declaration.client) keys.add(key);
       }
       for (const row of (await this.runtime.store?.declarations(app)) ?? []) {
         // The store filters by app; checked again so a store that ignores the filter leaks nothing.
