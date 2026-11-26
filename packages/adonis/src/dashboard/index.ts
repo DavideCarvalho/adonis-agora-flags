@@ -2,10 +2,26 @@
 export type {
   ConsoleCommandsOption,
   FederatedAppInfo,
+  FederatedControlPlane,
   FederatedFlagsApp,
   FlagsConsoleProfile,
 } from '../federation/console.js';
-export { RedisConsoleChannel } from '../federation/redis_channel.js';
+export {
+  consoleCommandKeys,
+  FLAGS_CONSOLE_CAPABILITIES,
+  flagsConsoleCapabilityAllows,
+} from '../federation/console.js';
+export {
+  CONSOLE_AUTH_DOCS,
+  ConsoleAuthConfigError,
+} from '../federation/console_auth.js';
+export type { ConsoleCipher, ConsoleCipherSource } from '../federation/redis_channel.js';
+export {
+  CONSOLE_CRYPTO_KEY,
+  RedisConsoleChannel,
+  UNAUTHORIZED_CONSOLE,
+  UNSIGNED_CHANNEL,
+} from '../federation/redis_channel.js';
 export type {
   AccessDeniedInfo,
   AccessDeniedPageOptions,
@@ -40,6 +56,10 @@ export {
   normalizeConsoleAuthorizeResult,
   resolveConsoleAuthorize,
 } from './console_authorize.js';
+export {
+  type ConsoleCapabilityTable,
+  consoleCapabilityAllows,
+} from './console_capabilities.js';
 export type {
   ConsoleSignOut,
   ConsoleViewer,

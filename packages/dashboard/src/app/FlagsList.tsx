@@ -152,7 +152,7 @@ export function FlagsList({ onOpen }: { onOpen: (key: string) => void }) {
           <FlagsTable
             flags={visible}
             onOpen={onOpen}
-            toggling={kill.isPending}
+            toggling={kill.blocked}
             onToggle={(key, enabled) => kill.mutate({ key, enabled })}
           />
         </QueryState>

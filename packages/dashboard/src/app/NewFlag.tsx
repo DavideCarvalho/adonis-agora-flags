@@ -150,7 +150,7 @@ export function NewFlag({
         />
       </div>
       <div className="flex flex-wrap items-center gap-2 sm:col-span-3">
-        <Button type="submit" variant="primary" disabled={create.isPending}>
+        <Button type="submit" variant="primary" disabled={create.blocked}>
           {create.isPending ? 'Creating…' : 'Create flag'}
         </Button>
         <Button variant="ghost" onClick={onCancel}>

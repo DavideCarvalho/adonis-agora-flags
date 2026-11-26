@@ -7,6 +7,7 @@ import {
   type FlagDefinition,
   type ScheduledChange,
 } from '../client/flags-client';
+import { CAN_WRITE, useCan } from './env';
 import { localInputToIso, rolloutSteps } from './flag-model';
 import { formatValue } from './serving';
 import { DateText, ErrorBox, formatTime, Table } from './shell';
@@ -134,6 +135,7 @@ export function SchedulesPanel({
   const [every, setEvery] = useState(24);
   const [steps, setSteps] = useState(STEP_PRESET.join(', '));
 
+  const canWrite = useCan(CAN_WRITE);
   const one = useMutation({
     mutationFn: () => {
       const iso = localInputToIso(runAt);
@@ -185,7 +187,11 @@ export function SchedulesPanel({
               </td>
               <td className="px-4 py-1.5 text-right">
                 {s.status === 'pending' && (
-                  <Button variant="ghost" onClick={() => cancel.mutate(s.id)}>
+                  <Button
+                    variant="ghost"
+                    disabled={cancel.isPending || !canWrite}
+                    onClick={() => cancel.mutate(s.id)}
+                  >
                     Cancel
                   </Button>
                 )}
@@ -227,7 +233,7 @@ export function SchedulesPanel({
             onChange={(e) => setRunAt(e.target.value)}
           />
         </Field>
-        <Button onClick={() => one.mutate()} disabled={one.isPending}>
+        <Button onClick={() => one.mutate()} disabled={one.isPending || !canWrite}>
           Schedule
         </Button>
       </div>
@@ -259,7 +265,7 @@ export function SchedulesPanel({
               onChange={(e) => setSteps(e.target.value)}
             />
           </Field>
-          <Button onClick={() => gradual.mutate()} disabled={gradual.isPending}>
+          <Button onClick={() => gradual.mutate()} disabled={gradual.isPending || !canWrite}>
             Schedule rollout
           </Button>
         </div>

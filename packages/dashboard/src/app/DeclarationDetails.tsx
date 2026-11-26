@@ -96,7 +96,7 @@ export function DeclarationDetails({
           />
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:col-span-3">
-          <Button type="submit" disabled={save.isPending}>
+          <Button type="submit" disabled={save.blocked}>
             Save details
           </Button>
           <Notice text={save.notice} />

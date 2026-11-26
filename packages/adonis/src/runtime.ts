@@ -191,7 +191,14 @@ export async function createRuntime(
     const source = new RemoteSource({
       channel: links.watch,
       ...(tenant.snapshotPath ? { snapshotPath: tenant.snapshotPath } : {}),
-      ...(tenant.stream !== undefined ? { stream: tenant.stream } : {}),
+      // The ruleset stream (or a broker subscription) is held only by processes that serve: an
+      // ace command, the REPL or a console app fetches the ruleset once and polls (unref'd), so it
+      // exits on its own (§12).
+      ...(options.listen === false
+        ? { stream: false }
+        : tenant.stream !== undefined
+          ? { stream: tenant.stream }
+          : {}),
       ...(tenant.intervalMs !== undefined ? { intervalMs: tenant.intervalMs } : {}),
       onError: (error) => logger?.warn(`[flags] control-plane: ${(error as Error).message}`),
     });

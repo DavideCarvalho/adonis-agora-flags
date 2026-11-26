@@ -150,7 +150,7 @@ function EditorBody({
             />
             <Button
               variant="primary"
-              disabled={!dirty || save.isPending || preview?.valid === false}
+              disabled={!dirty || save.blocked || preview?.valid === false}
               onClick={() => save.mutate(undefined)}
             >
               {detail.requiresApproval ? 'Request change' : 'Save'}
@@ -158,7 +158,7 @@ function EditorBody({
             {detail.stored && (
               <Button
                 variant="danger"
-                disabled={remove.isPending}
+                disabled={remove.blocked}
                 onClick={() => remove.mutate(undefined)}
               >
                 Remove from ruleset
@@ -239,7 +239,7 @@ function EditorBody({
             }
             fields={declarationFields(declaration.overriddenConsole, declaration)}
             onRemove={() => dropConsole.mutate(undefined)}
-            removing={dropConsole.isPending}
+            removing={dropConsole.blocked}
             removeLabel="Remove the console declaration"
           />
         )}
@@ -257,7 +257,7 @@ function EditorBody({
             </p>
             <Button
               variant="ghost"
-              disabled={remove.isPending}
+              disabled={remove.blocked}
               onClick={() => remove.mutate(undefined)}
             >
               Return to the code default

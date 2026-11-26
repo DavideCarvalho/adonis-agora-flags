@@ -177,7 +177,7 @@ function MetricForm({
       <div className="flex flex-wrap items-center gap-2">
         <Button
           variant="primary"
-          disabled={key === '' || event.trim() === '' || save.isPending}
+          disabled={key === '' || event.trim() === '' || save.blocked}
           onClick={() => save.mutate(undefined, { onSuccess: () => onDone?.() })}
         >
           Save metric
@@ -190,7 +190,7 @@ function MetricForm({
         {!isNew && (
           <Button
             variant="danger"
-            disabled={remove.isPending}
+            disabled={remove.blocked}
             onClick={() => remove.mutate(undefined)}
           >
             Delete
@@ -244,7 +244,7 @@ function ConfigMetric({
             { label: 'metric', console: describe(overriddenConsole), code: describe(metric) },
           ]}
           onRemove={() => remove.mutate(undefined)}
-          removing={remove.isPending}
+          removing={remove.blocked}
           removeLabel="Delete the console metric"
         />
       )}

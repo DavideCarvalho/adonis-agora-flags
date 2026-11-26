@@ -125,7 +125,7 @@ function SegmentForm({
         </Button>
         <Button
           variant="primary"
-          disabled={key === '' || save.isPending}
+          disabled={key === '' || save.blocked}
           onClick={() => save.mutate(undefined, { onSuccess: () => onDone?.() })}
         >
           Save segment
@@ -133,7 +133,7 @@ function SegmentForm({
         {!isNew && (
           <Button
             variant="danger"
-            disabled={remove.isPending}
+            disabled={remove.blocked}
             onClick={() => remove.mutate(undefined)}
           >
             Delete

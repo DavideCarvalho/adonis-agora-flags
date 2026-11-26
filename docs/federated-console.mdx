@@ -15,6 +15,7 @@ Nothing moves. The console reads a picked app's flags, segments, history and cha
 List the other apps under `apps` in the console app's `config/flags_dashboard.ts`. Each one names where its flags tables are (`store`) and the Redis prefix it answers on (`controlPlane`):
 
 ```ts title="config/flags_dashboard.ts"
+import env from '#start/env'
 import { defineConfig } from '@adonis-agora/flags/dashboard'
 
 export default defineConfig({
@@ -24,12 +25,19 @@ export default defineConfig({
     'entre-textos': {
       label: 'Entre Textos',
       store: { connection: 'pg', schema: 'flags_entretextos' },
+      // The Redis connection and the app's consoleCommands.prefix. With @adonis-agora/crypto
+      // in this app, that is all (see "Authenticating the console" below).
       controlPlane: { connection: 'main', prefix: 'entretextos' },
     },
     'eduliberta': {
       label: 'EduLiberta',
       store: { connection: 'pg', schema: 'flags_eduliberta' },
-      controlPlane: { connection: 'main', prefix: 'eduliberta' },
+      // Without authkit or crypto: the same secret as EduLiberta's consoleCommands.secret.
+      controlPlane: {
+        connection: 'main',
+        prefix: 'eduliberta',
+        secret: env.get('EDULIBERTA_CONSOLE_SECRET'),
+      },
       actions: false,
     },
   },
@@ -40,15 +48,20 @@ export default defineConfig({
 | --- | --- |
 | `apps` | The other apps, by a key of 1–64 characters (`A-Z a-z 0-9 _ . -`). The key is what the URL carries: `?app=entre-textos`. |
 | `apps.<key>.label` | The name in the picker. Defaults to the key. |
+| `apps.<key>.partition` | The app's name (`app` in its `config/flags.ts`), which is also its crypto partition. Defaults to the key. |
 | `apps.<key>.store.connection` | A Lucid connection of this app (`config/database.ts`) that reaches the other app's database. Default: the default connection. |
 | `apps.<key>.store.schema` | The `schema` the other app sets in its `config/flags.ts`. Omit it when that app has none. |
 | `apps.<key>.controlPlane.connection` | The `@adonisjs/redis` connection to publish on. Both apps must use the same Redis server. Default: the default connection. |
 | `apps.<key>.controlPlane.prefix` | The other app's `consoleCommands.prefix`. |
-| `apps.<key>.actions` | `false` to only browse that app here. Default `true`. |
+| `apps.<key>.controlPlane.token` | Token mode: this console's token for that app (`authkitTenantToken(...)`, or your own function). Sealed with crypto, to `publicKey`, or to the key the app published in authkit's key directory. Automatic with authkit's calls between apps; `false` turns that off. |
+| `apps.<key>.controlPlane.publicKey` | Token mode: the app's console-command public key, as `node ace flags:console-key` prints it there (the JSON, or the object). Not needed when the app publishes it in authkit's key directory; when set, it wins. |
+| `apps.<key>.controlPlane.crypto` | Crypto mode, explicitly: `{ cipher, key?, owns? }`, a cipher allowed to `encrypt` with the app's `console-flags` key. Automatic when `@adonis-agora/crypto` is booted in this app; `false` turns that off. |
+| `apps.<key>.controlPlane.secret` | Shared-secret mode: the same value as the app's `consoleCommands.secret` (16+ characters). |
+| `apps.<key>.actions` | `false` to only browse that app here (no authentication needed). Default `true`. |
 | `apps.<key>.timeoutMs` | How long a change waits for the app to answer. Default `15000`. |
 | `appLabel` | The name of this console's own app in the picker. Default: its flags `app` name. |
 
-The console app needs `@adonisjs/lucid` and `@adonisjs/redis`. A connection is made the first time someone picks the app, not at boot; a malformed entry fails the boot.
+The console app needs `@adonisjs/lucid` and `@adonisjs/redis`. A connection is made the first time someone picks the app, not at boot; a malformed entry, or one this console cannot authenticate to, fails the boot.
 
 ## Configure each other app
 
@@ -64,16 +77,25 @@ export default defineConfig({
   flags: {
     // ...declared as usual
   },
-  consoleCommands: { prefix: 'entretextos', connection: 'main' },
+  consoleCommands: {
+    prefix: 'entretextos',
+    connection: 'main',
+    // With @adonis-agora/crypto in this app, nothing else: see "Authenticating the console".
+    // Without it: secret: env.get('ENTRETEXTOS_CONSOLE_SECRET'), or verifyTenant (authkit).
+    actions: true, // take changes, not only reads
+  },
 })
 ```
 
 | Option | Description |
 | --- | --- |
-| `consoleCommands: true` | Answer on the default Redis connection, with the app's name (`app`, else its package.json name) as the prefix. |
+| `consoleCommands: true` | Default Redis connection, the app's name (`app`, else its package.json name) as the prefix. Authenticated automatically with `@adonis-agora/crypto` (or a control plane's own `verifyTenant`); otherwise the boot fails until one of the options below is set. |
 | `consoleCommands.prefix` | The prefix the console app names in `controlPlane.prefix`. |
 | `consoleCommands.connection` | The `@adonisjs/redis` connection to listen on. |
-| `consoleCommands.actions` | `false` to answer reads only: the console shows the app, and every change is refused with `403`. Default `true`. |
+| `consoleCommands.actions` | `true` to take changes. Default `false`: the console shows the app, and every change is refused with `403`. |
+| `consoleCommands.verifyTenant` | Token mode: checks the console's token (`authkitTenantVerifier(...)`, or your own). When not set, the app uses a control plane's own `verifyTenant` and authkit's app-call verifier; `false` turns those off. |
+| `consoleCommands.crypto` | Crypto mode, explicitly: `{ cipher, key?, owns? }`, a cipher allowed to `decrypt` with `console-flags`. Automatic when `@adonis-agora/crypto` is booted in this app; `false` turns that off. |
+| `consoleCommands.secret` | Shared-secret mode: the console's `controlPlane.secret` (16+ characters). |
 
 Every web instance of the app listens, and exactly one of them runs each change. The app logs one line per change, with who made it in the console:
 
@@ -81,7 +103,7 @@ Every web instance of the app listens, and exactly one of them runs each change.
 [flags] federated console: setEnabled new_editor by 42 (ops@example.com)
 ```
 
-The change lands in the app's audit log under the console's person, and the app's two-person approvals apply: in an environment that needs approval, the change becomes a change request in the app, which someone approves from either console. Anonymous people are refused there, as in the app's own console.
+The change lands in the app's audit log under the console's person, and the app's two-person approvals apply: in an environment that needs approval, the change becomes a change request in the app, which someone approves from either console. Anonymous people are refused there, as in the app's own console. The person is the one the authenticated console names: whoever only reaches Redis can neither file a change nor approve one under made-up names.
 
 The app reads its flags as before, from its own store:
 
@@ -100,7 +122,211 @@ export default class EditorController {
 A change made from the console reaches it the way one made in its own console does (Postgres notifications, or the next poll).
 
 <Callout type="warn">
-  `consoleCommands` does not apply to a [tenant](/docs/central-server#a-tenant): a tenant's flags are edited on its control-plane. Anything that can publish on that Redis can send these changes, so keep the Redis private to your apps.
+  `consoleCommands` does not apply to a [tenant](/docs/central-server#a-tenant): a tenant's flags are edited on its control-plane.
+</Callout>
+
+## Authenticating the console
+
+Commands travel over Redis, and Redis is not a trust boundary: whoever can publish on it (another app on a shared instance, a leaked password, an SSRF) must not be able to send a command, claim to be any person, or forge an answer. So every command is authenticated, and a console or an app that cannot authenticate **fails its boot** with the line to add. Use what you already run: none of authkit, authz or `@adonis-agora/crypto` is required (see [Bring your own](#bring-your-own)).
+
+### Zero config: what each setup needs
+
+| Setup | Lines in `config/flags.ts` / `config/flags_dashboard.ts` | Grants |
+| --- | --- | --- |
+| Together: crypto embedded in the console app (the Agora Hub), the apps its crypto tenants | none | none |
+| Crypto in a separate app (the console and the apps are its tenants) | none | the console's crypto client: `crypto:seal:console-*` |
+| authkit without crypto | none (app-call token + key directory) | console app: `flags:console:*` (or narrower) on the owning app, in authkit (once; without crypto the token is mandatory and caps the command) |
+| Neither | the same `secret` on both sides | — |
+
+An app opens its own `console-*` keys without any grant (a `crypto:decrypt:console-*` grant left over from earlier is harmless).
+
+### Together with `@adonis-agora/crypto`: nothing to configure
+
+When `@adonis-agora/crypto` is booted in the console app and in the owning app, flags finds it and uses it. No auth line in `config/flags.ts` or `config/flags_dashboard.ts`:
+
+- Commands are encrypted with the crypto key **`console-flags`** (`aes256-gcm`) of the **owning app's partition**. Nothing in a command (verb, flag, value, person) is readable on Redis; crypto keeps, rotates and audits the key.
+- The partition is the federated app's `partition`, which defaults to its key in `apps`. It must be the owning app's crypto partition (its name): set `partition` when the key in `apps` differs (`apps.et = { partition: 'entre-textos', … }`).
+- The key is created at boot by the console when crypto is embedded in it (the Hub), by the owning app when its crypto is embedded, and otherwise by the crypto server on the console's first command. A crypto tenant checks its key with a decrypt probe at boot: a missing key is one info line (with `node ace crypto:keys:create console-flags --type aes256-gcm --application entre-textos` for a crypto server with provisioning off); a refused or unreachable server is one warning. Nothing here fails the boot.
+- The only grant, with crypto in a separate app: `crypto:seal:console-*` on the console's crypto client. `crypto:seal` lets the console have the crypto server encrypt with another partition's key, never decrypt it; a crypto server too old for it answers an error that says to upgrade it. `console-*` covers the console key of every Agora lib.
+
+Each side logs what it resolved at boot:
+
+```
+[@adonis-agora/flags] console commands: crypto (auto, key console-flags) + token checked when sent (authkit app-call, auto); actions on
+[@adonis-agora/flags] console commands to "entre-textos": crypto (auto, key console-flags, partition entre-textos) + token (authkit app-call, auto)
+```
+
+**authkit's key directory.** In token mode the owning app publishes its APP_KEY-derived command public key in authkit's key directory at boot (purpose `console:flags`) when authkit-client's `service` is configured, and a console without `controlPlane.publicKey` seals the token to that key. Without crypto, authkit's calls between apps plus the directory are therefore zero config too. A configured `publicKey` still wins; when the directory has no key, the command fails saying so.
+
+**A Hub with both kinds of apps.** When the console has crypto and authkit's key directory, and an `apps` entry has no explicit mode, the mode is picked per app at its first command: an app that publishes its key in the directory (it runs token mode) gets the app-call token sealed to that key; any other app gets crypto. The choice is kept for 5 minutes, and made again sooner when the app does not take it. Boot logs `console commands to "<app>": auto (authkit key directory if the app publishes one, else crypto (auto, key console-flags, partition <P>))`. An app that has crypto does not publish its key (crypto is enough; the doctor says so).
+
+**A failing app-call token never blocks a crypto command.** In crypto mode the token is optional: when authkit cannot mint it (no grant, `invalid_target`, authkit down), the command goes crypto-only, one warning says which grant attaches it (`flags:console:*` on that app, for the console's service client), and minting is retried after 5 minutes. In token mode the token is required, and the error carries the same hint.
+
+**The APP_KEY** is read from `app.appKey`, else the default encryptor of `config/encryption.ts` (its first key), else `APP_KEY`.
+
+**With authkit's calls between apps** set up too (`service` + `apps` in `@adonis-agora/authkit-client`), each command also carries the console app's app-call token for the owning app, and the app verifies it: the token's capabilities (what authkit granted the console app on that app: `flags:console:*`, or narrower) cap the command. That is the strongest setup, still with no flags config. An app-call token is bound to the app by its audience, so its partition (the console app) is not compared with the app's name.
+
+`crypto: false` (on `consoleCommands` or `controlPlane`), `token: false` (console) and `verifyTenant: false` (app) turn these automatic modes off.
+
+### Explicit modes
+
+| | Crypto | Token (authkit or your own) | Neither (shared secret) |
+| --- | --- | --- | --- |
+| Console side | `controlPlane.crypto` | `controlPlane.token` + `controlPlane.publicKey` | `controlPlane.secret` |
+| App side | `consoleCommands.crypto` | `consoleCommands.verifyTenant` | `consoleCommands.secret` |
+| Commands encrypted with | a crypto key (`console-flags`) | a key derived from the app's `APP_KEY` | — (HMAC only; the payload is readable on Redis) |
+| To copy by hand | nothing | the app's public key (not a secret) | one secret per pair of apps |
+| Who the console is | whoever may `encrypt` with the key | the token's client | whoever holds the secret |
+| What it may do | the viewer's capabilities, within `actions` | the token's capabilities ∩ the viewer's | the viewer's capabilities, within `actions` |
+| Revoke the console | take `crypto:encrypt` / `crypto:seal` on the key from it | disable its client | rotate the secret |
+
+An explicit option is used as given, and the automatic crypto mode is not added on top of it. Crypto and a token combine: with `crypto` on both sides **and** a `token` / explicit `verifyTenant`, each command is encrypted with the crypto key and must also carry a valid token.
+
+In every mode, a command over a minute old is refused, a command runs once (a replay reuses its id, which is claimed for two minutes), and the answer is authenticated, so the console ignores an answer it did not get from the app.
+
+#### Explicit crypto
+
+`crypto: { cipher, key?, owns? }`: `cipher` is anything with crypto's `encrypt` / `decrypt` (a function returning one is resolved on the first command). The console needs `encrypt` on the key, the app `decrypt`:
+
+```ts title="config/flags_dashboard.ts (the console, a tenant of a crypto server)"
+import { createCryptoClient } from '@adonis-agora/crypto-core'
+
+const entreTextosCrypto = createCryptoClient({
+  url: env.get('CRYPTO_URL'),
+  partition: 'entre-textos',
+  token: env.get('CONSOLE_CRYPTO_TOKEN'), // crypto:encrypt:console-flags on entre-textos
+})
+
+// apps['entre-textos'].controlPlane
+crypto: { cipher: entreTextosCrypto },
+```
+
+```ts title="config/flags.ts (the owning app)"
+import crypto from '@adonis-agora/crypto/services/main'
+
+consoleCommands: { prefix: 'entretextos', crypto: { cipher: () => crypto.client! }, actions: true },
+```
+
+#### Token (authkit service-tenant client)
+
+1. In authkit, create a **service-tenant client** for the console, for the resource `urn:agora:flags`, with `partition` set to the owning app's name (here `entre-textos`) and the capabilities the console may use there:
+
+   | Capability | Lets the console |
+   | --- | --- |
+   | `flags:console:read` | load the app (its declarations, metrics, approvals), its experiment results and its Ops page |
+   | `flags:console:write` | every change: targeting, kill switch, rollout, variant, overrides, schedules, segments, layers, holdout, metrics, recompute, cancel a change request, import and promote |
+   | `flags:console:approve` | approve or reject a change request |
+
+   `flags:console:*` (or `flags:*`) grants the three. Reads of the app's tables (flags, history, change requests) do not go through the app.
+2. On the app, set `consoleCommands.verifyTenant` to `authkitTenantVerifier({ issuer, resource: 'urn:agora:flags' })`. A control plane uses its own `verifyTenant` when this is not set.
+3. In the app, print its console-command public key and give it to the console:
+
+   ```sh
+   node ace flags:console-key
+   # {"kty":"OKP","crv":"X25519","x":"…","kid":"…","use":"enc","alg":"ECDH-ES"}
+   ```
+
+   It is derived from the app's `APP_KEY` and `consoleCommands.prefix` (the app's boot log shows only its short id). It is a public key, not a secret. It changes when `APP_KEY` or the prefix changes.
+4. On the console, set `controlPlane.token` to `authkitTenantToken({ issuer, clientId, clientSecret, resource: 'urn:agora:flags' })` and `controlPlane.publicKey` to the key.
+
+The console seals the whole command, its token included, to the app's key (taken only from its own config, never from Redis). The app opens it, verifies the token (its `partition` must be this app), and the token's capabilities cap the command. A refused token answers `401`; the console drops its cached token.
+
+#### Without authkit or crypto (shared secret)
+
+Generate one random secret per pair of apps (16 characters at least; `openssl rand -base64 32`) and set the same value on both sides:
+
+```ts title="config/flags_dashboard.ts (the console app)"
+// apps['entre-textos'].controlPlane
+{ connection: 'main', prefix: 'entretextos', secret: env.get('ENTRETEXTOS_CONSOLE_SECRET') },
+```
+
+```ts title="config/flags.ts (the owning app)"
+consoleCommands: {
+  prefix: 'entretextos',
+  secret: env.get('ENTRETEXTOS_CONSOLE_SECRET'),
+  actions: true,
+},
+```
+
+Every command and every answer carries an HMAC under that secret, bound to the app's `prefix`. The console is trusted to say who the person is, so treat the secret like an admin credential.
+
+### Capabilities
+
+The console always sends what its viewer may do there, and the app refuses a command without it (`403`, code `capabilities-required`). The console's `authorize` decides, and the same answer applies to the console's **own** app:
+
+```ts
+authorize: (ctx) => ({ allowed: true, capabilities: ['flags:console:read'] }), // or access: 'read'
+```
+
+- Without `capabilities` (and without `access`), the viewer has full access: every console capability (`flags:console:read`, `:write`, `:approve`).
+- `capabilities` is narrowed to flags' console set: `flags:console:*`, `flags:*` and `*` reach all three, other names are dropped. `access: 'read'` removes the write capabilities whatever the list says.
+- A narrowed viewer cannot change the console's own app either: a change answers `403` "the viewer lacks flags:console:write" (approving or rejecting needs `flags:console:approve`), in the JSON API and the MCP tools. The console page gets the viewer's capabilities and disables what they do not allow.
+- In token mode the app uses the token's capabilities ∩ the viewer's, and names who lacks one: "the console's token lacks …" or "the viewer lacks …". Every command, reads included, needs its capability, and changes also need `actions: true` on the app.
+
+### Bring your own
+
+Every automatic piece is a default you can replace with plain functions:
+
+- **Your own authentication:** `token: () => Promise<string>` on the console and `verifyTenant` on the app (any IdP, a JWT library, API keys):
+
+  ```ts
+  // config/flags.ts (the owning app)
+  consoleCommands: {
+    verifyTenant: async ({ token }) => {
+      const claims = await verifyMyJwt(token) // your library
+      return claims ? { partition: 'entre-textos', capabilities: claims.scopes } : null
+    },
+  },
+  ```
+
+  Or the shared secret with nothing else.
+- **Your own KMS or HSM:** any service with `encrypt` / `decrypt`, and `owns` to recognize its ciphertext:
+
+  ```ts
+  crypto: {
+    cipher: {
+      encrypt: async ({ plaintext, aad }) => ({ ciphertext: await vault.encrypt('console', plaintext, aad) }),
+      decrypt: async ({ ciphertext, aad }) => ({ plaintext: await vault.decrypt('console', ciphertext, aad) }),
+    },
+    owns: (ciphertext) => ciphertext.startsWith('vault:v1:'),
+  },
+  ```
+- **Your own authorization:** map your roles to capabilities in the console's `authorize`:
+
+  ```ts
+  authorize: (ctx) => {
+    const user = ctx.auth.user
+    if (!user) return { allowed: false, reason: 'unauthenticated' }
+    return {
+      allowed: true,
+      capabilities: user.isAdmin
+        ? ['flags:console:*']
+        : user.isEditor
+          ? ['flags:console:read', 'flags:console:write']
+          : ['flags:console:read'],
+    }
+  },
+  ```
+
+### Boot errors and the doctor
+
+- **The owning app** with `consoleCommands` and no way to authenticate (no crypto booted, no `secret`, no usable `verifyTenant` + `APP_KEY`) fails its boot as a web server with a `ConsoleAuthConfigError`: `[@adonis-agora/flags] consoleCommands needs authentication: install and boot @adonis-agora/crypto in this app (automatic, key console-flags), or set consoleCommands.secret (shared with the console), or consoleCommands.verifyTenant (authkit, or your own verifier; needs an APP_KEY). Run node ace agora:doctor to see every Agora lib's console auth at once.` In other environments (`test`, workers) the same line is logged; ace commands never fail. The channel's Redis subscriptions are opened only by a web server, once it is ready: ace commands, the REPL and tests never open them.
+- **The console** fails its boot (as a web server) for an `apps` entry it cannot authenticate to, unless that entry has `actions: false` (browse-only: its tables are still shown).
+- A crypto key that cannot be created or checked never fails the boot: one line says what to run, and it is retried on first use.
+- Each side logs what it resolved, the modes joined with ` + `: `crypto (auto, key console-flags)`, `crypto (key <k>)`, `token checked when sent (…)`, `token required (…)`, `token (…; sealed to key <8-char id>)` (the public key's short id, never the key), `secret`. The app's line ends with `; actions on` or `; actions off (set consoleCommands.actions to let the console act)`.
+- A command nobody answers fails with `no instance of "<prefix>" answered within <n>s — the app may have refused the command (check its logs, or run node ace agora:doctor there)`.
+- A garbage or rejected message on the command channel is dropped and logged once per reason as `[@adonis-agora/flags] console commands: refused a command (<reason>)` (`not JSON`, `no command id`, `did not open with this app's key`, `bad signature`, `stale`, `replayed`, `token refused`, `capabilities-required`, `mode not accepted here (this app accepts: …; the command came as …)`); the app keeps serving.
+- The console logs `[@adonis-agora/flags] console commands: created the crypto key "console-flags" in partition <P>` when it creates an app's key at boot. `node ace agora:doctor` uses the same sentences.
+- A tenant app opens its ruleset stream only when it serves (a web server or a worker); ace commands, the REPL and console apps fetch the ruleset once and exit.
+- On the console side, the crypto key of each app is created at boot when crypto is embedded.
+- `node ace agora:doctor` runs **Federated console commands are authenticated** (`flags.console-commands`: the mode each side resolved, an error when unauthenticated) and, with `--deep`, `flags.console-commands-key`: with crypto, that the key exists and round-trips a probe.
+
+### Moving from one to the other
+
+An app accepts every mode it has at once (crypto, token, secret), so it can take both the old and the new while its consoles move over; remove the old one once every console has switched. With a verifier and an `APP_KEY`, the APP_KEY-sealed token mode stays available next to crypto. Only an explicit `verifyTenant` (or `verifyTenant: false`) replaces the automatic verifiers; an explicit `crypto` or `secret` does not.
+
+<Callout type="warn">
+  **Upgrading:** an app with `consoleCommands` and no way to authenticate now fails its boot, and so does a console with such an app (unless `actions: false`). Commands now always carry capabilities: upgrade the console app and the owning apps together. `consoleCommands.actions` defaults to `false`: add `actions: true` where the other console should keep changing flags.
 </Callout>
 
 ## Database access

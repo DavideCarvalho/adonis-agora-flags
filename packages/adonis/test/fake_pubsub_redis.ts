@@ -37,6 +37,10 @@ export class FakePubSubRedis {
     return 'OK';
   }
 
+  async get(key: string): Promise<string | null> {
+    return this.server.keys.get(key) ?? null;
+  }
+
   duplicate(): FakePubSubRedis {
     return new FakePubSubRedis(this.server);
   }

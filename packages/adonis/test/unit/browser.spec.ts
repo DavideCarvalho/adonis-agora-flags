@@ -193,6 +193,42 @@ describe('browser API', () => {
     expect(await events.json()).toEqual({ accepted: 0 });
   });
 
+  it("serves a tenant's code-declared client flags to that tenant's browsers only", async () => {
+    // `billing` declares `client: true` for a key `shop` owns (it may write its own declarations
+    // over the tenant channel, for any key): shop's browsers must not get billing's say-so.
+    await runtime.store!.saveDeclarations('shop', {
+      beta: { type: 'boolean', default: false } as never,
+    });
+    await runtime.store!.saveDeclarations('billing', {
+      beta: { type: 'boolean', default: false, client: true } as never,
+    });
+    await runtime.admin!.saveFlag(
+      'beta',
+      {
+        variants: { on: true, off: false },
+        enabled: true,
+        offVariant: 'off',
+        fallthrough: { variant: 'on' },
+      },
+      { id: 'alice' },
+    );
+    await runtime.manager.refresh();
+    const tokenOf = (app: string) =>
+      signBrowserToken(
+        { id: 'u1' },
+        {
+          key: browserKey(SECRET, app, runtime.manager.environment),
+          app,
+          environment: runtime.manager.environment,
+        },
+      ).token;
+    const shop = await (await evaluate(tokenOf('shop'))).json();
+    expect(shop.values).not.toHaveProperty('beta');
+    expect(shop.values).toHaveProperty('banner');
+    const billing = await (await evaluate(tokenOf('billing'))).json();
+    expect(billing.values.beta).toBe(true);
+  });
+
   it('never lets browser attributes override the token', async () => {
     const { token } = await tokenFor('u2', 'free');
     const spoof = await evaluate(token, { attributes: { plan: 'pro', targetingKey: 'admin' } });

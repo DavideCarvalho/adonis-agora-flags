@@ -85,7 +85,7 @@ export function Environments() {
             />
             <Button
               variant="danger"
-              disabled={json.trim() === '' || importIt.isPending}
+              disabled={json.trim() === '' || importIt.blocked}
               onClick={() => {
                 try {
                   const parsed: unknown = JSON.parse(json);
@@ -139,7 +139,7 @@ export function Environments() {
           </Field>
           <Button
             variant="danger"
-            disabled={from === to || to === '' || promoteIt.isPending}
+            disabled={from === to || to === '' || promoteIt.blocked}
             onClick={() => promoteIt.mutate(undefined)}
           >
             Promote {from} → {to}

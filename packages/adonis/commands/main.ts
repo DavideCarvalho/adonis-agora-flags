@@ -14,6 +14,7 @@ import {
   FlagsSchedulesCreate,
   FlagsSchedulesList,
 } from './flags_activity.js';
+import FlagsConsoleKey from './flags_console_key.js';
 import {
   FlagsFlagCreate,
   FlagsFlagDelete,
@@ -105,6 +106,7 @@ const loader = new ListLoader([
   FlagsAuditList,
   FlagsEnvironmentsList,
   FlagsOpsStatus,
+  FlagsConsoleKey,
 ]);
 
 export const getMetaData = loader.getMetaData.bind(loader);

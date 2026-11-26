@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { parseAsStringLiteral, useQueryState } from 'nuqs';
 import { useState } from 'react';
 import { api, type ChangeRequest } from '../client/flags-client';
-import { useEnv } from './env';
+import { CAN_APPROVE, CAN_WRITE, useCan, useEnv } from './env';
 import { ErrorBox, Panel, QueryState, Stamps } from './shell';
 import { Badge } from './ui/badge';
 import { Button, Input } from './ui/form';
@@ -30,6 +30,9 @@ function RequestRow({ request, me }: { request: ChangeRequest; me: string }) {
   const mine = request.requestedBy.id === me;
   const error = approve.error ?? reject.error ?? cancel.error;
   const busy = approve.isPending || reject.isPending || cancel.isPending;
+  // What the viewer's capabilities allow (the server refuses the same).
+  const canDecide = useCan(CAN_APPROVE);
+  const canWithdraw = useCan(CAN_WRITE);
 
   return (
     <li
@@ -75,16 +78,28 @@ function RequestRow({ request, me }: { request: ChangeRequest; me: string }) {
               <span className="text-[11px] text-dim">
                 Someone else has to approve your request.
               </span>
-              <Button variant="danger" disabled={busy} onClick={() => cancel.mutate()}>
+              <Button
+                variant="danger"
+                disabled={busy || !canWithdraw}
+                onClick={() => cancel.mutate()}
+              >
                 Withdraw
               </Button>
             </>
           ) : (
             <>
-              <Button variant="primary" disabled={busy} onClick={() => approve.mutate()}>
+              <Button
+                variant="primary"
+                disabled={busy || !canDecide}
+                onClick={() => approve.mutate()}
+              >
                 Approve and apply
               </Button>
-              <Button variant="danger" disabled={busy} onClick={() => reject.mutate()}>
+              <Button
+                variant="danger"
+                disabled={busy || !canDecide}
+                onClick={() => reject.mutate()}
+              >
                 Reject
               </Button>
             </>

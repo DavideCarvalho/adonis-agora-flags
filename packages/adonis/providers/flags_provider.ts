@@ -2,15 +2,32 @@ import { readFileSync } from 'node:fs';
 import type { ApplicationService } from '@adonisjs/core/types';
 import type { FlagsConfig } from '../src/define_config.js';
 import { type DurableEngineLike, registerDurableWorkflows } from '../src/durable.js';
-import { answerConsoleCommands, resolveConsoleCommands } from '../src/federation/console.js';
+import {
+  answerConsoleCommands,
+  consoleCommandKeys,
+  resolveConsoleCommands,
+} from '../src/federation/console.js';
+import {
+  authkitClientOf,
+  CONSOLE_KEY_PURPOSE,
+  ConsoleAuthConfigError,
+  cryptoRuntimeOf,
+  embeddedKeyGuard,
+  publicHalf,
+  publicKeyId,
+  publishesTokenKey,
+  resolveAppConsoleAuth,
+  watchTenantConsoleKey,
+} from '../src/federation/console_auth.js';
 import type { RedisConsoleChannel, RedisLike } from '../src/federation/redis_channel.js';
-import { browserSecret, registerBrowser } from '../src/http/browser.js';
+import { appKeyOf, browserSecret, registerBrowser, releaseSecret } from '../src/http/browser.js';
 import { ControlPlane } from '../src/http/control_plane.js';
 import { registerEdgeTag } from '../src/http/edge_tag.js';
 import type { FlagsManager } from '../src/manager.js';
 import { createRuntime, type FlagsRuntime } from '../src/runtime.js';
 import { setRuntime } from '../src/services/accessor.js';
 import type { SqlDatabase } from '../src/sql.js';
+import { resolveTenantVerifier, type VerifierMaker } from '../src/topology/verify.js';
 import type { RedisStreamClient } from '../src/transports/redis_transport.js';
 
 declare module '@adonisjs/core/types' {
@@ -37,6 +54,8 @@ export default class FlagsProvider {
   #building: Promise<FlagsRuntime> | undefined;
   #controlPlane: ControlPlane | undefined;
   #consoleCommands: RedisConsoleChannel | undefined;
+  /** Set during `boot()` when `consoleCommands` resolved: starts the channel in `ready()`. */
+  #startConsoleCommands: (() => Promise<void>) | undefined;
 
   constructor(protected app: ApplicationService) {}
 
@@ -174,7 +193,7 @@ export default class FlagsProvider {
       const config = this.#config();
       // `@flag` in Edge views, when the app renders Edge at all.
       await registerEdgeTag();
-      const secret = browserSecret(runtime, this.#appKey());
+      const secret = browserSecret(runtime, await this.#appKey());
       let controlPlane: ControlPlane | undefined;
       if (config.topology === 'control-plane') {
         const logger = await this.app.container.make('logger');
@@ -222,8 +241,11 @@ export default class FlagsProvider {
   }
 
   /**
-   * `consoleCommands`: answer another app's flags console over Redis. Not in ace commands or the
-   * REPL (they would hold a subscription open). A Redis that cannot be reached is logged, not fatal.
+   * `consoleCommands`, decided during `boot()`: explicit options, else the sibling libs booted in
+   * this app (`@adonis-agora/crypto`, authkit's app calls, a control plane's own `verifyTenant`).
+   * None resolving fails the boot of a web server (elsewhere it is logged). The channel itself is
+   * started in `ready()`, by a web server only: ace commands, the REPL and tests never open its
+   * Redis subscriptions. A Redis that cannot be reached is logged, not fatal.
    */
   async #answerConsoleCommands(runtime: FlagsRuntime, config: FlagsConfig): Promise<void> {
     if (config.topology === 'tenant') return;
@@ -232,21 +254,116 @@ export default class FlagsProvider {
     const option = resolveConsoleCommands(config.consoleCommands, runtime.manager.app);
     if (!option) return;
     const logger = await this.app.container.make('logger');
-    try {
-      this.#consoleCommands = await answerConsoleCommands({
-        client: (await this.#redis(option.connection)) as unknown as RedisLike,
-        prefix: option.prefix,
-        actions: option.actions,
-        runtime: () => runtime,
-        log: (line) => logger.info(line),
-        onError: (error) =>
-          logger.error(`[flags] console command failed: ${(error as Error).message}`),
-      });
-    } catch (error) {
-      logger.error(
-        `[flags] consoleCommands: not answering other consoles: ${(error as Error).message}`,
-      );
+    const make: VerifierMaker = (cls) => this.app.container.make(cls);
+    const appKey = releaseSecret(await this.#appKey());
+    const fallback =
+      config.topology === 'control-plane' && config.verifyTenant !== undefined
+        ? resolveTenantVerifier(config.verifyTenant, make)
+        : undefined;
+    const authkit = await authkitClientOf(this.app.container);
+    const auth = resolveAppConsoleAuth({
+      option,
+      fallbackVerifyTenant: fallback,
+      crypto: option.crypto === undefined ? await cryptoRuntimeOf(this.app.container) : undefined,
+      authkit: option.verifyTenant === undefined ? authkit : undefined,
+      hasAppKey: !!appKey && appKey.length >= 16,
+      ...(appKey && appKey.length >= 16
+        ? { tokenKeyId: publicKeyId(consoleCommandKeys(appKey, option.prefix).publicKey) }
+        : {}),
+    });
+    if (auth.error) {
+      // Only a web server fails its boot (§6); elsewhere (tests, workers) it is logged.
+      if (environment === 'web') throw new ConsoleAuthConfigError(auth.error);
+      logger.warn(auth.error);
+      return;
     }
+    let crypto = auth.crypto;
+    if (auth.autoCrypto && crypto) {
+      // Making sure of the key never fails the boot: one line to act on, retried on first use.
+      const { runtime: cryptoRuntime, key } = auth.autoCrypto;
+      const note = (n: { level: 'info' | 'warn'; line: string }) =>
+        n.level === 'warn' ? logger.warn(n.line) : logger.info(n.line);
+      if (cryptoRuntime.service) {
+        const guard = embeddedKeyGuard(cryptoRuntime.service, cryptoRuntime.partition, key);
+        await guard.boot({
+          warn: (line) => logger.warn(line),
+          info: (line) => logger.info(line),
+        });
+        crypto = { ...crypto, cipher: guard.wrap(cryptoRuntime.operations) };
+      } else {
+        // A crypto tenant: checked once at boot; afterwards a command's own decrypt is the retry.
+        const watch = watchTenantConsoleKey(cryptoRuntime, note, key);
+        await watch.atBoot();
+        crypto = {
+          ...crypto,
+          cipher: { encrypt: cryptoRuntime.operations.encrypt, decrypt: watch.decrypt },
+        };
+      }
+    }
+    const verifyTenant =
+      auth.verifyTenant === undefined ? undefined : resolveTenantVerifier(auth.verifyTenant, make);
+    const keys = auth.appKeySealed ? consoleCommandKeys(appKey!, option.prefix) : undefined;
+    // Token mode: publish the public half in authkit's key directory (§2e.B), so consoles find it
+    // without copying it. Background and retried by authkit-client; never fails the boot. With
+    // crypto active, crypto is enough: nothing is published (a console then picks crypto, §13a)
+    // and nothing is said (§13e; the doctor shows it), unless crypto commands must carry a token
+    // too (explicit crypto + verifyTenant, migrating): config's rule.
+    if (keys && publishesTokenKey(auth)) {
+      if (typeof authkit?.publishAppKey === 'function') {
+        authkit
+          .publishAppKey({ purpose: CONSOLE_KEY_PURPOSE, jwk: publicHalf(keys.publicKey) })
+          .catch(() => undefined);
+      } else if (!auth.crypto && auth.secret === undefined) {
+        // Token mode is this app's only way to be reached, and no console can find its key.
+        logger.warn(
+          "[@adonis-agora/flags] console commands: token mode is this app's only way to be reached, but authkit-client's `service` is not configured, so its key is not in authkit's key directory: configure it, or give each console controlPlane.publicKey (`node ace flags:console-key` prints it)",
+        );
+      }
+    }
+    const actions = option.actions
+      ? 'actions on'
+      : 'actions off (set consoleCommands.actions to let the console act)';
+    // Never the public key's material: its short id is in the token label (`node ace
+    // flags:console-key` prints the key).
+    logger.info(`[@adonis-agora/flags] console commands: ${auth.modes.join(' + ')}; ${actions}`);
+    const rejected = new Set<string>();
+    this.#startConsoleCommands = async () => {
+      try {
+        this.#consoleCommands = await answerConsoleCommands({
+          client: (await this.#redis(option.connection)) as unknown as RedisLike,
+          prefix: option.prefix,
+          actions: option.actions,
+          runtime: () => runtime,
+          ...(auth.secret !== undefined ? { secret: auth.secret } : {}),
+          ...(crypto !== undefined ? { crypto } : {}),
+          ...(verifyTenant ? { verifyTenant, cryptoTokenRequired: auth.cryptoTokenRequired } : {}),
+          ...(keys ? { keys } : {}),
+          log: (line) => logger.info(line),
+          // A refused or garbage message is dropped, and logged once per reason (§11b).
+          onError: (error) => {
+            const reason = (error as { reason?: unknown } | null)?.reason;
+            const text = error instanceof Error ? error.message : String(error);
+            const key = typeof reason === 'string' ? reason : text;
+            if (rejected.has(key)) return;
+            if (rejected.size < 100) rejected.add(key);
+            if (typeof reason === 'string') logger.warn(text);
+            else logger.error(`[@adonis-agora/flags] console commands: a command failed: ${text}`);
+          },
+        });
+      } catch (error) {
+        logger.error(
+          `[@adonis-agora/flags] consoleCommands: not answering other consoles: ${(error as Error).message}`,
+        );
+      }
+    };
+  }
+
+  /** Starts the console command channel: a web server only, once it is ready. */
+  async ready() {
+    if (this.app.getEnvironment() !== 'web') return;
+    const start = this.#startConsoleCommands;
+    this.#startConsoleCommands = undefined;
+    await start?.();
   }
 
   /**
@@ -264,22 +381,13 @@ export default class FlagsProvider {
     }
   }
 
-  /**
-   * The app key: `app.appKey` (AdonisJS 6), else the first key of the default encryptor
-   * (`config/encryption.ts`, AdonisJS 7), else `APP_KEY`.
-   */
-  #appKey(): unknown {
-    const legacy = this.app.config.get('app.appKey', undefined);
-    if (legacy) return legacy;
-    const encryption = this.app.config.get<
-      { default?: string; list?: Record<string, { keys?: unknown[] }> } | undefined
-    >('encryption', undefined);
-    const encryptor = encryption?.list?.[encryption.default ?? ''];
-    if (encryptor?.keys?.[0]) return encryptor.keys[0];
-    return process.env.APP_KEY;
+  /** The app key (see {@link appKeyOf}). */
+  #appKey(): Promise<unknown> {
+    return appKeyOf(this.app);
   }
 
   async shutdown() {
+    this.#startConsoleCommands = undefined;
     await this.#consoleCommands?.close();
     this.#consoleCommands = undefined;
     await this.#controlPlane?.close();

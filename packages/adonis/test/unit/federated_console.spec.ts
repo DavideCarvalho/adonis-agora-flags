@@ -51,6 +51,8 @@ const etConfig = (extra: Record<string, unknown> = {}) =>
   } as never);
 
 const ops = { id: 'ops-1', name: 'ops@hub.example' };
+/** The secret the hub and et share (shared-secret mode of the console channel). */
+const SECRET = 'hub-and-et-share-this-0123456789';
 
 describe('federated console (two apps, one Redis)', () => {
   let dir: string;
@@ -76,6 +78,7 @@ describe('federated console (two apps, one Redis)', () => {
         client: redis.duplicate(),
         prefix: 'entretextos',
         actions,
+        secret: SECRET,
         runtime: () => et,
         log: (line) => logs.push(line),
       }),
@@ -88,7 +91,7 @@ describe('federated console (two apps, one Redis)', () => {
         et: {
           label: 'Entre Textos',
           store: { connection: 'et' },
-          controlPlane: { prefix: 'entretextos' },
+          controlPlane: { prefix: 'entretextos', secret: SECRET },
           timeoutMs: 1000,
           ...entry,
         },
@@ -310,10 +313,15 @@ describe('federation config', () => {
 
   it('resolves consoleCommands', () => {
     expect(resolveConsoleCommands(undefined, 'shop')).toBeUndefined();
+    // Changes from another console are opt-in.
     expect(resolveConsoleCommands(true, 'shop')).toEqual({
       prefix: 'shop',
       connection: undefined,
+      actions: false,
+    });
+    expect(resolveConsoleCommands({ actions: true, secret: SECRET }, 'shop')).toMatchObject({
       actions: true,
+      secret: SECRET,
     });
     expect(resolveConsoleCommands({ prefix: 'et', actions: false }, 'shop')).toMatchObject({
       prefix: 'et',
@@ -332,6 +340,35 @@ describe('federation config', () => {
     ).toThrow(/tenant/);
     expect(() => defineConfig({ flags: {}, consoleCommands: { prefix: '' } })).toThrow(/prefix/);
     expect(() => defineConfig({ flags: {}, consoleCommands: true })).not.toThrow();
+    expect(() => defineConfig({ flags: {}, consoleCommands: { secret: 'short' } })).toThrow(
+      /16 characters/,
+    );
+    expect(() => defineConfig({ flags: {}, consoleCommands: { crypto: {} } } as never)).toThrow(
+      /cipher/,
+    );
+  });
+
+  it('checks the authentication of an apps entry', () => {
+    // A token without publicKey may be sealed to the key in authkit's directory: decided at boot.
+    expect(() =>
+      validateFederatedApp('et', { store: {}, controlPlane: { ...plane, token: 't' } }),
+    ).not.toThrow();
+    expect(() =>
+      validateFederatedApp('et', {
+        store: {},
+        controlPlane: { ...plane, token: 't', publicKey: '{"kty":"OKP"}' },
+      }),
+    ).toThrow(/X25519/);
+    expect(() =>
+      validateFederatedApp('et', {
+        store: {},
+        controlPlane: {
+          ...plane,
+          token: 't',
+          publicKey: { kty: 'OKP', crv: 'X25519', x: 'x', kid: 'k', d: 'secret' },
+        },
+      }),
+    ).toThrow(/private key/);
   });
 
   it('names every routed console handler', () => {
