@@ -58,13 +58,22 @@ promote/import with it. On a name clash, the config wins.
 
 ### Pattern 1 — assign and convert
 
-```ts
-const variant = await ctx.flags.variant('checkout') // records the exposure
+```ts no-check
+// app/controllers/checkout_controller.ts
+import type { HttpContext } from '@adonisjs/core/http'
+import db from '@adonisjs/lucid/services/db'
+import Order from '#models/order'
 
-await db.transaction(async (trx) => {
-  const order = await Order.create(data, { client: trx })
-  await ctx.flags.track('purchase', { value: order.total, client: trx }) // commits with the order
-})
+export default class CheckoutController {
+  async store(ctx: HttpContext) {
+    const variant = await ctx.flags.variant('checkout') // records the exposure
+
+    await db.transaction(async (trx) => {
+      const order = await Order.create(ctx.request.only(['total']), { client: trx })
+      await ctx.flags.track('purchase', { value: order.total, client: trx }) // commits with the order
+    })
+  }
+}
 ```
 
 ### Pattern 2 — read results

@@ -81,8 +81,12 @@ ctx.bouncer.allows(manageFlags) })`, or a class implementing the interface.
 Outside HTTP:
 
 ```ts
+import type User from '#models/user'
 import flags from '@adonis-agora/flags/services/main'
-await flags.for(user).value('max_uploads')
+
+export async function uploadLimit(user: User) {
+  return flags.for(user).value('max_uploads')
+}
 ```
 
 ### Pattern 2 — targeting attributes from server state
@@ -98,6 +102,12 @@ attributes: async (subject) => {
 ### Pattern 3 — guard a route
 
 ```ts
+// start/routes.ts
+import router from '@adonisjs/core/services/router'
+import { middleware } from '#start/kernel'
+
+const BetaController = () => import('#controllers/beta_controller')
+
 router.get('/beta', [BetaController]).use(middleware.flag({ flag: 'new_player' }))
 ```
 
@@ -114,8 +124,10 @@ node ace flags:set new_player kill  # kill switch: off for everyone
 ### Pattern 5 — tests
 
 ```ts
+import { test } from '@japa/runner'
 import { fakeFlags } from '@adonis-agora/flags/testing'
-test('new player', async ({ client, cleanup }) => {
+
+test('new player', async ({ cleanup }) => {
   cleanup(fakeFlags({ new_player: true }))
 })
 ```
