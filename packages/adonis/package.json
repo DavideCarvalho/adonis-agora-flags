@@ -100,6 +100,9 @@
     "CHANGELOG.md",
     "skills"
   ],
+  "publishConfig": {
+    "tag": "v0"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json && pnpm run copy:stubs && pnpm run copy:spa",
     "copy:stubs": "rm -rf dist/stubs/config dist/stubs/database && mkdir -p dist/stubs && cp -r stubs/config stubs/database dist/stubs/",
