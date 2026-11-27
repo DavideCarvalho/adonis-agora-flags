@@ -86,7 +86,7 @@ Nothing else is implied: `flags:events:write` does not allow `flags:ruleset:read
 
 ## A tenant
 
-With `@adonis-agora/authkit-client` configured in the app (its `service: { name, clientId, clientSecret }` and issuer in `config/authkit.ts`), one line is enough:
+With `@adonis-agora/authkit-client` configured in the app (its `service: { name, clientId, clientSecret }` and issuer in `config/authkit_client.ts`), one line is enough:
 
 ```ts title="config/flags.ts (an app)"
 import { defineConfig, flag } from '@adonis-agora/flags'
@@ -103,7 +103,7 @@ The control-plane URL, the token and the partition come from authkit-client's `t
 
 Anything you set in `tenant` wins, field by field: `tenant: { partition: 'streaming', snapshotPath: 'storage/flags/ruleset.json' }` keeps the discovered URL and token. `tenant: { auto: false }` turns the discovery off. Without authkit-client's `service` and without the fields, a web server refuses to boot and names the missing fields; `node ace agora:doctor` shows where each one came from (`tenant url: authkit-client (auto), token: authkit-client (auto), partition: explicit`).
 
-The explicit form, with any IdP or a shared secret:
+The explicit form, for an app without authkit-client's `service` (or to set the fields yourself). `tenant.token` can also come from your own IdP, or be a [shared secret](#without-authkit):
 
 ```ts title="config/flags.ts (an app)"
 import env from '#start/env'
@@ -131,7 +131,7 @@ export default defineConfig({
 
 `tenant.token` takes a string (a shared secret), a function returning a token, or an object with `get()`. `authkitTenantToken` finds authkit's token endpoint through discovery, caches the token and refreshes it before it expires.
 
-`tenant.url` also takes a function resolving the URL, so the app can find the control plane through authkit discovery instead of an env var:
+`tenant.url` also takes a function resolving the URL. authkit-client's `tenantOf` already gives one; write it yourself only when you set the other fields by hand:
 
 ```ts title="config/flags.ts (an app)"
 import { controlPlaneUrl } from '@adonis-agora/authkit-client'
@@ -163,11 +163,11 @@ serviceTenants: {
 
 Then give each app **one** service-tenant client (console: **Clients → New Client → Service tenant**; or `node ace authkit:clients:create`) with:
 
-- **partition**: the app's name, the same as `tenant.partition`;
+- **partition**: the app's name, the same as authkit-client's `service.partition` (else `service.name`), or `tenant.partition` when you set it;
 - **capabilities**: `flags:ruleset:read`, `flags:events:write`, `flags:declarations:write` (add `flags:ofrep:evaluate` for OFREP callers), or `flags:*` for all of them, plus whatever the app's other products need;
 - **environment** (optional): the environment whose ruleset the app reads. Without it, the control-plane's.
 
-The same client gets a token for each resource it names, so the app uses one client id and secret for flags, durable and config. A `urn:agora:durable` token is refused by the flags control-plane. Disabling the client cuts the app off; open streams close when the token expires.
+Its id and secret are the `clientId` and `clientSecret` of authkit-client's `service`. The same client gets a token for each resource it names, so the app uses one client id and secret for flags, durable and config. A `urn:agora:durable` token is refused by the flags control-plane. Disabling the client cuts the app off; open streams close when the token expires.
 
 Because authkit gives a person the same `sub` in every app, an experiment can span apps: the same user lands in the same variant everywhere.
 
@@ -230,19 +230,18 @@ export default defineConfig({
   topology: 'tenant',
   flags: {},
   tenant: {
-    partition: 'shop',
-    token,
+    // url, token and partition: from authkit-client's `service`, or set them here
     transport: tenantTransports.redis({ connection: 'main' }),
     snapshotPath: 'storage/flags/ruleset.json',
   },
 })
 ```
 
-Both sides need the same Redis and the same `prefix` (default `agora:flags:tenants`). The app does not need `tenant.url` unless it serves a frontend (see below).
+Both sides need the same Redis and the same `prefix` (default `agora:flags:tenants`). Set by hand, the app does not need `tenant.url` unless it serves a frontend (see below).
 
 ### Queue and BullMQ
 
-These carry events only; the ruleset still comes over HTTP, so the app keeps `tenant.url`.
+These carry events only; the ruleset still comes over HTTP, so the app still needs `tenant.url` (discovered by authkit-client, or set by hand).
 
 ```ts title="config/flags.ts (flags server)"
 controlPlane: {
@@ -252,9 +251,6 @@ controlPlane: {
 
 ```ts title="config/flags.ts (an app)"
 tenant: {
-  url: env.get('FLAGS_URL'),
-  partition: 'shop',
-  token,
   transport: tenantTransports.queue(),
 },
 ```
@@ -272,7 +268,7 @@ The app and the flags server run on the same durable cluster. The flags server r
 controlPlane: { transports: [tenantTransports.durable()] },
 
 // an app
-tenant: { partition: 'shop', token, transport: tenantTransports.durable() },
+tenant: { transport: tenantTransports.durable() },
 ```
 
 Every tenant message is a durable run, so you see them, with their retries and failures, in the durable console. Fetching the ruleset is slower than over HTTP or Redis, because each fetch is a run.
@@ -283,8 +279,6 @@ Every tenant message is a durable run, so you see them, with their retries and f
 
 ```ts title="config/flags.ts (an app)"
 tenant: {
-  partition: 'shop',
-  token,
   transport: tenantTransports.bullmq({ connection }),
   watch: tenantTransports.redis(),
 },
@@ -292,13 +286,10 @@ tenant: {
 
 ### Apps with a frontend
 
-A tenant on any driver still issues browser tokens. It gets its signing key from the control-plane over HTTP and gives browsers the control-plane's HTTP address, so set `tenant.url` (or `browser.publicUrl`):
+A tenant on any driver still issues browser tokens. It gets its signing key from the control-plane over HTTP and gives browsers the control-plane's HTTP address, so it needs `tenant.url`: authkit-client discovers it, or set it by hand (and `browser.publicUrl` when browsers reach the control-plane under another address):
 
 ```ts title="config/flags.ts (an app)"
 tenant: {
-  url: env.get('FLAGS_URL'),
-  partition: 'shop',
-  token,
   transport: tenantTransports.redis(),
 },
 browser: {},
@@ -329,7 +320,7 @@ With `snapshotPath`, a tenant that boots while the control-plane is down still s
 
 1. **auth.example.com** runs authkit-server with `serviceTenants.resources['urn:agora:flags']` and two service-tenant clients: `shop` and `blog`, each with the three flags capabilities.
 2. **flags.example.com** runs `topology: 'control-plane'` with `verifyTenant: authkitTenantVerifier({ issuer: 'https://auth.example.com', resource: 'urn:agora:flags' })`. It never calls authkit except to fetch its keys.
-3. **shop.example.com** and **blog.example.com** run `topology: 'tenant'`, each with `authkitTenantToken({ issuer, clientId, clientSecret, resource: 'urn:agora:flags' })` and its own `partition`.
+3. **shop.example.com** and **blog.example.com** run `topology: 'tenant'` and nothing else in `tenant`: each has authkit-client's `service` set to its own client (`name: 'shop'` / `'blog'`), so the URL, the token and the partition come from `tenantOf('urn:agora:flags')`.
 
 Each app's events land on the flags server tagged with the partition from its token; the console lists both apps and their declarations.
 
@@ -377,7 +368,6 @@ browser: { corsOrigins: ['https://app.example.com', 'https://shop.example.com'] 
 
 ```ts title="config/flags.ts (an app)"
 topology: 'tenant',
-tenant: { url, partition: 'shop', token },
 browser: {},
 ```
 
