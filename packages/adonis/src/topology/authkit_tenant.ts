@@ -106,7 +106,7 @@ export class TenantConfigError extends Error {
     cause?: string,
   ) {
     super(
-      `[@adonis-agora/flags] topology 'tenant' needs tenant.${missing.join(', ')}. Configure @adonis-agora/authkit-client's \`service\` (config/authkit.ts: service: { name, clientId, clientSecret }) so they are discovered from the issuer, or pass tenant: { url, token, partition } in config/flags.ts.${cause ? ` (authkit-client: ${cause})` : ''}`,
+      `[@adonis-agora/flags] topology 'tenant' needs ${missing.map((field) => `tenant.${field}`).join(', ')}${cause ? ` (authkit-client: ${cause})` : ''}. Configure @adonis-agora/authkit-client's \`service\` (config/authkit.ts: service: { name, clientId, clientSecret }) so they are discovered from the issuer, or pass tenant: { url, token, partition } in config/flags.ts.`,
     );
     this.name = 'TenantConfigError';
   }

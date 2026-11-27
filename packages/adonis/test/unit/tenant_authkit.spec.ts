@@ -86,11 +86,11 @@ describe('tenant fields from authkit-client (tenantOf)', () => {
     const error = await resolveTenantFields({}, { container: containerWith() }).catch((e) => e);
     expect(error).toBeInstanceOf(TenantConfigError);
     expect(error.message).toBe(
-      "[@adonis-agora/flags] topology 'tenant' needs tenant.url, token, partition. Configure @adonis-agora/authkit-client's `service` (config/authkit.ts: service: { name, clientId, clientSecret }) so they are discovered from the issuer, or pass tenant: { url, token, partition } in config/flags.ts.",
+      "[@adonis-agora/flags] topology 'tenant' needs tenant.url, tenant.token, tenant.partition. Configure @adonis-agora/authkit-client's `service` (config/authkit.ts: service: { name, clientId, clientSecret }) so they are discovered from the issuer, or pass tenant: { url, token, partition } in config/flags.ts.",
     );
     await expect(
       resolveTenantFields({ url: 'http://cp' }, { container: containerWith() }),
-    ).rejects.toThrow(/needs tenant\.token, partition\./);
+    ).rejects.toThrow(/needs tenant\.token, tenant\.partition\./);
   });
 
   it('treats a binding without tenantOf (an older authkit-client) as absent', async () => {
@@ -104,7 +104,7 @@ describe('tenant fields from authkit-client (tenantOf)', () => {
     const authkit = fakeAuthkit();
     await expect(
       resolveTenantFields({ auto: false, url: 'http://cp' }, { container: containerWith(authkit) }),
-    ).rejects.toThrow(/needs tenant\.token, partition/);
+    ).rejects.toThrow(/needs tenant\.token, tenant\.partition/);
     expect(authkit.calls).toEqual([]);
   });
 
@@ -115,7 +115,7 @@ describe('tenant fields from authkit-client (tenantOf)', () => {
       },
     };
     await expect(resolveTenantFields({}, { container: containerWith(authkit) })).rejects.toThrow(
-      /needs tenant\.url, token, partition\..*\(authkit-client: authkit-client: tenantOf needs `service`/,
+      /needs tenant\.url, tenant\.token, tenant\.partition \(authkit-client: authkit-client: tenantOf needs `service`/,
     );
   });
 
@@ -132,7 +132,7 @@ describe('tenant fields from authkit-client (tenantOf)', () => {
     expect(() => defineConfig({ topology: 'tenant', flags: {} })).not.toThrow();
     expect(() =>
       defineConfig({ topology: 'tenant', flags: {}, tenant: { auto: false, url: 'http://cp' } }),
-    ).toThrow(/needs tenant\.token, partition/);
+    ).toThrow(/needs tenant\.token, tenant\.partition/);
   });
 });
 
@@ -213,14 +213,14 @@ describe('a booted tenant app with authkit-client', () => {
     expect(await check.run(app)).toEqual({
       status: 'ok',
       message:
-        'tenant url: authkit-client (auto), token: authkit-client (auto), partition: authkit-client (auto)',
+        'tenant url: authkit-client (auto), token: authkit-client (auto), partition: authkit-client (auto).',
     });
   });
 
   it('a web server without authkit-client refuses to boot, naming the fields', async () => {
     await expect(
       boot('web', defineConfig({ topology: 'tenant', flags: {} }), undefined),
-    ).rejects.toThrow(/topology 'tenant' needs tenant\.url, token, partition\./);
+    ).rejects.toThrow(/topology 'tenant' needs tenant\.url, tenant\.token, tenant\.partition\./);
   });
 
   it('an ace process only logs it; the doctor reports it', async () => {
@@ -229,6 +229,6 @@ describe('a booted tenant app with authkit-client', () => {
     const check = agoraDoctorChecks.find((c) => c.id === 'flags.tenant-source')!;
     const result = (await check.run(app)) as { status: string; message: string };
     expect(result.status).toBe('error');
-    expect(result.message).toMatch(/needs tenant\.url, token, partition/);
+    expect(result.message).toMatch(/needs tenant\.url, tenant\.token, tenant\.partition/);
   });
 });

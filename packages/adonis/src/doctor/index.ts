@@ -323,7 +323,7 @@ export const agoraDoctorChecks: AgoraDoctorCheck[] = [
           token: 'explicit',
           partition: 'explicit',
         };
-        return { status: 'ok', message: describeTenantSources(sources) };
+        return { status: 'ok', message: `${describeTenantSources(sources)}.` };
       } catch (error) {
         if (!(error instanceof TenantConfigError)) throw error;
         return {
