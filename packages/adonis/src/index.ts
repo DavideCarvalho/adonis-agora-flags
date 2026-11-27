@@ -124,6 +124,12 @@ export {
   tenantTransports,
   type WatchTransport,
 } from './tenant_transports/index.js';
+export {
+  type AuthkitTenant,
+  TenantConfigError,
+  type TenantFieldSource,
+  type TenantSources,
+} from './topology/authkit_tenant.js';
 export { capabilityAllows } from './topology/capabilities.js';
 export {
   CONSOLE_SCOPES,
@@ -132,12 +138,6 @@ export {
   type TenantTokenSource,
 } from './topology/token.js';
 export type { LazyTenantUrl, TenantUrl } from './topology/url.js';
-export {
-  type AuthkitTenant,
-  TenantConfigError,
-  type TenantFieldSource,
-  type TenantSources,
-} from './topology/authkit_tenant.js';
 export {
   type AuthkitUserVerifierOptions,
   type SharedSecretPartition,
