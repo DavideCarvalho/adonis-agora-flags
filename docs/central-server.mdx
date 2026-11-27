@@ -14,7 +14,7 @@ With several apps, run flags in one place. The **control-plane** owns the rulese
 | --- | --- | --- |
 | `standalone` (default) | everything in the app | nothing |
 | `control-plane` | ruleset, console, events, sinks, OFREP | `verifyTenant` |
-| `tenant` | evaluation in memory, events sent to the control-plane | `tenant: { url, partition, token }` |
+| `tenant` | evaluation in memory, events sent to the control-plane | nothing with authkit-client's `service`, else `tenant: { url, partition, token }` |
 
 authkit-server, the flags control-plane and the apps can be separate servers. Nothing in flags needs authkit-server in its own process: the helpers come from `@adonis-agora/authkit-client`, and flags works without authkit at all (shared secrets).
 
@@ -85,6 +85,25 @@ A capability can use `*` wildcards. A `*` segment matches any one segment, and a
 Nothing else is implied: `flags:events:write` does not allow `flags:ruleset:read`, and `flags:*` does not allow another product's capabilities.
 
 ## A tenant
+
+With `@adonis-agora/authkit-client` configured in the app (its `service: { name, clientId, clientSecret }` and issuer in `config/authkit.ts`), one line is enough:
+
+```ts title="config/flags.ts (an app)"
+import { defineConfig, flag } from '@adonis-agora/flags'
+
+export default defineConfig({
+  topology: 'tenant',
+  flags: {
+    new_player: flag.boolean({ default: false }),
+  },
+})
+```
+
+The control-plane URL, the token and the partition come from authkit-client's `tenantOf('urn:agora:flags')`: the URL is discovered from the issuer (and looked up again when the control plane moves), the token is a service token for `urn:agora:flags` (cached, dropped after a 401), and the partition is `service.partition`, else `service.name`. flags never imports authkit-client; it uses the `authkit.client` binding when it is there.
+
+Anything you set in `tenant` wins, field by field: `tenant: { partition: 'streaming', snapshotPath: 'storage/flags/ruleset.json' }` keeps the discovered URL and token. `tenant: { auto: false }` turns the discovery off. Without authkit-client's `service` and without the fields, a web server refuses to boot and names the missing fields; `node ace agora:doctor` shows where each one came from (`tenant url: authkit-client (auto), token: authkit-client (auto), partition: explicit`).
+
+The explicit form, with any IdP or a shared secret:
 
 ```ts title="config/flags.ts (an app)"
 import env from '#start/env'

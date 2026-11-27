@@ -133,6 +133,12 @@ export {
 } from './topology/token.js';
 export type { LazyTenantUrl, TenantUrl } from './topology/url.js';
 export {
+  type AuthkitTenant,
+  TenantConfigError,
+  type TenantFieldSource,
+  type TenantSources,
+} from './topology/authkit_tenant.js';
+export {
   type AuthkitUserVerifierOptions,
   type SharedSecretPartition,
   type SharedSecretVerifierOptions,

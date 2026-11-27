@@ -60,7 +60,10 @@ verifyTenant: authkitTenantVerifier({
   resource: 'urn:agora:flags',
 }),
 
-// each app (one authkit service-tenant client per app, shared with durable/config)
+// each app, with @adonis-agora/authkit-client's `service` configured: nothing else
+topology: 'tenant',
+
+// each app, explicit form (one authkit service-tenant client per app, shared with durable/config)
 topology: 'tenant',
 tenant: {
   url: env.get('FLAGS_URL'),
@@ -74,6 +77,12 @@ tenant: {
   snapshotPath: 'storage/flags/ruleset.json',
 },
 ```
+
+With authkit-client's `service` (`name`, `clientId`, `clientSecret`) configured, `tenant.url`,
+`tenant.token` and `tenant.partition` come from its `tenantOf('urn:agora:flags')` (structural:
+the `authkit.client` binding); any field set in `tenant` wins, `tenant: { auto: false }` turns it
+off. Missing fields with neither fail a web server's boot naming them; `agora:doctor` prints
+`tenant url: authkit-client (auto), token: …, partition: explicit`.
 
 Without authkit: `verifyTenant: sharedSecretVerifier({ partitions: { streaming: env.get('FLAGS_SECRET_STREAMING') } })`
 on the server and `token: env.get('FLAGS_SECRET_STREAMING')` on the app.

@@ -532,7 +532,7 @@ describe('tenant transports', () => {
         defineConfig({
           topology: 'tenant',
           flags: {},
-          tenant: { token: 't', partition: 'shop', ...tenant } as never,
+          tenant: { auto: false, token: 't', partition: 'shop', ...tenant } as never,
           ...(browser ? { browser: {} } : {}),
         });
 
@@ -556,9 +556,7 @@ describe('tenant transports', () => {
         tenantConfig({ transport: tenantTransports.queue(), watch: tenantTransports.redis() }),
       ).not.toThrow();
       // Browsers always reach the control-plane over HTTP.
-      expect(tenantConfig({ transport: tenantTransports.redis() }, true)).toThrow(
-        /browsers always reach the control-plane over HTTP/,
-      );
+      expect(tenantConfig({ transport: tenantTransports.redis() }, true)).toThrow(/tenant.url/);
     });
   });
 });

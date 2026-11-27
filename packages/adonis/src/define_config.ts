@@ -34,6 +34,7 @@ import type { FlagsStore } from './stores/store.js';
 import type { Subject, SubjectLike } from './subject.js';
 import type { DeadLetter } from './tenant_transports/message.js';
 import type { TenantTransport, WatchTransport } from './tenant_transports/types.js';
+import { missingTenantFields, TenantConfigError } from './topology/authkit_tenant.js';
 import type { TenantTokenSource } from './topology/token.js';
 import { isTenantUrl, type TenantUrl } from './topology/url.js';
 import type { TenantVerifierOption, UserVerifier } from './topology/verify.js';
@@ -406,8 +407,17 @@ export interface ControlPlaneConfig<F extends Record<string, FlagDeclaration>>
 
 export interface TenantConfig<F extends Record<string, FlagDeclaration>> extends BaseConfig<F> {
   topology: 'tenant';
-  /** The control-plane connection. */
-  tenant: {
+  /**
+   * The control-plane connection. With `@adonis-agora/authkit-client` configured (its `service`),
+   * leave it out: `url`, `token` and `partition` come from authkit-client's `tenantOf('urn:agora:flags')`.
+   * Anything set here wins, field by field.
+   */
+  tenant?: {
+    /**
+     * Fill the missing `url`/`token`/`partition` from `@adonis-agora/authkit-client` when it is
+     * booted in this app. Default `true`; `false` turns the auto-detection off.
+     */
+    auto?: boolean;
     /**
      * The control-plane URL (`https://flags.example.com/_flags`), or a function resolving it
      * (`controlPlaneUrl(...)` from `@adonis-agora/authkit-client`): resolved before the first
@@ -430,9 +440,9 @@ export interface TenantConfig<F extends Record<string, FlagDeclaration>> extends
      * The bearer token sent to the control-plane: a shared secret, a function returning a token
      * (`authkitTenantToken(...)` from `@adonis-agora/authkit-client`), or an object with `get()`.
      */
-    token: TenantTokenSource;
-    /** This app's name on the control-plane. */
-    partition: string;
+    token?: TenantTokenSource;
+    /** This app's name on the control-plane. Default (with authkit-client): its `service` partition. */
+    partition?: string;
     /** File for the last ruleset received (served when the control-plane is down at boot). */
     snapshotPath?: string;
     stream?: boolean;
@@ -457,6 +467,12 @@ export interface TenantConfig<F extends Record<string, FlagDeclaration>> extends
   consoleCommands?: never;
 }
 
+/** `tenant` once its `url`/`token`/`partition` are resolved (explicit, or from authkit-client). */
+export type ResolvedTenant = NonNullable<TenantConfig<Record<string, never>>['tenant']> & {
+  token: TenantTokenSource;
+  partition: string;
+};
+
 export type FlagsConfig<
   F extends Record<string, FlagDeclaration> = Record<string, FlagDeclaration>,
 > = StandaloneConfig<F> | ControlPlaneConfig<F> | TenantConfig<F>;
@@ -473,6 +489,7 @@ export function validateConfig(config: FlagsConfig): void {
     controlPlane?: Record<string, unknown>;
     diagnostics?: unknown;
     tenant?: {
+      auto?: boolean;
       url?: unknown;
       partition?: string;
       token?: unknown;
@@ -577,9 +594,7 @@ export function validateConfig(config: FlagsConfig): void {
     );
   }
   if (topology === 'tenant') {
-    if (!raw.tenant?.partition) {
-      throw new Error('[flags] topology "tenant" needs tenant.partition');
-    }
+    const tenant = raw.tenant ?? {};
     if (
       raw.diagnostics !== undefined &&
       raw.diagnostics !== 'control-plane' &&
@@ -587,34 +602,21 @@ export function validateConfig(config: FlagsConfig): void {
     ) {
       throw new Error('[flags] diagnostics must be "control-plane" or "local"');
     }
-    if (raw.tenant.url !== undefined && !isTenantUrl(raw.tenant.url)) {
+    if (tenant.url !== undefined && !isTenantUrl(tenant.url)) {
       throw new Error(
         '[flags] tenant.url must be the control-plane URL or a function resolving it (controlPlaneUrl() from @adonis-agora/authkit-client)',
       );
     }
-    const push = raw.tenant.transport;
-    const watch = raw.tenant.watch;
+    const watch = tenant.watch;
     if (watch && watch.canWatch !== true) {
       throw new Error(
         `[flags] tenant.watch: the "${watch.driver}" transport cannot carry the ruleset; use tenantTransports.http(), .redis() or .durable()`,
       );
     }
-    const usesHttp =
-      !push || push.driver === 'http' || (watch ? watch.driver === 'http' : push.canWatch !== true);
-    if (!raw.tenant.url && usesHttp) {
-      throw new Error(
-        '[flags] topology "tenant" needs tenant.url (the control-plane URL) for the http transport',
-      );
-    }
-    if (!raw.tenant.url && raw.browser) {
-      throw new Error(
-        '[flags] `browser` on a tenant needs tenant.url: browsers always reach the control-plane over HTTP',
-      );
-    }
-    if (raw.tenant.token === undefined || raw.tenant.token === null || raw.tenant.token === '') {
-      throw new Error(
-        '[flags] topology "tenant" needs tenant.token: authkitTenantToken({ issuer, clientId, clientSecret, resource: \'urn:agora:flags\' }) from @adonis-agora/authkit-client, or the shared secret',
-      );
+    // With authkit-client auto-detection on (the default), missing fields are filled at boot.
+    if (tenant.auto === false) {
+      const missing = missingTenantFields(tenant, !!raw.browser);
+      if (missing.length > 0) throw new TenantConfigError(missing);
     }
     if (raw.role === 'worker') {
       throw new Error(
