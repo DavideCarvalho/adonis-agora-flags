@@ -1,5 +1,11 @@
 # @adonis-agora/flags
 
+## 1.1.0
+
+### Minor Changes
+
+- [#37](https://github.com/DavideCarvalho/adonis-agora-flags/pull/37) [`e08daef`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/e08daef03b3fcd0d3cd163359b8644f0fd0a75e2) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Zero-config tenant topology: with `@adonis-agora/authkit-client` configured (its `service`), `defineConfig({ topology: 'tenant', flags })` is enough. `tenant.url`, `tenant.token` and `tenant.partition` come from the `authkit.client` binding's `tenantOf('urn:agora:flags')` (detected structurally, no dependency on authkit-client); anything set in `tenant` wins, field by field, and `tenant: { auto: false }` turns the detection off. Missing fields fail a web server's boot with the fields and both fixes, and `agora:doctor` reports where each came from (`tenant url: authkit-client (auto), token: authkit-client (auto), partition: explicit`).
+
 ## 1.0.0
 
 ### Major Changes
