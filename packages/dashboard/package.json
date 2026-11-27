@@ -1,6 +1,6 @@
 {
   "name": "@adonis-agora/flags-dashboard",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0",
   "private": false,
   "description": "Console for @adonis-agora/flags (flags, targeting, segments, layers, experiment results, approvals, environments, ops) — a React SPA served by a thin AdonisJS provider. Part of the Agora ecosystem.",
   "license": "MIT",
@@ -42,7 +42,7 @@
     "typecheck": "tsc -p tsconfig.spa.json --noEmit"
   },
   "devDependencies": {
-    "@adonis-agora/filter-client": "1.0.0-rc.1",
+    "@adonis-agora/filter-client": "1.0.0",
     "@base-ui/react": "1.9.0",
     "@fontsource/jetbrains-mono": "5.3.0",
     "@fontsource/sora": "5.3.0",

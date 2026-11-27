@@ -111,7 +111,7 @@ node ace flags:audit:list --key=checkout --first=20
 | `flags:work [--once] [--sink]` | Run the background work: relay, schedules, results, maintenance |
 | `flags:replay <sink>` | Deliver the retained event log to a sink again |
 | `flags:forget <subject> [--force]` | Delete everything stored about a subject |
-| `flags:console-key [--prefix]` | Print this app's console-command public key, for a [federated console](/docs/federated-console#with-authkit-token-mode)'s `controlPlane.publicKey` |
+| `flags:console-key [--prefix]` | Print this app's console-command public key, for a [federated console](/docs/federated-console#token-authkit-service-tenant-client)'s `controlPlane.publicKey` |
 
 On a tenant app the commands refuse: run them on the control-plane.
 
