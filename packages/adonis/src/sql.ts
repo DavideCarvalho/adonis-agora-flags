@@ -4,7 +4,12 @@
  * `Database`, a `QueryClient` or a `TransactionClient` all fit.
  */
 export interface SqlClient {
-  rawQuery(sql: string, bindings?: readonly unknown[]): PromiseLike<unknown>;
+  /**
+   * Lucid types its bindings as a mutable array of its own value types (no `null`), so a narrower
+   * parameter here would reject a real Lucid connection or transaction.
+   */
+  // biome-ignore lint/suspicious/noExplicitAny: must accept Lucid's `RawQueryBindings` parameter.
+  rawQuery(sql: string, bindings?: any[]): PromiseLike<unknown>;
   dialect?: { name?: string };
 }
 
@@ -85,7 +90,7 @@ export function inSchema<T extends SqlClient>(client: T, schema: string | undefi
     get(target, property) {
       if (property === IN_SCHEMA) return schema;
       if (property === 'rawQuery') {
-        return (sql: string, bindings?: readonly unknown[]) =>
+        return (sql: string, bindings?: unknown[]) =>
           target.rawQuery(qualifyTables(sql, schema, dialect), bindings);
       }
       if (property === 'transaction') {
@@ -119,7 +124,7 @@ export async function query<T = Record<string, unknown>>(
   sql: string,
   bindings: readonly unknown[] = [],
 ): Promise<T[]> {
-  return rowsOf<T>(await client.rawQuery(sql, bindings));
+  return rowsOf<T>(await client.rawQuery(sql, [...bindings]));
 }
 
 /** JSON column values come back parsed on Postgres/MySQL and as text on SQLite. */

@@ -58,11 +58,13 @@ promote/import with it. On a name clash, the config wins.
 
 ### Pattern 1 — assign and convert
 
-```ts no-check
+```ts
 // app/controllers/checkout_controller.ts
 import type { HttpContext } from '@adonisjs/core/http'
 import db from '@adonisjs/lucid/services/db'
 import Order from '#models/order'
+// ctx.flags is typed by the flags_middleware registered in start/kernel.ts
+import type {} from '@adonis-agora/flags/flags_middleware'
 
 export default class CheckoutController {
   async store(ctx: HttpContext) {
