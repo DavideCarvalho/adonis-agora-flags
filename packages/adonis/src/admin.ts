@@ -312,7 +312,7 @@ export class FlagsAdmin {
     const declaration = await this.declarationOf(key);
     if (!declaration)
       throw new Error(
-        `flag "${key}" is neither in the ruleset nor declared (in this app's code or by an app connected to it)`,
+        `flag "${key}" is neither in the ruleset nor declared in code (here or by an app connected to this control plane)`,
       );
     return definitionFromDeclaration(declaration);
   }
