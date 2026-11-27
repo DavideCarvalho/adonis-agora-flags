@@ -7,8 +7,9 @@ description: >-
   authz, the console (config/flags_dashboard.ts, authorize, actor), and the
   central topology: topology 'control-plane' with a top-level verifyTenant
   (authkitTenantVerifier from @adonis-agora/authkit-client, or
-  sharedSecretVerifier), topology 'tenant' with authkitTenantToken or a shared
-  secret and snapshotPath, and OFREP. Use for "run flags work in a
+  sharedSecretVerifier), topology 'tenant' (zero config with authkit-client's
+  service, else tenant url/token/partition with authkitTenantToken or a shared
+  secret) and snapshotPath, and OFREP. Use for "run flags work in a
   separate worker", "share flags across apps", "approval required for
   production", "tenant keeps serving defaults", or "show another app's own
   flags in this console" (federated console: apps + consoleCommands).
@@ -63,7 +64,7 @@ verifyTenant: authkitTenantVerifier({
 // each app, with @adonis-agora/authkit-client's `service` configured: nothing else
 topology: 'tenant',
 
-// each app, explicit form (one authkit service-tenant client per app, shared with durable/config)
+// each app, explicit form (no authkit-client `service`; any token function or a shared secret works too)
 topology: 'tenant',
 tenant: {
   url: env.get('FLAGS_URL'),
@@ -87,7 +88,7 @@ off. Missing fields with neither fail a web server's boot naming them; `agora:do
 Without authkit: `verifyTenant: sharedSecretVerifier({ partitions: { streaming: env.get('FLAGS_SECRET_STREAMING') } })`
 on the server and `token: env.get('FLAGS_SECRET_STREAMING')` on the app.
 
-`tenant.url` may be lazy: `controlPlaneUrl({ issuer, resource: 'urn:agora:flags' })` from
+Set by hand, `tenant.url` may be lazy: `controlPlaneUrl({ issuer, resource: 'urn:agora:flags' })` from
 `@adonis-agora/authkit-client` (resolved before the first request, refreshed on a
 connection error or 404). Diagnostics events are published once: the tenant publishes
 evaluations (`app` = partition); the control plane publishes the tenant's exposures and
