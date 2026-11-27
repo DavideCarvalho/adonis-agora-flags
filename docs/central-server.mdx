@@ -8,6 +8,12 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 With several apps, run flags in one place. The **control-plane** owns the ruleset, the console, the event log and the sinks. Each app is a **tenant**: it downloads the ruleset, evaluates locally and sends its events to the control-plane. `topology`, `verifyTenant` and `tenant` take the same shape as in `@adonis-agora/durable`.
 
+## Three ways to run flags
+
+- **Standalone** (the default): each app keeps its flags in its own store, evaluates them itself and has its own [console](/docs/console). Nothing to configure.
+- **Federated console**: apps stay standalone, and one app's console shows and edits the others' flags too. It reads each app's tables (read-only) and sends every change to the owning app as an authenticated command over Redis; the data stays in each app. See [Federated console](/docs/federated-console).
+- **Hub** (this page): one control-plane owns the ruleset, console, events and sinks, and each app runs `topology: 'tenant'`. With `@adonis-agora/authkit-client`'s `service` configured, `defineConfig({ topology: 'tenant' })` is the whole tenant config. To run flags alongside the other Agora libraries in one Hub, see the [Agora Hub guide](https://davidecarvalho.github.io/agora/docs/agora-hub).
+
 ## Deployment topologies
 
 | | Runs | Needs |
