@@ -217,6 +217,18 @@ describe('a booted tenant app with authkit-client', () => {
     });
   });
 
+  it('registers its checks in the agora:doctor registry, even when the tenant cannot build', async () => {
+    const app = await boot('console', defineConfig({ topology: 'tenant', flags: {} }), undefined);
+    const registry = (await app.container.make('agora.doctor' as never)) as {
+      version: number;
+      checks: Array<{ id: string }>;
+    };
+    expect(registry.version).toBe(1);
+    expect(registry.checks.map((check) => check.id)).toEqual(
+      expect.arrayContaining(['flags.tenant-source', 'flags.tenant-transport']),
+    );
+  });
+
   it('a web server without authkit-client refuses to boot, naming the fields', async () => {
     await expect(
       boot('web', defineConfig({ topology: 'tenant', flags: {} }), undefined),

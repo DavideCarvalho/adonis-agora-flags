@@ -48,6 +48,41 @@ export interface AgoraDoctorCheck {
   run(app: ApplicationService): Promise<AgoraDoctorResult | AgoraDoctorResult[]>;
 }
 
+/** The container binding `node ace agora:doctor` reads the checks from (registry version 1). */
+export const AGORA_DOCTOR_BINDING = 'agora.doctor';
+
+interface DoctorContainer {
+  hasBinding?(binding: string): boolean;
+  bindValue?(binding: string, value: unknown): void;
+  make(binding: string): Promise<unknown>;
+}
+
+/**
+ * Adds the flags checks to the app's doctor registry, creating it when absent (the same contract
+ * as the other Agora libs' `registerDoctorChecks`). Without it, `agora:doctor` reports flags as
+ * "provider not registered" and runs none of its checks. A registry of another version is left
+ * alone; a duplicate id is skipped.
+ */
+export async function registerDoctorChecks(
+  container: DoctorContainer,
+  checks: AgoraDoctorCheck[] = agoraDoctorChecks,
+): Promise<void> {
+  if (typeof container.hasBinding !== 'function' || typeof container.bindValue !== 'function')
+    return;
+  if (!container.hasBinding(AGORA_DOCTOR_BINDING)) {
+    container.bindValue(AGORA_DOCTOR_BINDING, { version: 1, checks: [] });
+  }
+  const registry = (await container.make(AGORA_DOCTOR_BINDING)) as
+    | { version?: unknown; checks?: unknown }
+    | undefined;
+  if (registry?.version !== 1 || !Array.isArray(registry.checks)) return;
+  const list = registry.checks as AgoraDoctorCheck[];
+  for (const check of checks) {
+    if (list.some((existing) => existing.id === check.id)) continue;
+    list.push(check);
+  }
+}
+
 const DOCS = 'https://davidecarvalho.github.io/agora/docs/flags/central-server#transports';
 const TENANT_DOCS = 'https://davidecarvalho.github.io/agora/docs/flags/central-server';
 

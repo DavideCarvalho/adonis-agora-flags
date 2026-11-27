@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import type { ApplicationService } from '@adonisjs/core/types';
 import type { FlagsConfig } from '../src/define_config.js';
+import { registerDoctorChecks } from '../src/doctor/index.js';
 import { type DurableEngineLike, registerDurableWorkflows } from '../src/durable.js';
 import {
   answerConsoleCommands,
@@ -191,6 +192,9 @@ export default class FlagsProvider {
   }
 
   async boot() {
+    // `agora:doctor` reads its checks from this registry; registered first so a tenant that fails
+    // to build still gets its `flags.tenant-source` error reported.
+    await registerDoctorChecks(this.app.container as never);
     await this.app.booted(async () => {
       let runtime: FlagsRuntime;
       try {
