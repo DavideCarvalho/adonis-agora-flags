@@ -1,5 +1,13 @@
 # @adonis-agora/flags
 
+## 1.1.1
+
+### Patch Changes
+
+- [#38](https://github.com/DavideCarvalho/adonis-agora-flags/pull/38) [`cb2d390`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/cb2d390a34ca256987203c1036f3f1f0d0131ad3) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The flags provider now registers its checks in the app's `agora.doctor` registry at boot, like the other Agora libs. Before, `node ace agora:doctor` reported flags as "installed but its provider is not registered" and ran none of its checks (so `flags.tenant-source` never showed where the tenant url, token and partition came from).
+
+- [#38](https://github.com/DavideCarvalho/adonis-agora-flags/pull/38) [`cb2d390`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/cb2d390a34ca256987203c1036f3f1f0d0131ad3) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The tenant boot error now reads like the other Agora libs: `[@adonis-agora/flags] topology 'tenant' needs tenant.url, tenant.token, tenant.partition. …` (each field named in full, the authkit-client cause before the period), and the `flags.tenant-source` doctor line ends with a period.
+
 ## 1.1.0
 
 ### Minor Changes
