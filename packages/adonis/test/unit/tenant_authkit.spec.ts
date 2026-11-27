@@ -86,7 +86,7 @@ describe('tenant fields from authkit-client (tenantOf)', () => {
     const error = await resolveTenantFields({}, { container: containerWith() }).catch((e) => e);
     expect(error).toBeInstanceOf(TenantConfigError);
     expect(error.message).toBe(
-      "[@adonis-agora/flags] topology 'tenant' needs tenant.url, tenant.token, tenant.partition. Configure @adonis-agora/authkit-client's `service` (config/authkit.ts: service: { name, clientId, clientSecret }) so they are discovered from the issuer, or pass tenant: { url, token, partition } in config/flags.ts.",
+      "[@adonis-agora/flags] topology 'tenant' needs tenant.url, tenant.token, tenant.partition. Configure @adonis-agora/authkit-client's `service` (config/authkit_client.ts: service: { name, clientId, clientSecret }) so they are discovered from the issuer, or pass tenant: { url, token, partition } in config/flags.ts.",
     );
     await expect(
       resolveTenantFields({ url: 'http://cp' }, { container: containerWith() }),
@@ -111,7 +111,7 @@ describe('tenant fields from authkit-client (tenantOf)', () => {
   it("surfaces tenantOf's own error (authkit-client without `service`)", async () => {
     const authkit = {
       tenantOf() {
-        throw new Error('authkit-client: tenantOf needs `service` in config/authkit.ts');
+        throw new Error('authkit-client: tenantOf needs `service` in config/authkit_client.ts');
       },
     };
     await expect(resolveTenantFields({}, { container: containerWith(authkit) })).rejects.toThrow(

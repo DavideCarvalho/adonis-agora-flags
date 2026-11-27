@@ -30,12 +30,12 @@ async function setVariantOrValue(
   options: { environment?: string; note?: string },
 ): Promise<ProposeResult> {
   const definition = await admin.definition(key, options.environment);
+  // Declared in this app's code, or by a tenant that pushed its declarations to this control plane.
+  const declared = await admin.declarationOf(key);
   if (Object.hasOwn(definition.variants, value))
     return admin.setVariant(key, value, actor, options);
   const type =
-    admin.declarations[key]?.type ??
-    definition.declaration?.type ??
-    typeof Object.values(definition.variants)[0];
+    declared?.type ?? definition.declaration?.type ?? typeof Object.values(definition.variants)[0];
   if (type === 'number') {
     const number = Number(value);
     if (value.trim() === '' || !Number.isFinite(number)) {
@@ -52,11 +52,7 @@ async function setVariantOrValue(
     }
     return admin.setValue(key, parsed, actor, options);
   }
-  if (
-    type === 'string' &&
-    !definition.declaration?.variants &&
-    !admin.declarations[key]?.variants
-  ) {
+  if (type === 'string' && !definition.declaration?.variants && !declared?.variants) {
     return admin.setValue(key, value, actor, options);
   }
   const known = Object.keys(definition.variants).join(', ');

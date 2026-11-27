@@ -60,4 +60,29 @@ describe('flags:set values', () => {
       /not a number/,
     );
   });
+
+  it('resolves a flag only a tenant declared (pushed to this control plane)', async () => {
+    const store = runtime.admin!.store;
+    await store.saveDeclarations('billing-app', {
+      new_invoice: { type: 'boolean', default: false } as never,
+      plan: { type: 'string', default: 'free', variants: ['free', 'pro'] } as never,
+      quota: { type: 'number', default: 5 } as never,
+    });
+    expect(runtime.admin!.declarations.new_invoice).toBeUndefined();
+
+    await applySetValue(runtime.admin!, 'new_invoice', 'on', cli, {});
+    expect((await runtime.admin!.definition('new_invoice')).fallthrough).toEqual({ variant: 'on' });
+    await applySetValue(runtime.admin!, 'plan', 'pro', cli, {});
+    expect((await runtime.admin!.definition('plan')).fallthrough).toEqual({ variant: 'pro' });
+    await expect(applySetValue(runtime.admin!, 'plan', 'nope', cli, {})).rejects.toThrow(
+      /no variant "nope"/,
+    );
+    await applySetValue(runtime.admin!, 'quota', '50', cli, {});
+    const quota = await runtime.admin!.definition('quota');
+    expect(quota.variants[(quota.fallthrough as { variant: string }).variant]).toBe(50);
+
+    await expect(applySetValue(runtime.admin!, 'nobody_declares', 'on', cli, {})).rejects.toThrow(
+      /neither in the ruleset nor declared/,
+    );
+  });
 });

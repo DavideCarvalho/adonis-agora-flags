@@ -6,7 +6,9 @@ import { stubsRoot } from './stubs/main.js';
  *
  * 1. registers the providers (flags and the console) and the commands in `adonisrc.ts`;
  * 2. registers `ctx.flags` (router middleware) and the `flag` route guard (named middleware);
- * 3. publishes `config/flags.ts`, `config/flags_dashboard.ts` (the console) and the optional migration;
+ * 3. publishes `config/flags.ts`, `config/flags_dashboard.ts` (the console) and the optional migration
+ *    (`--topology=tenant`: a tenant's `config/flags.ts`, whose url, token and partition come from
+ *    authkit-client);
  * 4. adds `FLAGS_ENVIRONMENT` to the env validations.
  */
 export async function configure(command: Configure) {
@@ -25,7 +27,13 @@ export async function configure(command: Configure) {
   ]);
 
   const stubs = stubsRoot();
-  await codemods.makeUsingStub(stubs, 'config/flags.stub', {});
+  // `--topology=tenant`: an app of a Hub's flags control plane, in the one-line form.
+  const tenant = command.parsedFlags?.topology === 'tenant';
+  await codemods.makeUsingStub(
+    stubs,
+    tenant ? 'config/flags_tenant.stub' : 'config/flags.stub',
+    {},
+  );
   await codemods.makeUsingStub(stubs, 'config/flags_dashboard.stub', {});
   await codemods.makeUsingStub(stubs, 'database/migrations/create_flags_tables.stub', {});
 

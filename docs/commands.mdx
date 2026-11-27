@@ -23,7 +23,7 @@ Everything you can do in the console you can do with `node ace`. The commands ru
 |---|---|
 | `flags:list` | Every flag: declared type and default, what it serves, owner |
 | `flags:flag:show <flag>` | Declaration, targeting, what it serves, pending requests, schedules, last changes |
-| `flags:set <flag> <value>` | Shortcut: `on`, `off`, `kill`, `unkill`, `25%`, a variant name, or a value (`flags:set max_uploads 25`) |
+| `flags:set <flag> <value>` | Shortcut: `on`, `off`, `kill`, `unkill`, `25%`, a variant name, or a value (`flags:set max_uploads 25`). On a control plane it also finds a flag only a tenant declared. |
 | `flags:flag:enable <flag>` / `flags:flag:disable <flag>` | The kill switch |
 | `flags:flag:rollout <flag> <percent>` | Serve `on` to a share of subjects (on/off flags) |
 | `flags:flag:variant <flag> <variant>` | Serve one variant to everyone |
