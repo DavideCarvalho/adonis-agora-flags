@@ -20,6 +20,7 @@
     "openfeature",
     "react",
     "testing",
-    "commands"
+    "commands",
+    "agent-skills"
   ]
 }

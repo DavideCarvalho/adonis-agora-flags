@@ -162,21 +162,37 @@ Reads come from the app's tables; every change is sent over the shared Redis
 and run once by the app itself (its approvals and audit apply). `?app=<key>`
 picks the app; `authorize` returning `apps` limits who sees it.
 
-The channel is always authenticated. With `@adonis-agora/crypto` booted in
-both apps there is nothing to configure: commands are sealed with the crypto
-key `console-flags` of the owning app's partition (`apps.<key>.partition`,
-default the key); no grant on the app side, and `crypto:seal:console-*` on the
-console's crypto client when crypto is a separate app.
-With authkit's calls between apps, an app-call token is added automatically;
-without crypto it is sealed to the key the app publishes in authkit's key
-directory (purpose `console:flags`), so `publicKey` is optional.
-Otherwise: the same `secret` on both sides, or token mode (console `token` +
-`publicKey` from `node ace flags:console-key`, app `verifyTenant`). Commands
-always carry the viewer's capabilities (`flags:console:read|write|approve`,
-from `authorize` → `capabilities`); the app refuses one without them. A side
-that cannot authenticate fails its boot (a console entry with `actions: false`
-is browse-only). `crypto: false` / `token: false` / `verifyTenant: false` turn
-the automatic modes off. Never take the app's key from Redis.
+The channel is always authenticated, by one of these modes (the app accepts
+every mode it can resolve):
+
+- **crypto (automatic)**: with `@adonis-agora/crypto` booted in both apps there
+  is nothing to configure. Commands are sealed with the crypto key
+  `console-flags` of the owning app's partition (`apps.<key>.partition`,
+  default the key); no grant on the app side, and `crypto:seal:console-*` on
+  the console's crypto client when crypto is a separate app.
+- **authkit app-call token (automatic)**: with authkit-client's `service`
+  configured, the console attaches an app-call token for the app; grant the
+  console's service client `flags:console:*` (or narrower) on that app in
+  authkit. Without crypto the token is sealed to the key the app publishes in
+  authkit's key directory (purpose `console:flags`), so `publicKey` is
+  optional.
+- **shared `secret`** (no authkit, no crypto): the same value on both sides.
+
+Bring your own: console `controlPlane.token` (any token function) +
+`publicKey` from `node ace flags:console-key`, app
+`consoleCommands.verifyTenant` (any verifier), or an explicit `crypto: { cipher,
+key? }` (own KMS). `crypto: false` / `token: false` / `verifyTenant: false` turn
+the automatic modes off.
+
+App side, `consoleCommands.actions` defaults to `false`: reads are answered,
+changes answer 403 until set to `true`. A console entry defaults to
+`actions: true`; `actions: false` makes it browse-only.
+Commands always carry the viewer's capabilities
+(`flags:console:read|write|approve`, from `authorize` → `capabilities`;
+`flags:console:*` covers all three); the app refuses one without them
+(`capabilities-required`). A side that cannot authenticate fails its boot in
+the web process; `node ace agora:doctor` shows the resolved mode
+(`flags.console-commands`). Never take the app's key from Redis.
 
 ## Common mistakes
 
