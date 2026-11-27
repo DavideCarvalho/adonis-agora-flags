@@ -124,6 +124,12 @@ export {
   tenantTransports,
   type WatchTransport,
 } from './tenant_transports/index.js';
+export {
+  type AuthkitTenant,
+  TenantConfigError,
+  type TenantFieldSource,
+  type TenantSources,
+} from './topology/authkit_tenant.js';
 export { capabilityAllows } from './topology/capabilities.js';
 export {
   CONSOLE_SCOPES,

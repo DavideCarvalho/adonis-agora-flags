@@ -137,7 +137,7 @@ export function registerBrowser(
     keys = remoteKeySource({
       url: address,
       token: runtime.token!,
-      partition: config.tenant.partition,
+      partition: manager.app,
     });
     url = browser.publicUrl ?? address;
   } else {

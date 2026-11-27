@@ -27,6 +27,7 @@ import { appKeyOf, releaseSecret } from '../http/browser.js';
 import type { FlagsRuntime } from '../runtime.js';
 import { missingFlagsColumns } from '../schema.js';
 import { LucidStore } from '../stores/lucid_store.js';
+import { describeTenantSources, TenantConfigError } from '../topology/authkit_tenant.js';
 import { resolveTenantVerifier } from '../topology/verify.js';
 
 /** Structural copy of the agora doctor contract (v1); `node ace agora:doctor` reads it. */
@@ -48,6 +49,7 @@ export interface AgoraDoctorCheck {
 }
 
 const DOCS = 'https://davidecarvalho.github.io/agora/docs/flags/central-server#transports';
+const TENANT_DOCS = 'https://davidecarvalho.github.io/agora/docs/flags/central-server';
 
 interface Checkable {
   readonly driver: string;
@@ -303,6 +305,34 @@ export const agoraDoctorChecks: AgoraDoctorCheck[] = [
         return Promise.all(links.map((link) => probe('tenants', link)));
       }
       return { status: 'skip', message: 'standalone: no control-plane' };
+    },
+  },
+  {
+    id: 'flags.tenant-source',
+    lib: 'flags',
+    title: 'Tenant url, token and partition',
+    cost: 'cheap',
+    async run(app) {
+      if (!app.container.hasBinding('flags.runtime'))
+        return { status: 'skip', message: 'the flags provider is not registered' };
+      try {
+        const runtime = (await app.container.make('flags.runtime')) as FlagsRuntime;
+        if (runtime.topology !== 'tenant') return { status: 'skip', message: 'not a tenant' };
+        const sources = runtime.tenantSources ?? {
+          url: runtime.controlPlaneUrl ? 'explicit' : 'none',
+          token: 'explicit',
+          partition: 'explicit',
+        };
+        return { status: 'ok', message: describeTenantSources(sources) };
+      } catch (error) {
+        if (!(error instanceof TenantConfigError)) throw error;
+        return {
+          status: 'error',
+          message: error.message,
+          fix: "Configure @adonis-agora/authkit-client's `service`, or pass tenant: { url, token, partition } in config/flags.ts",
+          docs: TENANT_DOCS,
+        };
+      }
     },
   },
   {

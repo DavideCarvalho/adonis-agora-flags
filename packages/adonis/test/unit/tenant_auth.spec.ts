@@ -401,12 +401,12 @@ describe('config validation', () => {
     );
   });
 
-  it('needs a token on a tenant', () => {
+  it('needs a token on a tenant (auto-detection off)', () => {
     expect(() =>
       defineConfig({
         topology: 'tenant',
         flags: {},
-        tenant: { url: 'http://cp', partition: 'shop' },
+        tenant: { auto: false, url: 'http://cp', partition: 'shop' },
       } as never),
     ).toThrow(/needs tenant.token/);
   });

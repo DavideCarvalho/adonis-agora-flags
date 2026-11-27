@@ -27,6 +27,7 @@ import type { FlagsManager } from '../src/manager.js';
 import { createRuntime, type FlagsRuntime } from '../src/runtime.js';
 import { setRuntime } from '../src/services/accessor.js';
 import type { SqlDatabase } from '../src/sql.js';
+import { TenantConfigError } from '../src/topology/authkit_tenant.js';
 import { resolveTenantVerifier, type VerifierMaker } from '../src/topology/verify.js';
 import type { RedisStreamClient } from '../src/transports/redis_transport.js';
 
@@ -106,6 +107,8 @@ export default class FlagsProvider {
         },
         {
           logger,
+          // authkit-client's `tenantOf` fills the tenant fields config/flags.ts leaves out.
+          container,
           // Timers run in servers and tests; one-shot ace commands only read and write.
           start: true,
           runWorker: false,
@@ -189,7 +192,19 @@ export default class FlagsProvider {
 
   async boot() {
     await this.app.booted(async () => {
-      const runtime = await this.#build();
+      let runtime: FlagsRuntime;
+      try {
+        runtime = await this.#build();
+      } catch (error) {
+        // A tenant missing url/token/partition fails the boot of a web server only; elsewhere
+        // (ace, the REPL, tests) it is logged and `flags.manager` rejects with it when used.
+        if (!(error instanceof TenantConfigError) || this.app.getEnvironment() === 'web') {
+          throw error;
+        }
+        const logger = await this.app.container.make('logger');
+        logger.warn(error.message);
+        return;
+      }
       const config = this.#config();
       // `@flag` in Edge views, when the app renders Edge at all.
       await registerEdgeTag();

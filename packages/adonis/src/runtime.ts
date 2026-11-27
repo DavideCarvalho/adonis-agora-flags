@@ -6,8 +6,8 @@ import type {
   ControlPlaneConfig,
   FactoryContext,
   FlagsConfig,
+  ResolvedTenant,
   StandaloneConfig,
-  TenantConfig,
 } from './define_config.js';
 import {
   analytics as analyticsFactories,
@@ -30,6 +30,7 @@ import { MemoryStore } from './stores/memory_store.js';
 import type { FlagsStore } from './stores/store.js';
 import { PushEventTransport, tenantTransports } from './tenant_transports/index.js';
 import type { RulesetChannel, TenantLinkContext, TenantPush } from './tenant_transports/types.js';
+import { resolveTenantFields, type TenantSources } from './topology/authkit_tenant.js';
 import { RemoteSource } from './topology/remote_source.js';
 import { resolveTenantToken, type TokenSource } from './topology/token.js';
 import { ControlPlaneAddress } from './topology/url.js';
@@ -73,6 +74,8 @@ export interface FlagsRuntime {
   controlPlaneUrl?: ControlPlaneAddress;
   /** Tenant only: its push and watch channels to the control-plane. */
   tenantLinks?: { push: TenantPush; watch: RulesetChannel };
+  /** Tenant only: where `tenant.url`/`token`/`partition` came from (explicit, or authkit-client). */
+  tenantSources?: TenantSources;
   /** Issues browser tokens, when `browser` is configured (set by the provider). */
   browser?: BrowserTokens | undefined;
   close(): Promise<void>;
@@ -92,6 +95,11 @@ export interface RuntimeOptions {
    * pool, so `node ace migration:run` and friends would never exit.
    */
   listen?: boolean;
+  /**
+   * The app's container. On a tenant, `@adonis-agora/authkit-client`'s `'authkit.client'` binding
+   * (its `tenantOf`) fills the `tenant` fields config/flags.ts leaves out.
+   */
+  container?: unknown;
 }
 
 /** Resolves defaults that depend on what is installed (`lucid` when available, else memory). */
@@ -108,7 +116,7 @@ async function lucidAvailable(ctx: FactoryContext): Promise<boolean> {
 
 /** Opens a tenant's push and watch channels from `tenant.transport` / `tenant.watch`. */
 async function openTenantLinks(
-  tenant: TenantConfig<Record<string, never>>['tenant'],
+  tenant: ResolvedTenant,
   url: ControlPlaneAddress | undefined,
   token: TokenSource,
   ctx: FactoryContext,
@@ -144,6 +152,16 @@ export async function createRuntime(
   options: RuntimeOptions = {},
 ): Promise<FlagsRuntime> {
   validateConfig(config);
+  // A tenant's url/token/partition: explicit, else authkit-client's `tenantOf` (field by field).
+  let tenantSources: TenantSources | undefined;
+  if (config.topology === 'tenant') {
+    const resolved = await resolveTenantFields(config.tenant, {
+      container: options.container,
+      browser: !!config.browser,
+    });
+    tenantSources = resolved.sources;
+    config = { ...config, tenant: resolved.tenant };
+  }
   const topology: Topology = config.topology ?? 'standalone';
   const schema = (config as { schema?: string }).schema;
   if (schema) {
@@ -166,7 +184,9 @@ export async function createRuntime(
   const role: Role = config.role ?? 'all';
   const environment = config.environment ?? 'production';
   const app =
-    config.topology === 'tenant' ? config.tenant.partition : (config.app ?? ctx.appName ?? 'app');
+    config.topology === 'tenant'
+      ? (config.tenant as ResolvedTenant).partition
+      : (config.app ?? ctx.appName ?? 'app');
   const logger = options.logger;
   const declarations = config.flags;
   // A tenant's exposures and tracks reach the control plane, which emits them (with `app`): by
@@ -183,7 +203,7 @@ export async function createRuntime(
   const start = options.start !== false;
 
   if (config.topology === 'tenant') {
-    const tenant = config.tenant;
+    const tenant = config.tenant as ResolvedTenant;
     const token = resolveTenantToken(tenant.token);
     const controlPlaneUrl =
       tenant.url !== undefined ? new ControlPlaneAddress(tenant.url) : undefined;
@@ -269,6 +289,7 @@ export async function createRuntime(
       token,
       ...(controlPlaneUrl ? { controlPlaneUrl } : {}),
       tenantLinks: links,
+      ...(tenantSources ? { tenantSources } : {}),
       async close() {
         closed = true;
         if (retry) clearTimeout(retry);
