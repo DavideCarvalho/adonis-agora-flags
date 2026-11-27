@@ -1,0 +1,39 @@
+{{{
+  exports({ to: app.configPath('flags.ts') })
+}}}
+import { defineConfig, flag, type InferFlags } from '@adonis-agora/flags'
+
+const flagsConfig = defineConfig({
+  /**
+   * This app evaluates flags in memory from the ruleset of a central flags control plane (the Hub),
+   * and declares its flags there. The environment comes from the app's token.
+   *
+   * url, token and partition come from @adonis-agora/authkit-client (\`service\` in
+   * config/authkit_client.ts). To set them yourself (each field you set wins):
+   *
+   *   tenant: { url: env.get('FLAGS_URL'), token: env.get('FLAGS_TOKEN'), partition: env.get('FLAGS_PARTITION') },
+   */
+  topology: 'tenant',
+
+  /**
+   * Flags declared in code: their type and the value served when the ruleset cannot answer.
+   * Targeting (who gets what) is edited in the Hub's console or with \`node ace flags:set\` there.
+   */
+  flags: {
+    example_flag: flag.boolean({
+      default: false,
+      description: 'What this flag controls',
+      owner: 'your-team',
+      // Shown by \`node ace flags:stale\` once this date passes.
+      expiresAt: '2027-06-30',
+      // Allowed to reach the browser through ctx.flags.all() / useFlag().
+      client: true,
+    }),
+  },
+})
+
+export default flagsConfig
+
+declare module '@adonis-agora/flags/types' {
+  interface FlagsList extends InferFlags<typeof flagsConfig> {}
+}

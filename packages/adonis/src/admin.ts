@@ -287,14 +287,33 @@ export class FlagsAdmin {
     return this.store.updateChangeRequest(id, { status: 'cancelled' });
   }
 
-  /** The stored definition, or the one the declaration implies. */
+  /**
+   * How a flag is declared: in this process's code, else by an app that pushed its declarations
+   * here (a tenant declaring flags to its control plane; the most recently seen one when several
+   * apps declare the key). `undefined` when nothing declares it.
+   */
+  async declarationOf(key: string): Promise<FlagDeclaration | undefined> {
+    const local = this.declarations[key];
+    if (local) return local;
+    let found: { declaration: FlagDeclaration; seen: number } | undefined;
+    for (const row of await this.store.declarations()) {
+      if (row.key !== key) continue;
+      const seen = row.lastSeenAt instanceof Date ? row.lastSeenAt.getTime() : 0;
+      if (!found || seen > found.seen) found = { declaration: row.declaration, seen };
+    }
+    return found?.declaration;
+  }
+
+  /** The stored definition, or the one the declaration (in code or pushed by an app) implies. */
   async definition(key: string, environment = this.environment): Promise<FlagDefinition> {
     const ruleset = await this.store.readRuleset(environment);
     const existing = ruleset.flags[key];
     if (existing) return existing;
-    const declaration = this.declarations[key];
+    const declaration = await this.declarationOf(key);
     if (!declaration)
-      throw new Error(`flag "${key}" is neither in the ruleset nor declared in code`);
+      throw new Error(
+        `flag "${key}" is neither in the ruleset nor declared (in this app's code or by an app connected to it)`,
+      );
     return definitionFromDeclaration(declaration);
   }
 

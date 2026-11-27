@@ -13,6 +13,7 @@ const STUBS = fileURLToPath(new URL('../../stubs/', import.meta.url));
 describe('published stubs', () => {
   for (const stub of [
     'config/flags.stub',
+    'config/flags_tenant.stub',
     'config/flags_dashboard.stub',
     'database/migrations/create_flags_tables.stub',
   ]) {

@@ -105,6 +105,8 @@ export default defineConfig({
 })
 ```
 
+`node ace configure @adonis-agora/flags --topology=tenant` writes this form, with the explicit `tenant` block as a comment.
+
 The control-plane URL, the token and the partition come from authkit-client's `tenantOf('urn:agora:flags')`: the URL is discovered from the issuer (and looked up again when the control plane moves), the token is a service token for `urn:agora:flags` (cached, dropped after a 401), and the partition is `service.partition`, else `service.name`. flags never imports authkit-client; it uses the `authkit.client` binding when it is there.
 
 Anything you set in `tenant` wins, field by field: `tenant: { partition: 'streaming', snapshotPath: 'storage/flags/ruleset.json' }` keeps the discovered URL and token. `tenant: { auto: false }` turns the discovery off. Without authkit-client's `service` and without the fields, a web server refuses to boot and names the missing fields; `node ace agora:doctor` shows where each one came from (`tenant url: authkit-client (auto), token: authkit-client (auto), partition: explicit`).
