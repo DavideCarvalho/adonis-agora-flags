@@ -1,5 +1,11 @@
 # @adonis-agora/flags
 
+## 1.1.3
+
+### Patch Changes
+
+- [#47](https://github.com/DavideCarvalho/adonis-agora-flags/pull/47) [`aaea1ac`](https://github.com/DavideCarvalho/adonis-agora-flags/commit/aaea1ac369b3b0759825771604cbff3026bf336b) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `track(..., { client })` accepts a real Lucid transaction, connection or `db` again: `SqlClient.rawQuery` took `readonly unknown[]` bindings, which Lucid's mutable `RawQueryBindings` parameter rejected under strict typechecking.
+
 ## 1.1.2
 
 ### Patch Changes
