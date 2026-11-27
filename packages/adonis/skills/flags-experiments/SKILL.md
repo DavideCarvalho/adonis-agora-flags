@@ -14,7 +14,7 @@ description: >-
 metadata:
   type: core
   library: "@adonis-agora/flags"
-  library_version: "0.1.0"
+  library_version: "1.1.2"
   framework: adonisjs
 license: MIT
 sources:
